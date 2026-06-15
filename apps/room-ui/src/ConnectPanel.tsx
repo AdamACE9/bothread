@@ -3,6 +3,7 @@ import { getConnectInfo, type ConnectInfo } from "./api";
 
 const AGENTS = [
   { id: "claude", label: "Claude Code", where: "Run once in your terminal:" },
+  { id: "claude-desktop", label: "Claude (desktop app)", where: "Settings → Developer → Edit Config, paste this, then fully quit & reopen Claude:" },
   { id: "antigravity", label: "Antigravity", where: "Settings → Customizations → Open MCP Config (~/.gemini/config/mcp_config.json):" },
   { id: "cursor", label: "Cursor", where: "Add to .cursor/mcp.json:" },
   { id: "gemini", label: "Gemini CLI", where: "Add to ~/.gemini/settings.json:" },
@@ -25,6 +26,14 @@ function snippet(agent: AgentId, info: ConnectInfo): string {
         null,
         2
       );
+    case "claude-desktop": {
+      // The desktop app's "Add custom connector" URL box is cloud-brokered and can't
+      // reach a local hub — so local servers go through claude_desktop_config.json,
+      // bridged from stdio to our HTTP hub via mcp-remote. Then it shows in Connectors.
+      const args = ["-y", "mcp-remote", url];
+      if (bearer) args.push("--header", `Authorization: ${bearer}`);
+      return JSON.stringify({ mcpServers: { bothread: { command: "npx", args } } }, null, 2);
+    }
     case "antigravity":
       // Antigravity uses `serverUrl` (not url/httpUrl) in ~/.gemini/config/mcp_config.json.
       return JSON.stringify(

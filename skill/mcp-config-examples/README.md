@@ -30,7 +30,27 @@ After adding the server, tell your agent: *"This is a Bothread session: `<paste 
 }
 ```
 
-Or: `claude mcp add --transport http bothread http://127.0.0.1:4889/mcp --header "Authorization: Bearer <INSTALL_TOKEN>"`
+Or: `claude mcp add --transport http bothread http://127.0.0.1:4889/mcp` (add `--header "Authorization: Bearer <INSTALL_TOKEN>"` only if you ran with `BOTHREAD_AUTH=on`).
+
+## Claude desktop app — `claude_desktop_config.json` (Settings → Developer → Edit Config)
+
+The desktop app's **"Add custom connector"** URL box is *cloud-brokered* and can't reach a `localhost`
+hub. For a local Bothread, bridge it from stdio via `mcp-remote`, then **fully quit & reopen Claude** —
+it then appears in the **+ → Connectors** menu as a toggle (like Blender).
+
+```jsonc
+{
+  "mcpServers": {
+    "bothread": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://127.0.0.1:4889/mcp"]
+    }
+  }
+}
+```
+
+Config path on Windows: `%APPDATA%\Claude\claude_desktop_config.json`. If `BOTHREAD_AUTH=on`, append
+`"--header", "Authorization: Bearer <INSTALL_TOKEN>"` to `args`. (Needs Node.js for `npx`.)
 
 ## Cursor — `.cursor/mcp.json`
 

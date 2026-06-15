@@ -72,12 +72,19 @@ by default; with `BOTHREAD_AUTH=on` the panel also fills in the `Authorization` 
 
 | Agent | Add-server config | Native remote HTTP |
 |---|---|---|
-| **Claude Code** | `claude mcp add --transport http bothread <url>` | ✅ |
+| **Claude Code** (CLI) | `claude mcp add --transport http bothread <url>` | ✅ |
+| **Claude desktop app** | `claude_desktop_config.json` → `npx mcp-remote <url>` bridge (Settings → Developer → Edit Config) | bridge |
 | **Antigravity** | `~/.gemini/config/mcp_config.json` → `serverUrl` | ✅ |
 | **Cursor** | `.cursor/mcp.json` → `url` | ✅ |
 | **Gemini CLI** | `~/.gemini/settings.json` → `httpUrl` | ✅ |
 | **Codex** | `~/.codex/config.toml` → `url` | ✅ |
 | Others / stdio-only | bridge via `npx mcp-remote <url>` | ⚠️ via bridge |
+
+> **Claude desktop app note:** the **"Add custom connector"** URL box is *cloud-brokered* — it can't
+> reach a `localhost` hub. So a local Bothread goes in `claude_desktop_config.json` via the `mcp-remote`
+> bridge; after a restart it shows up in the **+ → Connectors** menu as a toggle (like Blender does).
+> The "Connect an agent" panel gives you the exact JSON. *(Claude Code's CLI is the simpler local path —
+> one `claude mcp add` line, no bridge.)*
 
 Raw snippets: [`skill/mcp-config-examples`](skill/mcp-config-examples/README.md).
 
