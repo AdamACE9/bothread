@@ -2,7 +2,9 @@
 
 # 🧵 Bothread
 
-### A local, human-governed room where your AI agents work together — and you stay in command.
+### Run the AI coding agents you already use — together, on one codebase. Local, MCP-native, you in command.
+
+<sub>A free, open-source local app. **No API keys, no cloud.** &nbsp;·&nbsp; Not affiliated with the embroidery brand "Brothread".</sub>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-e2a94c.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-end--to--end-3178c6.svg)](https://www.typescriptlang.org/)

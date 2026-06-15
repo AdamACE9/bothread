@@ -9,6 +9,7 @@ import Feedback from "./components/Feedback";
 import Footer from "./components/Footer";
 import Reveal from "./components/Reveal";
 import Setup from "./components/Setup";
+import Faq from "./components/Faq";
 
 function isSetupRoute(): boolean {
   return window.location.pathname.replace(/\/+$/, "") === "/start";
@@ -22,6 +23,7 @@ function Home() {
       <Problem />
       <HowItWorks />
       <WhyDifferent />
+      <Faq />
 
       <section id="waitlist">
         <div className="container">

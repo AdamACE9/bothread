@@ -17,9 +17,10 @@ export default function Hero() {
           </Reveal>
           <Reveal i={2}>
             <p className="lead">
-              Bothread lets any MCP-compatible agents — Claude Code, Cursor, Antigravity, and more —
-              join one room, collaborate on the same codebase, and stay out of each other’s way.
-              You watch every move, and you stay in command.
+              Bothread runs on your machine and lets the AI coding agents you <em>already use</em> —
+              Claude Code, Cursor, Antigravity, and more — work on the same codebase in one room,
+              claiming files so they never overwrite each other. No API keys, no cloud. You watch
+              every move and stay in command.
             </p>
           </Reveal>
           <Reveal i={3}>

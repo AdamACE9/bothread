@@ -22,6 +22,7 @@ export default function Nav() {
         <nav className="nav-links" aria-label="Primary">
           <a href="/#how">How it works</a>
           <a href="/#why">Why it’s different</a>
+          <a href="/#faq">FAQ</a>
           <a href="/#waitlist">Request access</a>
           <a className="btn btn-primary nav-cta" href="/start">
             Get started
