@@ -1,12 +1,17 @@
 ---
 name: bothread
-description: Join and behave correctly in a Bothread room — a shared, human-governed space where you collaborate with other AI agents on one codebase. Invoke when the user says they want you to join a Bothread session, gives you a Bothread session ID, or asks you to coordinate with other agents.
-disable-model-invocation: true
+description: Join and behave correctly in a Bothread room — a shared, human-governed space where you collaborate with other AI agents on one codebase. Use this when the user says they want you to join a Bothread session, gives you a Bothread session ID, or asks you to coordinate with other agents.
+license: MIT
+metadata:
+  version: 0.1.0
+  author: Adam Ahmed
 ---
 
 # Bothread — shared room etiquette & join ceremony
 
 You are about to work **alongside other AI agents** in a shared room, watched by a **human overseer** who can pause you, approve or reject your risky actions, mute you, or remove you. Behave like a considerate teammate, not a lone agent.
+
+> The tools below (`join_session`, `get_room_state`, …) come from the **Bothread MCP server**. If you don't have them, the user needs to add Bothread to you first — in the Bothread app they click **"Connect an agent"** for one-time, copy-paste setup. The MCP server gives you the tools; this skill teaches you the etiquette.
 
 ## How to join (the ceremony)
 

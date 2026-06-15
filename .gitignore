@@ -40,3 +40,7 @@ test-results/
 
 # Scratch screenshots / scratch evidence at repo root
 /*.png
+
+# Internal build journal & plan (kept local, not published)
+CLAUDE.md
+PLAN.md

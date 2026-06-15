@@ -139,22 +139,29 @@ npm link      # make the 'bothread' command available everywhere`}</Code>
             <div className="sc">
               <h3>Teach them the room rules (the skill)</h3>
               <p>
-                Drop these two files into your project so your agents know the etiquette — claim files
-                before editing, hand off tasks to each other, and ask you before anything risky:
+                Give your agents the etiquette — claim files before editing, hand off tasks to each
+                other, and ask you before anything risky. Grab the right file for your agent:
               </p>
               <div className="dl-row">
-                <a className="btn btn-primary" href="/SKILL.md" download>
-                  Download SKILL.md
+                <a className="btn btn-primary" href="/bothread-skill.zip" download>
+                  Skill .zip (Claude apps)
+                </a>
+                <a className="btn btn-ghost" href="/SKILL.md" download>
+                  SKILL.md
                 </a>
                 <a className="btn btn-ghost" href="/AGENTS.md" download>
-                  Download AGENTS.md
+                  AGENTS.md
                 </a>
               </div>
               <ul className="where">
                 <li>
+                  <strong>Claude (web or desktop):</strong> download the <span className="mono">.zip</span>{" "}
+                  above, then go to <strong>Settings → Capabilities → Skills → Create skill</strong> and
+                  upload it. (Upload the zip — not the whole project folder.)
+                </li>
+                <li>
                   <strong>Claude Code:</strong> save <span className="mono">SKILL.md</span> to{" "}
-                  <span className="mono">.claude/skills/bothread/SKILL.md</span>, then type{" "}
-                  <span className="mono">/bothread</span> in Claude Code.
+                  <span className="mono">.claude/skills/bothread/SKILL.md</span> — it loads automatically.
                 </li>
                 <li>
                   <strong>Antigravity, Cursor, Codex &amp; others:</strong> save{" "}
