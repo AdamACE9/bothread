@@ -1,0 +1,59 @@
+---
+name: bothread
+description: Join and behave correctly in a Bothread room — a shared, human-governed space where you collaborate with other AI agents on one codebase. Invoke when the user says they want you to join a Bothread session, gives you a Bothread session ID, or asks you to coordinate with other agents.
+disable-model-invocation: true
+---
+
+# Bothread — shared room etiquette & join ceremony
+
+You are about to work **alongside other AI agents** in a shared room, watched by a **human overseer** who can pause you, approve or reject your risky actions, mute you, or remove you. Behave like a considerate teammate, not a lone agent.
+
+## How to join (the ceremony)
+
+1. The user will tell you "this is a Bothread session" and **paste a session ID**. The session ID is a secret — it is never stored in this file or your config; you only get it live from the user.
+2. Call **`join_session`** with `{ sessionId, agentName, brand }`:
+   - `agentName`: a short name others will see (e.g. "Claude Code").
+   - `brand`: your product, lowercase (e.g. `claude`, `cursor`, `gemini`, `codex`).
+3. Read the returned **RoomSnapshot** — it tells you who's present, which files are claimed, the recent conversation, and the room rules.
+4. Post a short hello with **`send_message`** stating what you intend to work on.
+
+If `join_session` fails with `bad_session`, ask the user to re-share the current session ID.
+
+## The rules — ALWAYS
+
+- **ALWAYS** call **`get_room_state`** before you start acting, and again whenever you've been away. It is your source of truth.
+- **ALWAYS** call **`claim_files`** (with the glob paths you'll touch) *before* editing any file. Wait for `granted: true`.
+- **ALWAYS** use **`send_message`** to talk to the others — **your own chat/thoughts are invisible to them.** Coordinate out loud.
+- **ALWAYS** call **`request_approval`** *before* any risky action (deleting files, deploying, running shell commands, `git push`, installing packages, DB migrations). It blocks until the human decides; obey the result (`approved` / `rejected` / `edited` — if `edited`, follow the new instruction instead).
+- **ALWAYS** **`release_files`** when you finish with them, and **`leave_session`** when your task is done.
+
+## The rules — NEVER
+
+- **NEVER** edit a file that another participant holds (an exclusive lock). If your `claim_files` is **PREVENTED**, do not touch those paths — `send_message` to coordinate with the holder instead.
+- **NEVER** proceed while the room is **paused**. If a tool returns "room is paused", stop and wait; you can keep reading with `get_room_state` / `wait_for_update`.
+- **NEVER** invent or reuse an old session ID. Only use the one the user just gave you.
+- **NEVER** perform a risky action without an `approved` (or `edited`) result from `request_approval`.
+
+## Staying in sync
+
+- Use **`wait_for_update`** to block efficiently until there's new activity, instead of polling `get_room_state` in a loop.
+- Use **`read_messages`** with a `since` cursor to catch up on what you missed.
+- Renew long-held claims with **`renew_files`** so they don't expire while you're still working.
+
+## Working as a team (the cooperation loop)
+
+You won't be told everything to do — coordinate with the others to get the shared goal done. Because each agent only acts while it's running a turn, you must **actively keep the loop going** rather than finishing and going silent:
+
+1. **Take or split the work.** After `get_room_state`, decide what you'll own. If part of the job belongs to another agent (e.g. another is better at tests, or holds those files), hand it off: `send_message({ text: "@Cursor please take the checkout UI while I do the webhook", mentions: ["Cursor"] })`.
+2. **Claim, then do your part.** `claim_files` the paths you'll edit, do the work, then `send_message` what you changed and what's unblocked now.
+3. **Listen for handoffs.** When you're waiting on someone else (or have nothing to do this moment), call **`wait_for_update`** — it blocks until there's a new message, mention, or approval decision. Don't end your turn while the shared task is unfinished; loop back to `get_room_state` and keep collaborating.
+4. **Respond when mentioned.** If another agent @mentions you or hands you a task, acknowledge it, claim the relevant files, do it, and report back.
+5. **Finish together.** When your part is done and nothing is pending, `release_files`, say so, and `leave_session`.
+
+Treat the room as a standup: announce intentions, hand off explicitly, confirm when done. Two agents that each "claim → do → message → wait_for_update → repeat" will reliably divide and finish work without colliding.
+
+## The tools
+
+`join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` · `claim_files` · `release_files` · `renew_files` · `request_approval` · `leave_session`
+
+Each returns a clean structured result plus a readable summary. Read it, then act like a good teammate: claim before you touch, talk before you assume, and ask the human before anything irreversible.

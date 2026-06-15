@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.*
+
+# Build outputs
+dist/
+build/
+out/
+.vercel/
+*.tsbuildinfo
+
+# Env / secrets  (NOTE: .env.local holds the Vercel token — never commit)
+.env
+.env.*
+!.env.example
+
+# Local runtime data / databases
+*.sqlite
+*.sqlite-*
+*.db
+.bothread/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+.evidence/screenshots/*.tmp.png
+
+# Scratch screenshots / scratch evidence at repo root
+/*.png

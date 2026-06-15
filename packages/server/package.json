@@ -1,0 +1,40 @@
+{
+  "name": "@bothread/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bothread": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bothread/shared": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "async-mutex": "^0.5.0",
+    "better-sqlite3": "^12.10.1",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "nanoid": "^5.1.11",
+    "picomatch": "^4.0.4",
+    "pino": "^10.3.1",
+    "ws": "^8.21.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "@types/picomatch": "^4.0.2",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
+  }
+}

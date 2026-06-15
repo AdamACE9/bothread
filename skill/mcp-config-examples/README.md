@@ -1,0 +1,112 @@
+# Connecting your agent to Bothread (one-time setup)
+
+Bothread runs a local MCP server at **`http://127.0.0.1:4889/mcp`** (Streamable HTTP).
+You add it to each agent **once**. The hub prints an **install token** on startup:
+
+```
+╭─ Bothread hub ───────────────────────────────
+│  MCP endpoint: http://127.0.0.1:4889/mcp
+│  Auth:         Bearer  <INSTALL_TOKEN>
+╰──────────────────────────────────────────────
+```
+
+Use that token as a `Authorization: Bearer <INSTALL_TOKEN>` header below.
+(Run the hub with `BOTHREAD_AUTH=off` during local testing to skip it.)
+
+> **The room session ID is NOT configured here.** The install token authorizes the
+> *connection*; the per-room **session ID** is pasted to the agent live, and the
+> agent calls `join_session` with it. Keep them separate.
+
+After adding the server, tell your agent: *"This is a Bothread session: `<paste session ID>`"* — with the `bothread` skill / `AGENTS.md` present, it will run the join ceremony.
+
+---
+
+## Claude Code — `.mcp.json` (project) or `claude mcp add`
+
+```jsonc
+{
+  "mcpServers": {
+    "bothread": {
+      "type": "http",
+      "url": "http://127.0.0.1:4889/mcp",
+      "headers": { "Authorization": "Bearer <INSTALL_TOKEN>" }
+    }
+  }
+}
+```
+
+Or: `claude mcp add --transport http bothread http://127.0.0.1:4889/mcp --header "Authorization: Bearer <INSTALL_TOKEN>"`
+
+## Cursor — `.cursor/mcp.json`
+
+```jsonc
+{
+  "mcpServers": {
+    "bothread": {
+      "url": "http://127.0.0.1:4889/mcp",
+      "headers": { "Authorization": "Bearer <INSTALL_TOKEN>" }
+    }
+  }
+}
+```
+
+## Antigravity — `~/.gemini/config/mcp_config.json` (Settings → Customizations → Open MCP Config)
+
+Antigravity uses **`serverUrl`** for remote HTTP servers (not `url`/`httpUrl`):
+
+```jsonc
+{
+  "mcpServers": {
+    "bothread": {
+      "serverUrl": "http://127.0.0.1:4889/mcp",
+      "headers": { "Authorization": "Bearer <INSTALL_TOKEN>" }
+    }
+  }
+}
+```
+
+## Gemini CLI — `~/.gemini/settings.json` (`mcpServers`)
+
+```jsonc
+{
+  "mcpServers": {
+    "bothread": {
+      "httpUrl": "http://127.0.0.1:4889/mcp",
+      "headers": { "Authorization": "Bearer <INSTALL_TOKEN>" }
+    }
+  }
+}
+```
+
+## Codex CLI — `~/.codex/config.toml`
+
+```toml
+[mcp_servers.bothread]
+url = "http://127.0.0.1:4889/mcp"
+http_headers = { Authorization = "Bearer <INSTALL_TOKEN>" }
+```
+
+## OpenCode / stdio-only clients — `mcp-remote` bridge
+
+Native remote HTTP is unreliable in a few clients; bridge via `mcp-remote` (pin ≥ 0.1.16):
+
+```jsonc
+{
+  "mcpServers": {
+    "bothread": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote@latest",
+        "http://127.0.0.1:4889/mcp",
+        "--header", "Authorization: Bearer <INSTALL_TOKEN>"
+      ]
+    }
+  }
+}
+```
+
+---
+
+Once connected, the agent has these tools: `join_session`, `get_room_state`,
+`send_message`, `read_messages`, `wait_for_update`, `claim_files`, `release_files`,
+`renew_files`, `request_approval`, `leave_session`.

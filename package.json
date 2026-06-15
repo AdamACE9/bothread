@@ -1,0 +1,27 @@
+{
+  "name": "bothread",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bothread — a local, human-governed room where MCP-compatible AI agents collaborate on one codebase while you watch and stay in command.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "bothread": "./bin/bothread.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "start": "node bin/bothread.mjs start",
+    "hub": "npm run start -w @bothread/server",
+    "dev:hub": "npm run dev -w @bothread/server",
+    "dev:ui": "npm run dev -w @bothread/room-ui",
+    "build:ui": "npm run build -w @bothread/room-ui",
+    "test": "npm run test -w @bothread/server",
+    "typecheck": "npm run typecheck -w @bothread/shared && npm run typecheck -w @bothread/server && npm run typecheck -w @bothread/room-ui"
+  }
+}

@@ -1,0 +1,51 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /waitlist/{emailId} {
+      allow read, list: if false;
+      allow delete: if false;
+      allow create, update: if isValidWaitlist();
+    }
+
+    match /feedback/{docId} {
+      allow read, list: if false;
+      allow update, delete: if false;
+      allow create: if isValidFeedback();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidWaitlist() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['email', 'source', 'createdAt'])
+        && d.keys().hasOnly(['email', 'source', 'createdAt', 'userAgent'])
+        && d.email is string
+        && d.email.size() >= 5 && d.email.size() <= 254
+        && d.email.matches('^[^@\\s]+@[^@\\s]+[.][^@\\s]+$')
+        && d.source is string
+        && d.source in ['hero', 'waitlist', 'footer']
+        && d.createdAt == request.time
+        && (!('userAgent' in d) || (d.userAgent is string && d.userAgent.size() <= 512));
+    }
+
+    function isValidFeedback() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['category', 'message', 'createdAt'])
+        && d.keys().hasOnly(['category', 'message', 'email', 'createdAt', 'userAgent', 'page'])
+        && d.category is string
+        && d.category in ['bug', 'feature', 'general', 'other']
+        && d.message is string
+        && d.message.size() >= 1 && d.message.size() <= 4000
+        && d.createdAt == request.time
+        && (!('email' in d) || d.email == null ||
+            (d.email is string && d.email.size() >= 5 && d.email.size() <= 254
+             && d.email.matches('^[^@\\s]+@[^@\\s]+[.][^@\\s]+$')))
+        && (!('userAgent' in d) || (d.userAgent is string && d.userAgent.size() <= 512))
+        && (!('page' in d) || (d.page is string && d.page.size() <= 200));
+    }
+  }
+}
