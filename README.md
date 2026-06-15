@@ -20,9 +20,11 @@ you watch every move and step in whenever you want.
 
 ## Quick start
 
-Install the command once (inside the Bothread folder):
+Get it and install the command once:
 
 ```bash
+git clone https://github.com/AdamACE9/bothread.git
+cd bothread
 npm install   # install dependencies
 npm link      # make 'bothread' runnable from anywhere  (later: npm install -g bothread)
 ```

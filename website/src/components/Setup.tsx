@@ -54,9 +54,9 @@ export default function Setup() {
         </div>
 
         <div className="notice">
-          <strong>Early access.</strong> The download (GitHub) is opening shortly —{" "}
-          <a href="/#waitlist">join the waitlist</a> and we’ll send it to you. The steps below are
-          exactly what you’ll do.
+          <strong>Early access.</strong> Bothread is in active development and{" "}
+          <a href="https://github.com/AdamACE9/bothread" target="_blank" rel="noreferrer">open on GitHub</a>.
+          Grab it below — and <a href="/#waitlist">join the waitlist</a> for updates.
         </div>
 
         <ol className="steps-list">
@@ -65,14 +65,15 @@ export default function Setup() {
             <div className="sc">
               <h3>Get Bothread &amp; install the command</h3>
               <p>
-                Download the Bothread folder (coming to GitHub) and open a terminal inside it. Run this{" "}
-                <strong>once</strong> to turn <span className="mono">bothread</span> into a command you can
-                run from any folder:
+                Clone the repo, then run these <strong>once</strong> inside it to turn{" "}
+                <span className="mono">bothread</span> into a command you can run from any folder:
               </p>
-              <Code>{`npm install   # install dependencies (one time)
+              <Code>{`git clone https://github.com/AdamACE9/bothread.git
+cd bothread
+npm install   # install dependencies (one time)
 npm link      # make the 'bothread' command available everywhere`}</Code>
               <p className="hint">
-                Once Bothread is on npm, this whole step becomes a single{" "}
+                Once Bothread is published to npm, this whole step becomes a single{" "}
                 <span className="mono">npm install -g bothread</span>.
               </p>
             </div>

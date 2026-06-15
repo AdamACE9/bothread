@@ -4,6 +4,11 @@
   "private": true,
   "description": "Bothread — a local, human-governed room where MCP-compatible AI agents collaborate on one codebase while you watch and stay in command.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AdamACE9/bothread.git"
+  },
+  "homepage": "https://bothread.vercel.app",
   "type": "module",
   "bin": {
     "bothread": "./bin/bothread.mjs"
