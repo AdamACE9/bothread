@@ -46,6 +46,16 @@ if (cmd !== "start") {
   process.exit(1);
 }
 
+// Friendly preflight: Node version.
+const nodeMajor = Number(process.versions.node.split(".")[0]);
+if (nodeMajor < 20) {
+  console.error(
+    `\n  Bothread needs Node.js 20 or newer — you're on ${process.versions.node}.\n` +
+      `  Install the latest LTS from https://nodejs.org, then run 'bothread start' again.\n`
+  );
+  process.exit(1);
+}
+
 function sh(command, cmdArgs) {
   const r = spawnSync(command, cmdArgs, { stdio: "inherit", shell: isWin, cwd: root });
   if (r.status !== 0) process.exit(r.status ?? 1);

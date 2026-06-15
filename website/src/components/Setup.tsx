@@ -73,8 +73,11 @@ cd bothread
 npm install   # install dependencies (one time)
 npm link      # make the 'bothread' command available everywhere`}</Code>
               <p className="hint">
-                Once Bothread is published to npm, this whole step becomes a single{" "}
-                <span className="mono">npm install -g bothread</span>.
+                No git? On GitHub, click <strong>Code → Download ZIP</strong>, unzip it, and open a
+                terminal in the folder. If <span className="mono">bothread</span> isn’t found after{" "}
+                <span className="mono">npm link</span>, just run <span className="mono">npm start</span> in
+                the folder instead — same result. (Once we publish to npm it’s a single{" "}
+                <span className="mono">npm install -g bothread</span>.)
               </p>
             </div>
           </li>

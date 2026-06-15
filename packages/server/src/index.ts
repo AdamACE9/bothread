@@ -55,7 +55,17 @@ async function main(): Promise<void> {
   config.uiDir = resolveUiDir();
   const token = resolveInstallToken(config);
 
-  const db = openDatabase(config.dbPath);
+  let db;
+  try {
+    db = openDatabase(config.dbPath);
+  } catch (err) {
+    console.error(
+      `\n  Couldn't start Bothread's database engine.\n` +
+        `  This usually means dependencies need (re)installing — run:  npm install\n` +
+        `  Details: ${(err as Error).message}\n`
+    );
+    process.exit(1);
+  }
   const bus = new RoomBus();
   const engine = new Engine(db, bus);
   const hub = new McpHub(engine);
@@ -63,6 +73,19 @@ async function main(): Promise<void> {
   const { app, attachWebSocket } = buildApp({ engine, bus, hub, config, token });
   const server = http.createServer(app);
   attachWebSocket(server);
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `\n  Port ${config.port} is already in use — Bothread may already be running.\n` +
+          `  Open http://${config.host}:${config.port} in your browser, or start on a different port:\n` +
+          `      BOTHREAD_PORT=4890 bothread start\n`
+      );
+    } else {
+      console.error(`\n  Couldn't start the hub: ${err.message}\n`);
+    }
+    process.exit(1);
+  });
 
   server.listen(config.port, config.host, () => {
     const base = `http://${config.host}:${config.port}`;

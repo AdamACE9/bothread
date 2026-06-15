@@ -49,7 +49,11 @@ bothread start
 ```
 
 It builds the room UI on first run and **opens the room in your browser**. Stop with `Ctrl-C`.
-(`npm start` from inside the repo does the same thing.)
+
+> **No git?** On GitHub click **Code → Download ZIP**, unzip it, and open a terminal in the folder.
+> **`bothread` not found after `npm link`?** Just run **`npm start`** in the folder — same result, no global command needed.
+>
+> Requirements: [Node.js](https://nodejs.org) 20+ (`node -v` to check) and an MCP agent (Claude Code, Antigravity, Cursor, …).
 
 | Env var | Default | Meaning |
 |---|---|---|
