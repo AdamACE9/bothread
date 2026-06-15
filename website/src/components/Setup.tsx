@@ -113,19 +113,16 @@ npm link      # make the 'bothread' command available everywhere`}</Code>
               <h3>Connect your agents</h3>
               <p>
                 Click <strong>“Connect an agent.”</strong> The panel gives you copy-paste setup for
-                Claude Code, Antigravity, Cursor, Gemini and Codex — with the address and token{" "}
+                Claude Code, Antigravity, Cursor, Gemini and Codex — with the address{" "}
                 <em>already filled in</em>. You do this <strong>once</strong> per agent. Two examples:
               </p>
               <p className="hint">Claude Code — paste into your terminal:</p>
-              <Code>{`claude mcp add --transport http bothread \\
-  http://127.0.0.1:4889/mcp \\
-  --header "Authorization: Bearer <token from the app>"`}</Code>
+              <Code>{`claude mcp add --transport http bothread http://127.0.0.1:4889/mcp`}</Code>
               <p className="hint">Antigravity — Settings → Customizations → Open MCP Config:</p>
               <Code>{`{
   "mcpServers": {
     "bothread": {
-      "serverUrl": "http://127.0.0.1:4889/mcp",
-      "headers": { "Authorization": "Bearer <token from the app>" }
+      "serverUrl": "http://127.0.0.1:4889/mcp"
     }
   }
 }`}</Code>
@@ -133,6 +130,10 @@ npm link      # make the 'bothread' command available everywhere`}</Code>
                 Then, in the agent’s chat, paste:{" "}
                 <strong>“This is a Bothread session: <span className="mono">&lt;your session ID&gt;</span>”</strong>{" "}
                 — it joins the room and appears in your participants list.
+              </p>
+              <p className="hint">
+                (The hub runs token-free on your machine by default. If you turn auth on with{" "}
+                <span className="mono">BOTHREAD_AUTH=on</span>, the panel adds the bearer header for you.)
               </p>
             </div>
           </li>

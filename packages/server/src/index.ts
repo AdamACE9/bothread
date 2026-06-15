@@ -96,7 +96,7 @@ async function main(): Promise<void> {
     console.log(`  \x1b[1mOpen the room:\x1b[0m   ${base}`);
     console.log(`  Agents connect to: ${base}/mcp   (MCP · Streamable HTTP)`);
     if (config.authRequired) console.log(`  Agent auth header: Authorization: Bearer ${token}`);
-    else console.log("  Agent auth:        disabled (BOTHREAD_AUTH=off)");
+    else console.log("  Agent auth:        open on 127.0.0.1 (add a token with BOTHREAD_AUTH=on)");
     console.log("");
     console.log("  Next: open the room → create a room → click \x1b[1m“Connect an agent”\x1b[0m for copy-paste setup.");
     if (!config.uiDir) console.log("  \x1b[33m(room UI not built — run: npm run build:ui)\x1b[0m");

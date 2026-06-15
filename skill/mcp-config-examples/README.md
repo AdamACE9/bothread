@@ -1,17 +1,12 @@
 # Connecting your agent to Bothread (one-time setup)
 
 Bothread runs a local MCP server at **`http://127.0.0.1:4889/mcp`** (Streamable HTTP).
-You add it to each agent **once**. The hub prints an **install token** on startup:
+You add it to each agent **once**.
 
-```
-╭─ Bothread hub ───────────────────────────────
-│  MCP endpoint: http://127.0.0.1:4889/mcp
-│  Auth:         Bearer  <INSTALL_TOKEN>
-╰──────────────────────────────────────────────
-```
-
-Use that token as a `Authorization: Bearer <INSTALL_TOKEN>` header below.
-(Run the hub with `BOTHREAD_AUTH=off` during local testing to skip it.)
+By default the hub is **token-free on `127.0.0.1`** — so you can **omit the `Authorization` header
+entirely** and just use the URL. The snippets below show the header too; you only need it if you
+hardened the hub with **`BOTHREAD_AUTH=on`** (the hub then prints the token on startup, and the app's
+"Connect an agent" panel fills it in for you).
 
 > **The room session ID is NOT configured here.** The install token authorizes the
 > *connection*; the per-room **session ID** is pasted to the agent live, and the

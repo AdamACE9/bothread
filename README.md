@@ -58,25 +58,26 @@ It builds the room UI on first run and **opens the room in your browser**. Stop 
 | Env var | Default | Meaning |
 |---|---|---|
 | `BOTHREAD_PORT` | `4889` | Hub port (bound to `127.0.0.1`). |
-| `BOTHREAD_TOKEN` | _persisted_ | Bearer token agents present. Auto-generated + saved so it's stable across restarts. |
-| `BOTHREAD_AUTH` | `on` | Set `off` to disable the bearer check (local testing). |
+| `BOTHREAD_AUTH` | `off` | Token-free on `127.0.0.1` by default. Set `on` to require a bearer token. |
+| `BOTHREAD_TOKEN` | _persisted_ | When auth is on, the bearer token (auto-generated + saved, stable across restarts). |
 | `BOTHREAD_DB` | _per-user data dir_ | SQLite path; `:memory:` for ephemeral. |
 | `BOTHREAD_NO_OPEN` | — | Set to skip auto-opening the browser. |
 
 ## Connect your agents
 
 In the room, click **“Connect an agent.”** The panel gives you copy-paste setup for each agent with
-the MCP URL **and token already filled in**. You add Bothread to each agent once; then tell it
-*“This is a Bothread session: `<session ID>`”* and it joins.
+the MCP URL **already filled in**. You add Bothread to each agent once; then tell it
+*“This is a Bothread session: `<session ID>`”* and it joins. (The hub is token-free on `127.0.0.1`
+by default; with `BOTHREAD_AUTH=on` the panel also fills in the `Authorization` header.)
 
 | Agent | Add-server config | Native remote HTTP |
 |---|---|---|
-| **Claude Code** | `claude mcp add --transport http bothread <url> --header "Authorization: Bearer <token>"` | ✅ |
-| **Antigravity** | `~/.gemini/config/mcp_config.json` → `serverUrl` + `headers` | ✅ |
-| **Cursor** | `.cursor/mcp.json` → `url` + `headers` | ✅ |
-| **Gemini CLI** | `~/.gemini/settings.json` → `httpUrl` + `headers` | ✅ |
-| **Codex** | `~/.codex/config.toml` → `url` + `http_headers` | ✅ |
-| Others / stdio-only | bridge via `npx mcp-remote <url> --header …` | ⚠️ via bridge |
+| **Claude Code** | `claude mcp add --transport http bothread <url>` | ✅ |
+| **Antigravity** | `~/.gemini/config/mcp_config.json` → `serverUrl` | ✅ |
+| **Cursor** | `.cursor/mcp.json` → `url` | ✅ |
+| **Gemini CLI** | `~/.gemini/settings.json` → `httpUrl` | ✅ |
+| **Codex** | `~/.codex/config.toml` → `url` | ✅ |
+| Others / stdio-only | bridge via `npx mcp-remote <url>` | ⚠️ via bridge |
 
 Raw snippets: [`skill/mcp-config-examples`](skill/mcp-config-examples/README.md).
 

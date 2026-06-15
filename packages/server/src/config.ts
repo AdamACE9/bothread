@@ -28,6 +28,8 @@ export function loadConfig(): HubConfig {
     port: Number(process.env.BOTHREAD_PORT ?? 4889),
     dbPath: process.env.BOTHREAD_DB ?? path.join(dataDir(), "bothread.sqlite"),
     installToken: process.env.BOTHREAD_TOKEN ?? null,
-    authRequired: (process.env.BOTHREAD_AUTH ?? "on") !== "off",
+    // Local hub on 127.0.0.1 → no token by default (simplest, and avoids client
+    // header quirks). Opt into a bearer token with BOTHREAD_AUTH=on.
+    authRequired: (process.env.BOTHREAD_AUTH ?? "off") === "on",
   };
 }
