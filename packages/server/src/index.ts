@@ -106,11 +106,24 @@ async function main(): Promise<void> {
     if (config.uiDir) openBrowser(`${base}/`);
   });
 
+  // Also answer on the IPv6 loopback so agents that resolve "localhost" to ::1
+  // (the default on Windows) connect too — not just literal 127.0.0.1. Best-effort.
+  let server6: http.Server | undefined;
+  if (config.host === "127.0.0.1") {
+    server6 = http.createServer(app);
+    attachWebSocket(server6);
+    server6.on("error", () => {
+      /* IPv6 loopback unavailable or busy — 127.0.0.1 still serves; ignore. */
+    });
+    server6.listen(config.port, "::1");
+  }
+
   const shutdown = async () => {
     logger.info("shutting down");
     engine.drainApprovals();
     await hub.closeAll();
     server.close();
+    server6?.close();
     try {
       db.close();
     } catch {

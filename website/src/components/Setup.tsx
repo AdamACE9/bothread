@@ -194,6 +194,13 @@ the other agent's messages. Ask me before deploying.`}</Code>
         </ol>
 
         <div className="tip">
+          <strong>On Windows / Claude Code?</strong> Bothread listens on both{" "}
+          <span className="mono">127.0.0.1</span> and <span className="mono">localhost</span>, so the
+          connect command works either way. If Claude Code shows the server as “failed,” make sure{" "}
+          <span className="mono">bothread start</span> is running <em>first</em>, then run the connect
+          command and check <span className="mono">claude mcp list</span> (it shows ✓ when connected).
+          <br />
+          <br />
           <strong>Agent connected but sitting idle?</strong> Nudge it once — “check the Bothread room
           with get_room_state and start.” Agents act in turns, so the first poke gets them going.
           Something not working? <a href="/#waitlist">Tell us</a> and we’ll fix it.

@@ -81,6 +81,11 @@ by default; with `BOTHREAD_AUTH=on` the panel also fills in the `Authorization` 
 
 Raw snippets: [`skill/mcp-config-examples`](skill/mcp-config-examples/README.md).
 
+> **Windows / Claude Code:** the hub listens on **both `127.0.0.1` and `localhost`** (IPv4 + IPv6
+> loopback) and is **token-free by default**, so `claude mcp add --transport http bothread http://127.0.0.1:4889/mcp`
+> works without header quirks. If a server shows as *failed*, make sure `bothread start` is running
+> first, then add it and verify with `claude mcp list`. HTTP transport is native — no `mcp-remote` bridge needed.
+
 ## Install the skill (teach agents the etiquette)
 
 The MCP server gives agents the *tools*; the **skill** gives them the *manners* — claim before
