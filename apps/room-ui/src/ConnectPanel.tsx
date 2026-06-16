@@ -63,12 +63,19 @@ function snippet(agent: AgentId, info: ConnectInfo): string {
 }
 
 /** Agents that can configure themselves from a pasted prompt (they run commands / edit files). */
-const SELF_SETUP: Partial<Record<AgentId, { name: string; brand: string; skillUrl: string; skillPath: string }>> = {
-  claude: { name: "Claude Code", brand: "claude", skillUrl: "https://bothread.vercel.app/SKILL.md", skillPath: ".claude/skills/bothread/SKILL.md" },
-  cursor: { name: "Cursor", brand: "cursor", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
-  antigravity: { name: "Antigravity", brand: "antigravity", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
-  gemini: { name: "Gemini", brand: "gemini", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
-  codex: { name: "Codex", brand: "codex", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
+interface SelfSetup {
+  name: string;
+  brand: string;
+  skillFile: string;
+  skillUrl: string;
+  skillPath: string;
+}
+const SELF_SETUP: Partial<Record<AgentId, SelfSetup>> = {
+  claude: { name: "Claude Code", brand: "claude", skillFile: "SKILL.md", skillUrl: "https://bothread.vercel.app/SKILL.md", skillPath: ".claude/skills/bothread/SKILL.md" },
+  cursor: { name: "Cursor", brand: "cursor", skillFile: "AGENTS.md", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
+  antigravity: { name: "Antigravity", brand: "antigravity", skillFile: "AGENTS.md", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
+  gemini: { name: "Gemini", brand: "gemini", skillFile: "AGENTS.md", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
+  codex: { name: "Codex", brand: "codex", skillFile: "AGENTS.md", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
 };
 
 /** The exact "add the MCP server" instruction the agent should perform, per agent. */
@@ -92,19 +99,27 @@ function configInstruction(agent: AgentId, info: ConnectInfo): string {
   }
 }
 
-/** The full copy-paste prompt that makes the agent set itself up and join. */
-function agentPrompt(agent: AgentId, info: ConnectInfo, sessionId: string): string | null {
+/** STEP 1 — paste before reloading. Makes the agent configure itself (no join yet). */
+function setupPrompt(agent: AgentId, info: ConnectInfo): string | null {
   const s = SELF_SETUP[agent];
   if (!s) return null;
-  return `You're joining Bothread — a local room where you team up with other AI coding agents on this codebase while a human watches. Set yourself up:
+  return `You're about to join Bothread — a local room where you'll team up with other AI coding agents on this codebase while a human watches. Set yourself up now, but DON'T join yet (the Bothread tools only appear after you reload):
 
 1. Add the Bothread MCP server: ${configInstruction(agent, info)}.
-2. Save the room etiquette: fetch ${s.skillUrl} and save it to ${s.skillPath}.
-3. The Bothread tools only load after a restart/reload — do that (or ask me to), then continue.
+2. Save the room etiquette: use the ${s.skillFile} I attached — or fetch ${s.skillUrl} — and save it to ${s.skillPath}.
+3. Confirm both are done, then tell me to restart/reload you so the "bothread" tools load. Then stop and wait for my next message.`;
+}
 
-Once the bothread tools are available, call the join_session tool with { "sessionId": "${sessionId}", "agentName": "${s.name}", "brand": "${s.brand}" }, then call get_room_state.
+/** STEP 2 — paste after the agent reloads. Carries the live session ID and makes it join + behave. */
+function joinPrompt(agent: AgentId, sessionId: string): string {
+  const s = SELF_SETUP[agent];
+  const name = s?.name ?? (agent === "claude-desktop" ? "Claude" : "Agent");
+  const brand = s?.brand ?? (agent === "claude-desktop" ? "claude" : "agent");
+  return `This is a Bothread session: ${sessionId}
 
-After that, act as a teammate: ALWAYS call claim_files before editing any file; NEVER edit a file another participant holds; use send_message to talk to the others (they can't see your private reasoning); call request_approval before anything risky (delete, deploy, shell, git push); and use wait_for_update to wait for the others instead of stopping. Work toward whatever task I give the room.`;
+You should now have the "bothread" tools. Call join_session with { "sessionId": "${sessionId}", "agentName": "${name}", "brand": "${brand}" }, then call get_room_state to see who's there and which files are claimed.
+
+Then act as a teammate: ALWAYS call claim_files before editing any file; NEVER edit a file another participant holds; use send_message to talk to the others (they can't see your private reasoning); call request_approval before anything risky (delete, deploy, shell, git push); and use wait_for_update to wait for the others instead of stopping. Work toward whatever task I give the room.`;
 }
 
 function Copy({ text, label = "Copy" }: { text: string; label?: string }) {
@@ -143,8 +158,8 @@ export default function ConnectPanel({ sessionId, onClose }: { sessionId: string
 
   const meta = AGENTS.find((a) => a.id === agent)!;
   const code = info ? snippet(agent, info) : "";
-  const prompt = info ? agentPrompt(agent, info, sessionId) : null;
-  const joinLine = `This is a Bothread session: ${sessionId}`;
+  const setup = info ? setupPrompt(agent, info) : null;
+  const join = joinPrompt(agent, sessionId);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -157,8 +172,8 @@ export default function ConnectPanel({ sessionId, onClose }: { sessionId: string
         </div>
 
         <p className="modal-sub">
-          Pick your agent, then <strong>paste the prompt into it</strong> — it adds Bothread to itself, learns
-          the etiquette, and joins. You just approve its steps and reload when it asks.
+          Pick your agent, then paste <strong>two prompts</strong>: one to set it up, then — after it
+          reloads — one to join. The agent does the config itself; you just approve &amp; reload.
         </p>
 
         <div className="agent-tabs">
@@ -169,41 +184,44 @@ export default function ConnectPanel({ sessionId, onClose }: { sessionId: string
           ))}
         </div>
 
-        {prompt ? (
+        {setup ? (
           <>
-            <div className="step-n">🪄 Paste this to {meta.label}</div>
+            <div className="step-n">Step 1 · Paste to set up {meta.label}</div>
+            <p className="modal-sub">
+              Paste this in, approve its steps (and attach the {SELF_SETUP[agent]!.skillFile} if it asks),
+              then reload {meta.label} when it’s done.
+            </p>
             <div className="snip tall">
-              <pre>{prompt}</pre>
-              <Copy text={prompt} label="Copy prompt" />
+              <pre>{setup}</pre>
+              <Copy text={setup} label="Copy setup prompt" />
             </div>
+
             <details className="manual">
-              <summary>Prefer to set it up by hand?</summary>
+              <summary>Prefer to add the server by hand?</summary>
               <div className="snip-where">{meta.where}</div>
               <div className="snip">
                 <pre>{code || "…"}</pre>
                 {code && <Copy text={code} />}
               </div>
-              <p className="modal-sub" style={{ marginTop: "0.6rem" }}>
-                Then, after reloading, tell {meta.label}: “<span className="mono">{joinLine}</span>”.
-              </p>
             </details>
           </>
         ) : (
           <>
-            <div className="step-n">1 · Add the server</div>
+            <div className="step-n">Step 1 · Add the server</div>
             <div className="snip-where">{meta.where}</div>
             <div className="snip">
               <pre>{code || "…"}</pre>
               {code && <Copy text={code} />}
             </div>
-            <div className="step-n">2 · Tell it to join</div>
-            <p className="modal-sub">After reloading, paste this into the agent:</p>
-            <div className="snip">
-              <pre>{joinLine}</pre>
-              <Copy text={joinLine} />
-            </div>
           </>
         )}
+
+        <div className="step-n">Step 2 · After it reloads, paste to join</div>
+        <p className="modal-sub">This carries your room’s live session ID — it joins and starts collaborating.</p>
+        <div className="snip tall">
+          <pre>{join}</pre>
+          <Copy text={join} label="Copy join prompt" />
+        </div>
 
         <p className="modal-foot">
           The session ID is the room credential — share it only with agents you want in this room. New here?
