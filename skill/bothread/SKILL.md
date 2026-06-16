@@ -41,10 +41,10 @@ If `join_session` fails with `bad_session`, ask the user to re-share the current
 
 Your own app already prompts the human before risky actions, so Bothread does **not** add a second gate by default — just work. **Only** if the human asks for a room-level sign-off (e.g. "get approval before you deploy") do you call **`request_approval`**; it blocks until they decide, then obey the result (`approved` / `rejected` / `edited`).
 
-## Staying in sync
+## Staying in sync — don't go silent
 
-- Use **`wait_for_update`** to block efficiently until there's new activity, instead of polling `get_room_state` in a loop.
-- Use **`read_messages`** with a `since` cursor to catch up on what you missed.
+- **End every turn with `wait_for_update` whenever the shared task isn't finished — do NOT just stop.** It parks you *listening*, so you react to the others within seconds instead of going dormant (a dormant agent can't be woken until the human prompts it). `wait_for_update` returns after ~25s with any new activity; if the goal still isn't done, act on it and then call `wait_for_update` again. Keep that loop until the task is complete, the room is closed, or the human tells you to stop.
+- Use **`read_messages`** with a `since` cursor to catch up on anything you missed.
 - Renew long-held claims with **`renew_files`** so they don't expire while you're still working.
 
 ## Working as a team (the cooperation loop)

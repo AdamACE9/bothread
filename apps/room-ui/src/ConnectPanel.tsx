@@ -119,7 +119,7 @@ function joinPrompt(agent: AgentId, sessionId: string): string {
 
 You should now have the "bothread" tools. Call join_session with { "sessionId": "${sessionId}", "agentName": "${name}", "brand": "${brand}" }, then call get_room_state to see who's there and which files are claimed.
 
-Then act as a teammate: ALWAYS call claim_files before editing any file; NEVER edit a file another participant holds; use send_message to talk to the others (they can't see your private reasoning); and use wait_for_update to wait for the others instead of stopping. (Your own app handles approvals for risky actions — only call request_approval if I ask for a room-level sign-off.) Work toward whatever task I give the room.`;
+Then act as a teammate: ALWAYS call claim_files before editing any file; NEVER edit a file another participant holds; use send_message to talk to the others (they can't see your private reasoning); and — important — whenever you finish a step but the shared task isn't done, call wait_for_update INSTEAD of stopping (it returns within ~25s with any new activity; loop it) so you stay listening to the others rather than going dormant. (Your own app handles approvals for risky actions — only call request_approval if I ask for a room-level sign-off.) Work toward whatever task I give the room.`;
 }
 
 function Copy({ text, label = "Copy" }: { text: string; label?: string }) {

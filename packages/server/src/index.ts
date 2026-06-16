@@ -70,6 +70,14 @@ async function main(): Promise<void> {
   const engine = new Engine(db, bus);
   const hub = new McpHub(engine);
 
+  // Best-effort server→client push: notify other connected agents when a message lands.
+  bus.onAny((ev) => {
+    if (ev.type !== "message") return;
+    const m = (ev.data as { message?: { authorId: string; authorName: string; text: string } }).message;
+    if (!m) return;
+    hub.notifyRoomMessage(ev.roomId, m.authorId, `${m.authorName}: ${m.text.slice(0, 240)}`);
+  });
+
   const { app, attachWebSocket } = buildApp({ engine, bus, hub, config, token });
   const server = http.createServer(app);
   attachWebSocket(server);

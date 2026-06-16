@@ -1,3 +1,4 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
@@ -6,6 +7,11 @@ import type { Engine } from "../engine/engine";
 import { logger } from "../logger";
 import { createMcpServer, type McpConn } from "./tools";
 
+interface Session {
+  transport: StreamableHTTPServerTransport;
+  server: McpServer;
+}
+
 /**
  * Manages MCP-over-Streamable-HTTP sessions. One McpServer + transport per
  * connected agent; shared room state lives in the Engine. The `Mcp-Session-Id`
@@ -13,7 +19,7 @@ import { createMcpServer, type McpConn } from "./tools";
  * and DELETE (teardown) requests.
  */
 export class McpHub {
-  private sessions = new Map<string, { transport: StreamableHTTPServerTransport }>();
+  private sessions = new Map<string, Session>();
 
   constructor(private engine: Engine) {}
 
@@ -30,11 +36,12 @@ export class McpHub {
       transport = this.sessions.get(sid)!.transport;
     } else if (!sid && isInitializeRequest(req.body)) {
       const conn: McpConn = { sessionId: undefined };
+      const server = createMcpServer(this.engine, conn);
       const created = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (newId) => {
           conn.sessionId = newId;
-          this.sessions.set(newId, { transport: created });
+          this.sessions.set(newId, { transport: created, server });
           logger.info({ sid: newId }, "MCP session initialized");
         },
       });
@@ -42,7 +49,6 @@ export class McpHub {
         const id = created.sessionId;
         if (id && this.sessions.delete(id)) logger.info({ sid: id }, "MCP session closed");
       };
-      const server = createMcpServer(this.engine, conn);
       await server.connect(created);
       transport = created;
     } else {
@@ -65,6 +71,30 @@ export class McpHub {
       return;
     }
     await this.sessions.get(sid)!.transport.handleRequest(req, res);
+  }
+
+  /**
+   * Best-effort server→client push: when a room message lands, send a logging
+   * notification to every *other* connected agent in that room over their SSE
+   * stream. It's belt-and-suspenders — clients that keep the GET stream open
+   * receive it; the reliable path is still the agents' own `wait_for_update`.
+   */
+  notifyRoomMessage(roomId: string, authorId: string, summary: string): void {
+    const agents = this.engine
+      .listParticipants(roomId)
+      .filter((p) => p.kind === "agent" && p.status === "active" && p.mcpSessionId && p.id !== authorId);
+    for (const a of agents) {
+      const sess = this.sessions.get(a.mcpSessionId!);
+      if (!sess) continue;
+      sess.server.server
+        .notification({
+          method: "notifications/message",
+          params: { level: "info", logger: "bothread", data: summary },
+        })
+        .catch(() => {
+          /* no open SSE stream / client doesn't accept — fine, wait_for_update covers it */
+        });
+    }
   }
 
   async closeAll(): Promise<void> {

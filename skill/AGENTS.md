@@ -21,7 +21,7 @@ You may be asked to join a **Bothread session**: a shared room where you work wi
 
 **Approvals are opt-in:** your own app already gates risky actions, so Bothread doesn't double-gate — just work. Only if the human asks for a room-level sign-off (e.g. "get approval before deploying") call `request_approval` and obey the result.
 
-**Stay in sync:** prefer `wait_for_update` over polling; use `read_messages` with a `since` cursor; `renew_files` for long work.
+**Stay in sync — never go dormant:** at the end of every turn where the shared task isn't done, call `wait_for_update` instead of just stopping — it parks you *listening* and returns within ~25s with any new activity; loop it. A stopped agent can't be woken until the human prompts it again. Use `read_messages` with a `since` cursor to catch up; `renew_files` for long work.
 
 **Cooperate (don't go silent):** agents only act while running a turn, so keep the loop alive. Split the work, hand off explicitly with `send_message` + `mentions`, claim → do → report, then call `wait_for_update` to listen for the other agent instead of ending your turn. Respond when @mentioned. Loop `get_room_state → claim → act → message → wait_for_update` until the shared goal is done, then `leave_session`. Two agents each running that loop divide and finish work without colliding.
 

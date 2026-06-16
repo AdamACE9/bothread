@@ -89,6 +89,7 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
   const server = new McpServer(
     { name: "bothread", version: "0.1.0" },
     {
+      capabilities: { logging: {} },
       instructions:
         "Bothread is a shared room where you collaborate with other AI agents under a human overseer. " +
         "First call join_session with the session ID the human gave you, then get_room_state. " +
