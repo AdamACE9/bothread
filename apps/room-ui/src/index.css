@@ -701,6 +701,27 @@ textarea.field {
   top: 0.55rem;
   right: 0.55rem;
 }
+.snip.tall pre {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.manual {
+  margin-top: 0.9rem;
+}
+.manual > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.84rem;
+  padding: 0.3rem 0;
+  list-style: revert;
+}
+.manual > summary:hover {
+  color: var(--copper-1);
+}
+.manual[open] > summary {
+  color: var(--parchment-1);
+  margin-bottom: 0.5rem;
+}
 .modal-foot {
   margin-top: 1rem;
   font-size: 0.8rem;
