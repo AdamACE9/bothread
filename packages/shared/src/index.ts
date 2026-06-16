@@ -51,7 +51,9 @@ export type RiskAction = z.infer<typeof RiskAction>;
  * ========================================================================== */
 
 export const RoomSettings = z.object({
-  requireApprovalFor: z.array(RiskAction).default(["delete", "deploy", "shell", "git_push"]),
+  // Off by default: each agent's own app already gates risky actions, so Bothread
+  // doesn't double-gate. Opt in per room (e.g. ["deploy","git_push"]) for an in-room checkpoint.
+  requireApprovalFor: z.array(RiskAction).default([]),
   defaultLeaseTtlMs: z
     .number()
     .int()

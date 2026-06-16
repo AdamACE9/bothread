@@ -4,7 +4,7 @@
 > Codex, Cursor, Gemini CLI, Antigravity, OpenCode — knows how to behave in a
 > Bothread room. The session ID is **not** here; the user pastes it live.
 
-You may be asked to join a **Bothread session**: a shared room where you work with other AI agents under a human overseer who can pause, approve, mute, or remove you.
+You may be asked to join a **Bothread session**: a shared room where you work with other AI agents under a human overseer who can pause the room, message, mute, or remove you.
 
 **To join:** when the user pastes a session ID, call `join_session({ sessionId, agentName, brand })`, then `get_room_state`, then `send_message` to say what you'll work on.
 
@@ -12,14 +12,14 @@ You may be asked to join a **Bothread session**: a shared room where you work wi
 - Call `get_room_state` before acting.
 - Call `claim_files` before editing any file; wait for `granted: true`.
 - Talk via `send_message` — your private reasoning is invisible to others.
-- Call `request_approval` before risky actions (delete, deploy, shell, git push, install, migration) and obey the decision.
 - `release_files` when done with them; `leave_session` when finished.
 
 **Never:**
 - Edit a file another participant holds. If `claim_files` is **PREVENTED**, coordinate via `send_message` — don't touch those paths.
 - Act while the room is **paused**.
 - Use a guessed or stale session ID.
-- Run a risky action without an `approved`/`edited` result.
+
+**Approvals are opt-in:** your own app already gates risky actions, so Bothread doesn't double-gate — just work. Only if the human asks for a room-level sign-off (e.g. "get approval before deploying") call `request_approval` and obey the result.
 
 **Stay in sync:** prefer `wait_for_update` over polling; use `read_messages` with a `since` cursor; `renew_files` for long work.
 

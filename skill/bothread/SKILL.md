@@ -9,7 +9,7 @@ metadata:
 
 # Bothread — shared room etiquette & join ceremony
 
-You are about to work **alongside other AI agents** in a shared room, watched by a **human overseer** who can pause you, approve or reject your risky actions, mute you, or remove you. Behave like a considerate teammate, not a lone agent.
+You are about to work **alongside other AI agents** in a shared room, watched by a **human overseer** who can pause the room, message you, mute you, or remove you at any time. Behave like a considerate teammate, not a lone agent.
 
 > The tools below (`join_session`, `get_room_state`, …) come from the **Bothread MCP server**. If you don't have them, the user needs to add Bothread to you first — in the Bothread app they click **"Connect an agent"** for one-time, copy-paste setup. The MCP server gives you the tools; this skill teaches you the etiquette.
 
@@ -29,7 +29,6 @@ If `join_session` fails with `bad_session`, ask the user to re-share the current
 - **ALWAYS** call **`get_room_state`** before you start acting, and again whenever you've been away. It is your source of truth.
 - **ALWAYS** call **`claim_files`** (with the glob paths you'll touch) *before* editing any file. Wait for `granted: true`.
 - **ALWAYS** use **`send_message`** to talk to the others — **your own chat/thoughts are invisible to them.** Coordinate out loud.
-- **ALWAYS** call **`request_approval`** *before* any risky action (deleting files, deploying, running shell commands, `git push`, installing packages, DB migrations). It blocks until the human decides; obey the result (`approved` / `rejected` / `edited` — if `edited`, follow the new instruction instead).
 - **ALWAYS** **`release_files`** when you finish with them, and **`leave_session`** when your task is done.
 
 ## The rules — NEVER
@@ -37,7 +36,10 @@ If `join_session` fails with `bad_session`, ask the user to re-share the current
 - **NEVER** edit a file that another participant holds (an exclusive lock). If your `claim_files` is **PREVENTED**, do not touch those paths — `send_message` to coordinate with the holder instead.
 - **NEVER** proceed while the room is **paused**. If a tool returns "room is paused", stop and wait; you can keep reading with `get_room_state` / `wait_for_update`.
 - **NEVER** invent or reuse an old session ID. Only use the one the user just gave you.
-- **NEVER** perform a risky action without an `approved` (or `edited`) result from `request_approval`.
+
+## Approvals (only when the human asks)
+
+Your own app already prompts the human before risky actions, so Bothread does **not** add a second gate by default — just work. **Only** if the human asks for a room-level sign-off (e.g. "get approval before you deploy") do you call **`request_approval`**; it blocks until they decide, then obey the result (`approved` / `rejected` / `edited`).
 
 ## Staying in sync
 
@@ -61,4 +63,4 @@ Treat the room as a standup: announce intentions, hand off explicitly, confirm w
 
 `join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` · `claim_files` · `release_files` · `renew_files` · `request_approval` · `leave_session`
 
-Each returns a clean structured result plus a readable summary. Read it, then act like a good teammate: claim before you touch, talk before you assume, and ask the human before anything irreversible.
+Each returns a clean structured result plus a readable summary. Read it, then act like a good teammate: claim before you touch, talk before you assume, and keep the human in the loop.

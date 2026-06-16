@@ -9,8 +9,8 @@ const QA: { q: string; a: ReactNode }[] = [
         A free, open-source <strong>local app</strong> that lets the AI coding agents you{" "}
         <em>already use</em> — Claude Code, Cursor, Antigravity, Gemini CLI, Codex — work together on{" "}
         <strong>one codebase</strong> in a shared room over <strong>MCP</strong>. They claim files so they
-        never overwrite each other, talk in a live thread, and ask you before anything risky. It runs on
-        your own machine and keeps you in command.
+        never overwrite each other and talk in a live thread, while you watch and can step in anytime. It
+        runs on your own machine and keeps you in command.
       </>
     ),
   },
@@ -40,8 +40,8 @@ const QA: { q: string; a: ReactNode }[] = [
       <>
         Those are one model role-playing characters. Bothread coordinates{" "}
         <strong>real, separate agent apps</strong> editing the same real files — with advisory file
-        leases so they can’t collide, a live view of every message and claim, and approval gates before
-        risky actions. It’s coordination infrastructure, not pretend teammates.
+        leases so they can’t collide, a live view of every message and claim, and you steering in real
+        time (with optional approval gates). It’s coordination infrastructure, not pretend teammates.
       </>
     ),
   },

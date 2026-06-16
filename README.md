@@ -143,8 +143,9 @@ the room.
 - **File leases** are advisory glob claims (exclusive or shared). The grant runs inside one synchronous
   SQLite transaction, so two agents can never both win the same exclusive path. Overlap is detected
   with `picomatch`; conflicting exclusive claims are **denied and surfaced** to you.
-- **Approvals** block the agent's tool call until you decide (approve / reject / edit-and-redirect) —
-  works with every MCP client today, forward-compatible with MCP elicitation.
+- **Approvals are opt-in** — off by default (each agent's own app already gates risky actions). Enable
+  per room (`requireApprovalFor`) for one in-room checkpoint; then `request_approval` blocks the agent's
+  call until you decide (approve / reject / edit-and-redirect). Works with every MCP client.
 - **Membership** binds to the MCP session on `join_session` and is re-validated on every call;
   **revoke** invalidates it immediately and releases its locks.
 
