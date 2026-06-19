@@ -192,6 +192,34 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
     })
   );
 
+  // Git micro-branch endpoints
+  api.get(
+    "/rooms/:id/branches",
+    wrap((req, res) => {
+      const all = req.query["all"] === "true";
+      const branches = all ? engine.listAllBranches(param(req, "id")) : engine.listBranches(param(req, "id"));
+      res.json({ branches });
+    })
+  );
+
+  api.post(
+    "/rooms/:id/branches/:bid/merge",
+    wrap((req, res) => {
+      const { mergedBy } = req.body ?? {};
+      const branch = engine.mergeBranch(param(req, "id"), param(req, "bid"), mergedBy ?? "You");
+      res.json({ branch });
+    })
+  );
+
+  api.post(
+    "/rooms/:id/branches/:bid/discard",
+    wrap((req, res) => {
+      const { discardedBy } = req.body ?? {};
+      const branch = engine.discardBranch(param(req, "id"), param(req, "bid"), discardedBy ?? "You");
+      res.json({ branch });
+    })
+  );
+
   app.use("/api", api);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 

@@ -1,4 +1,4 @@
-import type { Approval, Lease, Participant, Room, RoomSnapshot } from "@bothread/shared";
+import type { AgentBranch, Approval, Lease, Participant, Room, RoomSnapshot } from "@bothread/shared";
 
 const J = { "content-type": "application/json" };
 
@@ -40,3 +40,8 @@ export const setParticipantStatus = (id: string, pid: string, status: "active" |
   jpost(`/api/rooms/${id}/participants/${pid}/status`, { status });
 export const decideApproval = (id: string, aid: string, decision: "approved" | "rejected" | "edited", instruction?: string) =>
   jpost(`/api/rooms/${id}/approvals/${aid}/decide`, { decision, instruction });
+
+export const listBranches = (id: string, all = false) =>
+  jget<{ branches: AgentBranch[] }>(`/api/rooms/${id}/branches${all ? "?all=true" : ""}`).then((r) => r.branches);
+export const mergeBranch = (id: string, bid: string) => jpost(`/api/rooms/${id}/branches/${bid}/merge`);
+export const discardBranch = (id: string, bid: string) => jpost(`/api/rooms/${id}/branches/${bid}/discard`);

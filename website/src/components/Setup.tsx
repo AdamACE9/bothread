@@ -64,20 +64,30 @@ export default function Setup() {
             <div className="sn">1</div>
             <div className="sc">
               <h3>Get Bothread &amp; install the command</h3>
-              <p>
-                Clone the repo, then run these <strong>once</strong> inside it to turn{" "}
-                <span className="mono">bothread</span> into a command you can run from any folder:
+              <p>No install needed — run it directly with npx:</p>
+              <Code>npx bothread start</Code>
+              <p className="hint">
+                That’s it. npx downloads and runs Bothread without any global install. Your browser
+                opens straight to the room.
+              </p>
+              <p style={{ marginTop: "1.2rem" }}>
+                Or install it globally so you can run <span className="mono">bothread start</span> from
+                any terminal, any time:
+              </p>
+              <Code>npm install -g bothread</Code>
+              <p className="hint">
+                Prefer running from source? Clone the repo and use{" "}
+                <span className="mono">npm link</span> instead:
               </p>
               <Code>{`git clone https://github.com/AdamACE9/bothread.git
 cd bothread
 npm install   # install dependencies (one time)
-npm link      # make the 'bothread' command available everywhere`}</Code>
+npm link      # make the ‘bothread’ command available everywhere`}</Code>
               <p className="hint">
                 No git? On GitHub, click <strong>Code → Download ZIP</strong>, unzip it, and open a
                 terminal in the folder. If <span className="mono">bothread</span> isn’t found after{" "}
                 <span className="mono">npm link</span>, just run <span className="mono">npm start</span> in
-                the folder instead — same result. (Once we publish to npm it’s a single{" "}
-                <span className="mono">npm install -g bothread</span>.)
+                the folder instead — same result.
               </p>
             </div>
           </li>
@@ -86,10 +96,13 @@ npm link      # make the 'bothread' command available everywhere`}</Code>
             <div className="sn">2</div>
             <div className="sc">
               <h3>Start it — from any folder</h3>
-              <p>Run one command, anywhere in your terminal. Your browser opens straight to the room.</p>
+              <p>
+                If you installed globally (<span className="mono">npm i -g bothread</span> or{" "}
+                <span className="mono">npm link</span>), run this from any terminal:
+              </p>
               <Code>bothread start</Code>
               <p className="hint">
-                First run builds the room (a few seconds); after that it opens instantly. Leave it
+                First run builds the room UI (a few seconds); after that it opens instantly. Leave it
                 running while you work; stop it with <span className="mono">Ctrl-C</span>.
               </p>
             </div>

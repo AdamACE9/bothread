@@ -1,4 +1,5 @@
 import type {
+  AgentBranch,
   Approval,
   ApprovalResult,
   ApprovalStatus,
@@ -20,6 +21,16 @@ import type {
   WaitForUpdateResult,
 } from "@bothread/shared";
 import { ETIQUETTE, RECENT_THREAD_LIMIT, SNAPSHOT_THREAD_LIMIT, RoomSettings as RoomSettingsSchema } from "@bothread/shared";
+import {
+  commitToCurrentBranch,
+  createBranchCommit,
+  currentSha,
+  deleteTrackingBranch,
+  diffWorkingTree,
+  isGitRepo,
+  restoreFilesToSha,
+  sanitizeBranchSegment,
+} from "./git";
 import type { DB } from "../db/database";
 import type { RoomBus } from "../realtime";
 import { BothreadError } from "./errors";
@@ -87,6 +98,20 @@ interface ApprovalRow {
   edited_instruction: string | null;
   created_at: number;
   decided_at: number | null;
+}
+interface BranchRow {
+  id: string;
+  room_id: string;
+  participant_id: string;
+  participant_name: string;
+  branch_name: string;
+  base_sha: string;
+  paths: string;
+  diff: string | null;
+  commit_sha: string | null;
+  status: string;
+  created_at: number;
+  finalized_at: number | null;
 }
 
 export interface Caller {
@@ -226,6 +251,22 @@ export class Engine {
       editedInstruction: a.edited_instruction ?? undefined,
       createdAt: a.created_at,
       decidedAt: a.decided_at ?? undefined,
+    };
+  }
+  private mapBranch(b: BranchRow): AgentBranch {
+    return {
+      id: b.id,
+      roomId: b.room_id,
+      participantId: b.participant_id,
+      participantName: b.participant_name,
+      branchName: b.branch_name,
+      baseSha: b.base_sha,
+      paths: JSON.parse(b.paths) as string[],
+      diff: b.diff ?? undefined,
+      commitSha: b.commit_sha ?? undefined,
+      status: b.status as AgentBranch["status"],
+      createdAt: b.created_at,
+      finalizedAt: b.finalized_at ?? undefined,
     };
   }
 
@@ -669,6 +710,8 @@ export class Engine {
         exclusive,
       });
       this.publish(roomId, "lease", { leases: this.activeLeases(roomId) });
+      // Git micro-branching: record a tracking entry for this agent's claims.
+      this.startGitTracking(caller.room, caller.participant, input.paths);
     } else {
       this.audit(roomId, "lease.collision", { id: caller.participant.id, name: caller.participant.name }, {
         conflicts: result.conflicts,
@@ -717,6 +760,8 @@ export class Engine {
     if (released > 0) {
       this.audit(roomId, "lease.release", { id: caller.participant.id, name: caller.participant.name }, { released });
       this.publish(roomId, "lease", { leases: this.activeLeases(roomId) });
+      // Finalize any open git tracking entries for this participant.
+      this.finalizeGitTracking(caller.room, caller.participant);
     }
     return { released };
   }
@@ -844,6 +889,7 @@ export class Engine {
   leaveSession(caller: Caller): void {
     const roomId = caller.room.id;
     this.releaseAllFor(roomId, caller.participant.id, "left");
+    this.finalizeGitTracking(caller.room, caller.participant);
     this.db
       .prepare(`UPDATE participants SET status = 'left', mcp_session_id = NULL WHERE id = ?`)
       .run(caller.participant.id);
@@ -934,5 +980,179 @@ export class Engine {
       resolve({ status: "rejected", decidedBy: "system" });
     }
     this.approvalWaiters.clear();
+  }
+
+  /* ===================== Git micro-branching ===================== */
+
+  /**
+   * Called after a successful claimFiles: if the room has a projectPath that's a
+   * git repo, upsert a 'tracking' branch entry for this participant (adding the
+   * new paths to an existing entry if one already exists this session).
+   */
+  private startGitTracking(room: Room, participant: Participant, paths: string[]): void {
+    if (!room.projectPath) return;
+    try {
+      if (!isGitRepo(room.projectPath)) return;
+      const sha = currentSha(room.projectPath);
+      if (!sha) return;
+
+      // Look for an existing open tracking row for this participant.
+      const existing = this.db
+        .prepare(`SELECT * FROM branches WHERE room_id = ? AND participant_id = ? AND status = 'tracking' LIMIT 1`)
+        .get(room.id, participant.id) as BranchRow | undefined;
+
+      if (existing) {
+        // Merge new paths into the existing entry.
+        const existingPaths = JSON.parse(existing.paths) as string[];
+        const merged = Array.from(new Set([...existingPaths, ...paths]));
+        this.db
+          .prepare(`UPDATE branches SET paths = ? WHERE id = ?`)
+          .run(JSON.stringify(merged), existing.id);
+      } else {
+        const id = newId("br");
+        const seg = sanitizeBranchSegment(participant.name);
+        const branchName = `bothread/${seg}-${participant.id.slice(-6)}`;
+        this.db
+          .prepare(
+            `INSERT INTO branches (id, room_id, participant_id, participant_name, branch_name, base_sha, paths, status, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'tracking', ?)`
+          )
+          .run(id, room.id, participant.id, participant.name, branchName, sha, JSON.stringify(paths), now());
+      }
+    } catch {
+      /* git unavailable or not a repo — silently skip */
+    }
+  }
+
+  /**
+   * Called when files are released: finalize all open tracking entries for this
+   * participant by capturing the diff and creating a tracking branch commit.
+   */
+  private finalizeGitTracking(room: Room, participant: Participant): void {
+    if (!room.projectPath) return;
+    const rows = this.db
+      .prepare(`SELECT * FROM branches WHERE room_id = ? AND participant_id = ? AND status = 'tracking'`)
+      .all(room.id, participant.id) as BranchRow[];
+    if (!rows.length) return;
+
+    const at = now();
+    for (const row of rows) {
+      try {
+        const paths = JSON.parse(row.paths) as string[];
+        const diff = diffWorkingTree(room.projectPath, row.base_sha, paths);
+        const commitSha = diff
+          ? createBranchCommit(
+              room.projectPath,
+              row.branch_name,
+              row.base_sha,
+              paths,
+              `bothread: ${participant.name} — ${paths.slice(0, 3).join(", ")}${paths.length > 3 ? " …" : ""}`
+            )
+          : undefined;
+
+        this.db
+          .prepare(
+            `UPDATE branches SET diff = ?, commit_sha = ?, status = 'ready', finalized_at = ? WHERE id = ?`
+          )
+          .run(diff || null, commitSha ?? null, at, row.id);
+
+        const updated = this.db.prepare(`SELECT * FROM branches WHERE id = ?`).get(row.id) as BranchRow;
+        this.publish(room.id, "branch", { branch: this.mapBranch(updated) });
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  /* ----- Public branch API (called by REST handlers) ----- */
+
+  listBranches(roomId: string): AgentBranch[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM branches WHERE room_id = ? AND status IN ('tracking','ready') ORDER BY created_at DESC`
+        )
+        .all(roomId) as BranchRow[]
+    ).map((b) => this.mapBranch(b));
+  }
+
+  listAllBranches(roomId: string): AgentBranch[] {
+    return (
+      this.db
+        .prepare(`SELECT * FROM branches WHERE room_id = ? ORDER BY created_at DESC LIMIT 50`)
+        .all(roomId) as BranchRow[]
+    ).map((b) => this.mapBranch(b));
+  }
+
+  /**
+   * Merge: stage and commit the agent's working-tree changes to git history,
+   * then mark the branch as 'merged'.
+   */
+  mergeBranch(roomId: string, branchId: string, mergedBy = "You"): AgentBranch {
+    const row = this.db.prepare(`SELECT * FROM branches WHERE id = ? AND room_id = ?`).get(branchId, roomId) as
+      | BranchRow
+      | undefined;
+    if (!row) throw new BothreadError("no_branch", "Branch not found.");
+    if (row.status !== "ready") throw new BothreadError("bad_state", "Branch is not ready to merge.");
+    const room = this.getRoom(roomId);
+    if (!room?.projectPath) throw new BothreadError("no_project", "Room has no project path.");
+
+    const paths = JSON.parse(row.paths) as string[];
+    const committed = commitToCurrentBranch(
+      room.projectPath,
+      `bothread: ${row.participant_name} (${paths.slice(0, 3).join(", ")}${paths.length > 3 ? " …" : ""})`,
+      paths
+    );
+
+    this.db
+      .prepare(`UPDATE branches SET status = 'merged', finalized_at = ? WHERE id = ?`)
+      .run(now(), branchId);
+
+    // Clean up the tracking branch ref.
+    if (room.projectPath) deleteTrackingBranch(room.projectPath, row.branch_name);
+
+    const updated = this.db.prepare(`SELECT * FROM branches WHERE id = ?`).get(branchId) as BranchRow;
+    this.audit(roomId, "branch.merge", { name: mergedBy }, { branchId, committed });
+    this.postSystemMessage(
+      roomId,
+      committed
+        ? `${mergedBy} merged ${row.participant_name}'s changes (${paths.length} path${paths.length !== 1 ? "s" : ""}) to git history.`
+        : `${mergedBy} accepted ${row.participant_name}'s changes (no git commit needed — nothing new staged).`,
+      "steering"
+    );
+    this.publish(roomId, "branch", { branch: this.mapBranch(updated) });
+    return this.mapBranch(updated);
+  }
+
+  /**
+   * Discard: restore the files to their baseSha state, removing the agent's edits.
+   */
+  discardBranch(roomId: string, branchId: string, discardedBy = "You"): AgentBranch {
+    const row = this.db.prepare(`SELECT * FROM branches WHERE id = ? AND room_id = ?`).get(branchId, roomId) as
+      | BranchRow
+      | undefined;
+    if (!row) throw new BothreadError("no_branch", "Branch not found.");
+    if (row.status !== "ready") throw new BothreadError("bad_state", "Branch is not in a discardable state.");
+    const room = this.getRoom(roomId);
+    if (!room?.projectPath) throw new BothreadError("no_project", "Room has no project path.");
+
+    const paths = JSON.parse(row.paths) as string[];
+    restoreFilesToSha(room.projectPath, row.base_sha, paths);
+
+    this.db
+      .prepare(`UPDATE branches SET status = 'discarded', finalized_at = ? WHERE id = ?`)
+      .run(now(), branchId);
+
+    if (room.projectPath) deleteTrackingBranch(room.projectPath, row.branch_name);
+
+    const updated = this.db.prepare(`SELECT * FROM branches WHERE id = ?`).get(branchId) as BranchRow;
+    this.audit(roomId, "branch.discard", { name: discardedBy }, { branchId });
+    this.postSystemMessage(
+      roomId,
+      `${discardedBy} discarded ${row.participant_name}'s changes — files restored to before their session.`,
+      "steering"
+    );
+    this.publish(roomId, "branch", { branch: this.mapBranch(updated) });
+    return this.mapBranch(updated);
   }
 }

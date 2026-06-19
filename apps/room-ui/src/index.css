@@ -732,6 +732,93 @@ textarea.field {
   color: var(--saffron);
 }
 
+/* ── Rail tab switcher ── */
+.rail-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  margin: -0.9rem -1rem 0.9rem;
+}
+.rail-tab {
+  flex: 1;
+  padding: 0.55rem 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.rail-tab:hover { color: var(--parchment-1); }
+.rail-tab.active {
+  color: var(--copper-1);
+  border-bottom-color: var(--copper-1);
+}
+
+/* ── Branch panel ── */
+.branch-panel { display: flex; flex-direction: column; gap: 0.6rem; }
+.branch-group { display: flex; flex-direction: column; gap: 0.4rem; }
+.branch-group-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-1);
+  margin-bottom: 0.2rem;
+}
+.branch-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.75rem;
+  background: rgba(14,12,9,0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.branch-card.ready { border-color: var(--copper); }
+.branch-card.tracking { opacity: 0.75; }
+.branch-head { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.branch-agent { font-weight: 560; font-size: 0.83rem; color: var(--parchment-1); }
+.branch-paths { font-size: 0.72rem; color: var(--muted); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.branch-status { font-size: 0.72rem; color: var(--saffron); }
+.branch-acts { display: flex; gap: 6px; margin-top: 4px; }
+.branch-acts .btn { flex: 1; }
+
+/* diff toggle */
+.diff-toggle {
+  background: none;
+  border: none;
+  color: var(--copper);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  font-family: var(--font-body);
+}
+.diff-toggle:hover { color: var(--copper-1); }
+
+/* unified diff display */
+.diff-view {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.45;
+  overflow-x: auto;
+  max-height: 280px;
+  overflow-y: auto;
+  background: rgba(14,12,9,0.7);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem;
+  color: var(--parchment-1);
+  white-space: pre;
+}
+/* diff colouring */
+.diff-view .line-add { color: var(--teal-1); }
+.diff-view .line-del { color: var(--clay-1); }
+
 @media (max-width: 860px) {
   .rmain {
     grid-template-columns: 1fr;

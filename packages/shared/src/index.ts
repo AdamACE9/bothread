@@ -328,6 +328,31 @@ export type WaitForUpdateResult = z.infer<typeof WaitForUpdateResult>;
  * Realtime — WebSocket events pushed to the room UI.
  * ========================================================================== */
 
+/** Status of an agent's git tracking branch. */
+export const BranchStatus = z.enum(["tracking", "ready", "merged", "discarded"]);
+export type BranchStatus = z.infer<typeof BranchStatus>;
+
+/**
+ * A git micro-branch record: captures what one agent changed in one session.
+ * `diff` is a unified diff (set when the agent releases their files).
+ * `commitSha` is the bothread/ tracking-branch commit (for PR-style review).
+ */
+export const AgentBranch = z.object({
+  id: z.string(),
+  roomId: z.string(),
+  participantId: z.string(),
+  participantName: z.string(),
+  branchName: z.string(),
+  baseSha: z.string(),
+  paths: z.array(z.string()),
+  diff: z.string().optional(),
+  commitSha: z.string().optional(),
+  status: BranchStatus,
+  createdAt: z.number(),
+  finalizedAt: z.number().optional(),
+});
+export type AgentBranch = z.infer<typeof AgentBranch>;
+
 export const ServerEventType = z.enum([
   "snapshot",
   "message",
@@ -337,6 +362,7 @@ export const ServerEventType = z.enum([
   "room",
   "audit",
   "collision",
+  "branch",
 ]);
 export type ServerEventType = z.infer<typeof ServerEventType>;
 

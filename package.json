@@ -1,8 +1,7 @@
 {
   "name": "bothread",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Bothread — a local, human-governed room where MCP-compatible AI agents collaborate on one codebase while you watch and stay in command.",
+  "version": "0.2.0",
+  "description": "A local, human-governed room where MCP-compatible AI agents collaborate on one codebase while you watch and stay in command. Per-agent git branches, collision prevention, live diff review.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -16,6 +15,19 @@
   "engines": {
     "node": ">=20"
   },
+  "files": [
+    "bin/bothread.mjs",
+    "dist-server/server.js",
+    "apps/room-ui/dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "dependencies": {
+    "better-sqlite3": "^12.10.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -26,6 +38,8 @@
     "dev:hub": "npm run dev -w @bothread/server",
     "dev:ui": "npm run dev -w @bothread/room-ui",
     "build:ui": "npm run build -w @bothread/room-ui",
+    "build:server": "node scripts/build-server.mjs",
+    "build:publish": "npm run build:ui && npm run build:server",
     "test": "npm run test -w @bothread/server",
     "typecheck": "npm run typecheck -w @bothread/shared && npm run typecheck -w @bothread/server && npm run typecheck -w @bothread/room-ui"
   }

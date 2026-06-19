@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * `bothread` — the global CLI. Once installed (npm link, or `npm i -g bothread`
- * when published), run `bothread start` from ANY directory and the room opens.
+ * `bothread` — the global CLI.
  *
- * It resolves its own install location, so it always finds the repo's deps, the
- * built room UI, and the hub — no matter where you run it from.
+ * Two modes:
+ *  • Production (npm install / npx):  dist-server/server.js already bundled → node it directly.
+ *  • Development (cloned repo):       no bundle → tsx + TypeScript source, auto-build UI.
+ *
+ * Install once from the repo with `npm install && npm link`, or globally with
+ * `npm install -g bothread` (or `npx bothread start` for zero-install).
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -38,7 +41,7 @@ if (["help", "--help", "-h"].includes(cmd)) {
   process.exit(0);
 }
 if (["--version", "-v", "version"].includes(cmd)) {
-  console.log("bothread 0.1.0");
+  console.log("bothread 0.2.0");
   process.exit(0);
 }
 if (cmd !== "start") {
@@ -61,23 +64,36 @@ function sh(command, cmdArgs) {
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
-// First-run setup: install deps + build the room UI.
-const tsxCli = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
-if (!existsSync(tsxCli)) {
-  console.log("• Installing dependencies (first run only)…\n");
-  sh("npm", ["install"]);
-}
-if (!existsSync(path.join(root, "apps", "room-ui", "dist", "index.html"))) {
-  console.log("• Building the room UI (first run only)…\n");
-  sh("npm", ["run", "build:ui"]);
-}
+// ── Production mode (npm install / npx): use the pre-built bundle. ──
+const prodBundle = path.join(root, "dist-server", "server.js");
+if (existsSync(prodBundle)) {
+  const hub = spawn(process.execPath, [prodBundle], {
+    stdio: "inherit",
+    cwd: root,
+    env: process.env,
+  });
+  hub.on("exit", (code) => process.exit(code ?? 0));
+  process.on("SIGINT", () => hub.kill("SIGINT"));
+  process.on("SIGTERM", () => hub.kill("SIGTERM"));
+  process.exit; // never reached; keeps linters happy
+} else {
+  // ── Development mode (cloned repo): tsx + TypeScript source. ──
+  const tsxCli = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
+  if (!existsSync(tsxCli)) {
+    console.log("• Installing dependencies (first run only)…\n");
+    sh("npm", ["install"]);
+  }
+  if (!existsSync(path.join(root, "apps", "room-ui", "dist", "index.html"))) {
+    console.log("• Building the room UI (first run only)…\n");
+    sh("npm", ["run", "build:ui"]);
+  }
 
-// Launch the hub via node + tsx (no PATH dependency on `npx`/`tsx`).
-const hub = spawn(process.execPath, [tsxCli, path.join(root, "packages", "server", "src", "index.ts")], {
-  stdio: "inherit",
-  cwd: root,
-  env: process.env,
-});
-hub.on("exit", (code) => process.exit(code ?? 0));
-process.on("SIGINT", () => hub.kill("SIGINT"));
-process.on("SIGTERM", () => hub.kill("SIGTERM"));
+  const hub = spawn(process.execPath, [tsxCli, path.join(root, "packages", "server", "src", "index.ts")], {
+    stdio: "inherit",
+    cwd: root,
+    env: process.env,
+  });
+  hub.on("exit", (code) => process.exit(code ?? 0));
+  process.on("SIGINT", () => hub.kill("SIGINT"));
+  process.on("SIGTERM", () => hub.kill("SIGTERM"));
+}

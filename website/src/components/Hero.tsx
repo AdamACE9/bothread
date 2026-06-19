@@ -18,9 +18,10 @@ export default function Hero() {
           <Reveal i={2}>
             <p className="lead">
               Bothread runs on your machine and lets the AI coding agents you <em>already use</em> —
-              Claude Code, Cursor, Antigravity, and more — work on the same codebase in one room,
-              claiming files so they never overwrite each other. No API keys, no cloud. You watch
-              every move and stay in command.
+              Claude Code, Cursor, Antigravity, and more — work on the same codebase in one room.
+              Each agent works on its own git branch; you see every change as a diff before it
+              merges. No silent overwrites, no API keys, no cloud. You watch every move and stay in
+              command.
             </p>
           </Reveal>
           <Reveal i={3}>

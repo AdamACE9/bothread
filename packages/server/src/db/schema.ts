@@ -90,4 +90,22 @@ CREATE TABLE IF NOT EXISTS counters (
   value   INTEGER NOT NULL,
   PRIMARY KEY (room_id, name)
 );
+
+-- Per-agent git tracking: captures what each agent changed, surfaces as PR-style diffs.
+CREATE TABLE IF NOT EXISTS branches (
+  id               TEXT PRIMARY KEY,
+  room_id          TEXT NOT NULL,
+  participant_id   TEXT NOT NULL,
+  participant_name TEXT NOT NULL,
+  branch_name      TEXT NOT NULL,
+  base_sha         TEXT NOT NULL,
+  paths            TEXT NOT NULL,     -- JSON array of claimed glob patterns
+  diff             TEXT,              -- unified diff (populated when status → ready)
+  commit_sha       TEXT,              -- the tracking branch commit SHA (if created)
+  status           TEXT NOT NULL DEFAULT 'tracking',  -- tracking|ready|merged|discarded
+  created_at       INTEGER NOT NULL,
+  finalized_at     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_branch_room_status ON branches(room_id, status);
+CREATE INDEX IF NOT EXISTS idx_branch_participant ON branches(room_id, participant_id);
 `;

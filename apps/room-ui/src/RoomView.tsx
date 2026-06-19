@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Approval, ThreadEntry } from "@bothread/shared";
-import { decideApproval, sendOverseer, setParticipantStatus, setRoomStatus } from "./api";
+import type { AgentBranch, Approval, ThreadEntry } from "@bothread/shared";
+import { decideApproval, discardBranch, listBranches, mergeBranch, sendOverseer, setParticipantStatus, setRoomStatus } from "./api";
 import ConnectPanel from "./ConnectPanel";
 import { useRoom } from "./useRoom";
 import { Avatar, brandClass, fmtTime, richText } from "./ui";
@@ -8,6 +8,7 @@ import { Avatar, brandClass, fmtTime, richText } from "./ui";
 export default function RoomView({ roomId, onBack }: { roomId: string; onBack: () => void }) {
   const { detail, connected, refresh } = useRoom(roomId);
   const [showConnect, setShowConnect] = useState(false);
+  const [rightTab, setRightTab] = useState<"locks" | "changes">("locks");
 
   if (!detail) {
     return (
@@ -96,24 +97,44 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
         <Thread thread={snapshot.thread} brandByName={brandByName} />
 
         <aside className="rail right">
-          <h2>File locks</h2>
-          {leases.length === 0 ? (
-            <p className="empty">No files claimed.</p>
+          <div className="rail-tabs">
+            <button
+              className={`rail-tab${rightTab === "locks" ? " active" : ""}`}
+              onClick={() => setRightTab("locks")}
+            >
+              Locks
+            </button>
+            <button
+              className={`rail-tab${rightTab === "changes" ? " active" : ""}`}
+              onClick={() => setRightTab("changes")}
+            >
+              Changes
+            </button>
+          </div>
+
+          {rightTab === "locks" ? (
+            <>
+              {leases.length === 0 ? (
+                <p className="empty">No files claimed.</p>
+              ) : (
+                leases.map((l) => (
+                  <div className="lock" key={l.id}>
+                    <div className="path">{l.pathPattern}</div>
+                    <div className="holder">
+                      <span className={`av ${brandClass(brandByName.get(l.participantName) ?? "")}`} style={{ width: 18, height: 18, fontSize: ".55rem" }}>
+                        {l.participantName.slice(0, 1)}
+                      </span>
+                      {l.participantName}
+                      <span className="ex" style={{ marginLeft: "auto" }}>
+                        {l.exclusive ? "excl" : "shared"}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </>
           ) : (
-            leases.map((l) => (
-              <div className="lock" key={l.id}>
-                <div className="path">{l.pathPattern}</div>
-                <div className="holder">
-                  <span className={`av ${brandClass(brandByName.get(l.participantName) ?? "")}`} style={{ width: 18, height: 18, fontSize: ".55rem" }}>
-                    {l.participantName.slice(0, 1)}
-                  </span>
-                  {l.participantName}
-                  <span className="ex" style={{ marginLeft: "auto" }}>
-                    {l.exclusive ? "excl" : "shared"}
-                  </span>
-                </div>
-              </div>
-            ))
+            <BranchPanel roomId={roomId} afterAction={refresh} />
           )}
         </aside>
       </div>
@@ -259,6 +280,100 @@ function CommandBar({ roomId, paused, afterSend }: { roomId: string; paused: boo
       <button className="btn primary" onClick={send}>
         Send
       </button>
+    </div>
+  );
+}
+
+function BranchPanel({ roomId, afterAction }: { roomId: string; afterAction: () => void }) {
+  const [branches, setBranches] = useState<AgentBranch[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = (all = showAll) => {
+    listBranches(roomId, all).then(setBranches).catch(() => null);
+  };
+
+  useEffect(() => { load(); }, [roomId, showAll]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const act = async (fn: () => Promise<unknown>, branchId: string) => {
+    setBusy(branchId);
+    try { await fn(); load(); afterAction(); } finally { setBusy(null); }
+  };
+
+  const readyBranches = branches.filter((b) => b.status === "ready");
+  const trackingBranches = branches.filter((b) => b.status === "tracking");
+
+  return (
+    <div className="branch-panel">
+      {!branches.length && (
+        <p className="empty">
+          No agent changes tracked yet. Changes appear here when an agent claims files in a git repo and releases them.
+        </p>
+      )}
+
+      {trackingBranches.length > 0 && (
+        <div className="branch-group">
+          <div className="branch-group-label">In progress</div>
+          {trackingBranches.map((b) => (
+            <div className="branch-card tracking" key={b.id}>
+              <div className="branch-agent">{b.participantName}</div>
+              <div className="branch-paths">{b.paths.slice(0, 3).join(", ")}{b.paths.length > 3 ? ` +${b.paths.length - 3}` : ""}</div>
+              <span className="branch-status">tracking…</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {readyBranches.length > 0 && (
+        <div className="branch-group">
+          <div className="branch-group-label">Ready to review</div>
+          {readyBranches.map((b) => (
+            <div className="branch-card ready" key={b.id}>
+              <div className="branch-head">
+                <span className="branch-agent">{b.participantName}</span>
+                <span className="branch-paths">{b.paths.length} path{b.paths.length !== 1 ? "s" : ""}</span>
+              </div>
+              {b.diff ? (
+                <button
+                  className="diff-toggle"
+                  onClick={() => setExpanded(expanded === b.id ? null : b.id)}
+                >
+                  {expanded === b.id ? "▲ hide diff" : "▼ view diff"}
+                </button>
+              ) : (
+                <p className="empty" style={{ fontSize: ".72rem", margin: "4px 0" }}>No changes detected.</p>
+              )}
+              {expanded === b.id && b.diff && (
+                <pre className="diff-view">{b.diff}</pre>
+              )}
+              <div className="branch-acts">
+                <button
+                  className="btn sm danger"
+                  disabled={busy === b.id}
+                  onClick={() => act(() => discardBranch(roomId, b.id), b.id)}
+                >
+                  Discard
+                </button>
+                <button
+                  className="btn sm primary"
+                  disabled={busy === b.id}
+                  onClick={() => act(() => mergeBranch(roomId, b.id), b.id)}
+                >
+                  {busy === b.id ? "…" : "Merge to git"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <button className="btn sm" onClick={() => load()}>Refresh</button>
+        <button className="btn sm" onClick={() => { setShowAll((a) => !a); }}>
+          {showAll ? "Hide history" : "Show history"}
+        </button>
+      </div>
     </div>
   );
 }
