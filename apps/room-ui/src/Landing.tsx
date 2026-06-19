@@ -5,6 +5,7 @@ import { createRoom, listRooms } from "./api";
 export default function Landing({ onOpen }: { onOpen: (id: string) => void }) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [name, setName] = useState("");
+  const [projectPath, setProjectPath] = useState("");
   const [busy, setBusy] = useState(false);
 
   const refresh = () => listRooms().then(setRooms).catch(() => {});
@@ -17,8 +18,9 @@ export default function Landing({ onOpen }: { onOpen: (id: string) => void }) {
     if (!n || busy) return;
     setBusy(true);
     try {
-      const { room } = await createRoom(n);
+      const { room } = await createRoom(n, projectPath.trim() || undefined);
       setName("");
+      setProjectPath("");
       onOpen(room.id);
     } finally {
       setBusy(false);
@@ -47,6 +49,19 @@ export default function Landing({ onOpen }: { onOpen: (id: string) => void }) {
           Create room
         </button>
       </div>
+      <div className="create-row project">
+        <input
+          className="field"
+          placeholder="Project folder (optional) — e.g. C:\\code\\my-app — enables per-agent git diffs"
+          value={projectPath}
+          onChange={(e) => setProjectPath(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && create()}
+        />
+      </div>
+      <p className="create-hint">
+        Point Bothread at your project's git repo and each agent's changes show up as a reviewable
+        diff you can merge or discard — no silent overwrites.
+      </p>
 
       <div className="section-label">Your rooms</div>
       {rooms.length === 0 ? (

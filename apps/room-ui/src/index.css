@@ -221,11 +221,25 @@ textarea.field {
 .create-row {
   display: flex;
   gap: 0.6rem;
-  margin-bottom: 2.5rem;
+  margin-bottom: 0.6rem;
   flex-wrap: wrap;
 }
 .create-row .field {
   flex: 1 1 260px;
+}
+.create-row.project {
+  margin-bottom: 0.5rem;
+}
+.create-row.project .field {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+.create-hint {
+  font-size: 0.78rem;
+  color: var(--muted-1);
+  line-height: 1.5;
+  max-width: 60ch;
+  margin-bottom: 2.5rem;
 }
 .rooms-list {
   display: grid;

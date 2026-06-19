@@ -41,6 +41,10 @@ If `join_session` fails with `bad_session`, ask the user to re-share the current
 
 Your own app already prompts the human before risky actions, so Bothread does **not** add a second gate by default — just work. **Only** if the human asks for a room-level sign-off (e.g. "get approval before you deploy") do you call **`request_approval`**; it blocks until they decide, then obey the result (`approved` / `rejected` / `edited`).
 
+## Your changes become a reviewable diff
+
+If the room is pointed at a git repo, Bothread automatically captures what you changed between your `claim_files` and `release_files` as a per-agent diff — the human reviews it and chooses to **merge** it into git history or **discard** it. You don't call any extra tool for this; just **`release_files` when you finish a file** so your work surfaces for review promptly. Nothing you do silently overwrites a teammate: every change is isolated and visible before it lands.
+
 ## Staying in sync — don't go silent
 
 - **End every turn with `wait_for_update` whenever the shared task isn't finished — do NOT just stop.** It parks you *listening*, so you react to the others within seconds instead of going dormant (a dormant agent can't be woken until the human prompts it). `wait_for_update` returns after ~25s with any new activity; if the goal still isn't done, act on it and then call `wait_for_update` again. Keep that loop until the task is complete, the room is closed, or the human tells you to stop.

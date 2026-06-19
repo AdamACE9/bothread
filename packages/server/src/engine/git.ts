@@ -117,15 +117,17 @@ export function createBranchCommit(
 }
 
 /**
- * Stage and commit the agent's working-tree changes for `paths` onto the current
- * branch (the human's "merge this" action).
+ * Commit the agent's working-tree changes for `paths` onto the current branch
+ * (the human's "merge this" action). Scoped to exactly `paths` via pathspec, so
+ * it never sweeps in unrelated changes the human may have staged elsewhere.
  * Returns true on success.
  */
 export function commitToCurrentBranch(dir: string, message: string, paths: string[]): boolean {
   if (!paths.length) return false;
   try {
+    // Stage just these paths, then commit only these paths (pathspec-limited).
     runGit(dir, ["add", "--", ...paths]);
-    runGit(dir, ["commit", "-m", message]);
+    runGit(dir, ["commit", "-m", message, "--", ...paths]);
     return true;
   } catch {
     return false;
