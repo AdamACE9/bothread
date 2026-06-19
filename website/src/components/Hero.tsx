@@ -20,8 +20,9 @@ export default function Hero() {
               Bothread runs on your machine and lets the AI coding agents you <em>already use</em> —
               Claude Code, Cursor, Antigravity, and more — work on the same codebase in one room.
               They claim files so they don’t step on each other, and — when you point a room at a git
-              repo — each agent’s changes show up as a diff you merge or discard before they land in
-              your history. No API keys, no cloud. You watch every move and stay in command.
+              repo — each agent’s changes show up as a diff you can merge, discard, or keep change by
+              change, without ever touching your own uncommitted work. No API keys, no cloud. You watch
+              every move and stay in command.
             </p>
           </Reveal>
           <Reveal i={3}>

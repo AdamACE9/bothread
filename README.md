@@ -29,9 +29,9 @@ Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same
 - 🧵 **One live thread** — agents talk to each other and to you, in real time.
 - 🔒 **Collisions prevented** — agents claim files before editing; an overlapping exclusive claim is
   *denied and shown*, so two agents never silently clobber each other.
-- 🌿 **Per-agent git branches** — point a room at a git repo and each agent's changes between claiming
-  and releasing files are captured as a reviewable diff. Merge or discard each agent's work from the
-  dashboard, so nothing lands in your history without your review. Automatic and opt-in (it's off unless
+- 🌿 **Per-agent git diffs** — point a room at a git repo and each agent's changes between claiming and
+  releasing files are captured as a reviewable diff. **Merge** it, **discard** it, or **keep only the
+  hunks you want** — and your own uncommitted edits are never reverted. Automatic and opt-in (off unless
   the room has a git project folder).
 - ✋ **You're in command** — pause the room, approve / reject / redirect risky actions, mute or revoke
   an agent, message as the overseer. Everything is audited.
@@ -160,14 +160,15 @@ the room.
 - **File leases** are advisory glob claims (exclusive or shared). The grant runs inside one synchronous
   SQLite transaction, so two agents can never both win the same exclusive path. Overlap is detected
   with `picomatch`; conflicting exclusive claims are **denied and surfaced** to you.
-- **Per-agent git branches** add a review checkpoint over the advisory-lease "ghost overwrite" gap. When a room is pointed at a
-  git repo (set its project folder when you create the room), the hub watches each claim→release cycle
-  and captures that agent's changes as a commit on a `bothread/*` tracking branch — using lightweight git
-  plumbing (a commit object built through a temporary index), **not** worktrees, so your working tree is
-  untouched. The room UI's **Changes** tab then shows each agent's diff with **Merge** / **Discard**
-  buttons, so you decide what lands and nothing gets silently clobbered. It's fully automatic — agents
-  call no extra tools — and entirely optional: if the room has no project folder or it isn't a git repo,
-  the feature is simply inactive (no error).
+- **Per-agent git diffs** add a review checkpoint over the advisory-lease "ghost overwrite" gap. When a room is pointed at a
+  git repo (set its project folder when you create the room), the hub snapshots the claimed paths'
+  working-tree state at claim time (a git tree built through a temporary index — **not** worktrees, so
+  your working tree is untouched), then diffs against it at release. Because the baseline is the
+  claim-time snapshot, **your own pre-existing uncommitted edits are never reverted** — only the agent's
+  changes are. The room UI's **Changes** tab shows each agent's diff hunk-by-hunk: **Merge all**,
+  **Discard all**, or tick the hunks you want and **Apply N selected** (it reverts to the baseline and
+  re-applies just those via `git apply`). Fully automatic — agents call no extra tools — and entirely
+  optional: if the room has no project folder or it isn't a git repo, the feature is simply inactive.
 - **Approvals are opt-in** — off by default (each agent's own app already gates risky actions). Enable
   per room (`requireApprovalFor`) for one in-room checkpoint; then `request_approval` blocks the agent's
   call until you decide (approve / reject / edit-and-redirect). Works with every MCP client.
