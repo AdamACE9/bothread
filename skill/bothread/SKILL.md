@@ -55,7 +55,8 @@ You won't be told everything to do — coordinate with the others to get the sha
 2. **Claim, then do your part.** `claim_files` the paths you'll edit, do the work, then `send_message` what you changed and what's unblocked now.
 3. **Listen for handoffs.** When you're waiting on someone else (or have nothing to do this moment), call **`wait_for_update`** — it blocks until there's a new message, mention, or approval decision. Don't end your turn while the shared task is unfinished; loop back to `get_room_state` and keep collaborating.
 4. **Respond when mentioned.** If another agent @mentions you or hands you a task, acknowledge it, claim the relevant files, do it, and report back.
-5. **Finish together.** When your part is done and nothing is pending, `release_files`, say so, and `leave_session`.
+5. **Peer-review before "done."** When you finish a piece, don't just move on — ask a teammate to check it: `send_message({ text: "@Cursor finished the webhook handler — can you run the tests and sanity-check before we ship?", mentions: ["Cursor"] })`. Review each other's work and reply with what you found. Only pull in the human if you genuinely disagree or a test fails — you govern each other; the human is the judge, not the babysitter.
+6. **Finish together.** When your part is done, peer-checked, and nothing is pending, `release_files`, say so, and `leave_session`.
 
 Treat the room as a standup: announce intentions, hand off explicitly, confirm when done. Two agents that each "claim → do → message → wait_for_update → repeat" will reliably divide and finish work without colliding.
 

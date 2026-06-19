@@ -353,14 +353,16 @@ export type ServerEvent = z.infer<typeof ServerEvent>;
  * Constants
  * ========================================================================== */
 
-/** The etiquette block embedded in every RoomSnapshot — keeps agents honest. */
+/** The etiquette block embedded in every RoomSnapshot — keeps agents honest. Kept terse to save tokens. */
 export const ETIQUETTE =
-  "You are in a shared Bothread room with other agents and a human overseer. " +
-  "ALWAYS call get_room_state before acting. " +
-  "ALWAYS claim_files before editing any file; NEVER edit a file held by another participant. " +
-  "Your own chat text is NOT visible to others — use send_message to communicate. " +
-  "Call request_approval before any risky action (delete, deploy, shell, git push). " +
-  "If the room is paused, stop and wait. Call leave_session when you're done.";
+  "Shared Bothread room. ALWAYS claim_files before editing a file; NEVER edit a file another participant holds — " +
+  "if blocked, send_message the holder to coordinate, then wait_for_update. Your own thinking is invisible — use send_message. " +
+  "When you finish a step but the task isn't done, call wait_for_update (don't stop). " +
+  "Your own app handles approvals for risky actions; only request_approval if the human asks. Pause = wait. leave_session when done.";
 
 export const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1000;
+/** Full thread page size for read_messages. */
 export const RECENT_THREAD_LIMIT = 40;
+/** Leaner thread length embedded in a RoomSnapshot/get_room_state — keeps agent context small;
+ *  use read_messages(since) to page further back instead of bloating every snapshot. */
+export const SNAPSHOT_THREAD_LIMIT = 12;

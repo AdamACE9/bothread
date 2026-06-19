@@ -19,7 +19,7 @@ import type {
   ThreadEntry,
   WaitForUpdateResult,
 } from "@bothread/shared";
-import { ETIQUETTE, RECENT_THREAD_LIMIT, RoomSettings as RoomSettingsSchema } from "@bothread/shared";
+import { ETIQUETTE, RECENT_THREAD_LIMIT, SNAPSHOT_THREAD_LIMIT, RoomSettings as RoomSettingsSchema } from "@bothread/shared";
 import type { DB } from "../db/database";
 import type { RoomBus } from "../realtime";
 import { BothreadError } from "./errors";
@@ -897,7 +897,8 @@ export class Engine {
         leases: byParticipant.get(self.id) ?? [],
       },
       participants,
-      thread: this.msgRows(room.id).map((r) => this.toThreadEntry(this.mapMessage(r))),
+      // Lean thread in the snapshot to save agent context; read_messages(since) pages further back.
+      thread: this.msgRows(room.id, undefined, SNAPSHOT_THREAD_LIMIT).map((r) => this.toThreadEntry(this.mapMessage(r))),
       locks: leases.map((l) => ({
         path: l.pathPattern,
         heldBy: l.participantId,
