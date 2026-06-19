@@ -38,6 +38,8 @@ export const setRoomStatus = (id: string, status: "active" | "paused" | "closed"
   jpost(`/api/rooms/${id}/status`, { status });
 export const setParticipantStatus = (id: string, pid: string, status: "active" | "muted" | "revoked") =>
   jpost(`/api/rooms/${id}/participants/${pid}/status`, { status });
+export const nudgeParticipant = (id: string, pid: string) =>
+  jpost<{ listening: boolean }>(`/api/rooms/${id}/participants/${pid}/nudge`);
 export const decideApproval = (id: string, aid: string, decision: "approved" | "rejected" | "edited", instruction?: string) =>
   jpost(`/api/rooms/${id}/approvals/${aid}/decide`, { decision, instruction });
 

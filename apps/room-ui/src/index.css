@@ -834,6 +834,33 @@ textarea.field {
 .diff-view .line-del { color: var(--clay-1); }
 .diff-view .line-hdr { color: var(--muted-1); }
 
+/* ── "Listening" presence (parked in wait_for_update) ── */
+.listening {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  color: var(--teal-1);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+.listening .pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--teal-1);
+  box-shadow: 0 0 0 0 rgba(124, 193, 164, 0.6);
+  animation: bt-pulse 1.8s ease-out infinite;
+}
+@keyframes bt-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(124, 193, 164, 0.55); }
+  70% { box-shadow: 0 0 0 6px rgba(124, 193, 164, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(124, 193, 164, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .listening .pulse { animation: none; }
+}
+
 /* ── Hand-off requests (who's waiting on whom) ── */
 .handoffs { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.9rem; }
 .handoff {

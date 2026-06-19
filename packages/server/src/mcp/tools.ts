@@ -198,7 +198,15 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
       try {
         const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
         const res = await engine.waitForUpdate(caller, args);
-        return ok(res.changed ? `${res.newMessages.length} new message(s).` : "No new activity.", res);
+        const parts: string[] = [];
+        if (res.newMessages.length) parts.push(`${res.newMessages.length} new message(s)`);
+        if (res.handoffsForYou.length)
+          parts.push(
+            `${res.handoffsForYou.length} agent(s) waiting on files you hold (${res.handoffsForYou
+              .map((h) => `${h.requestedBy}→${h.path}`)
+              .join(", ")}) — release them or reply`
+          );
+        return ok(parts.length ? parts.join("; ") + "." : "No new activity.", res);
       } catch (e) {
         return fail(e);
       }

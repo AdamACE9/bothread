@@ -545,6 +545,17 @@ label {
   content: "room · ";
   color: var(--muted-1);
 }
+.demo-tag {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-1);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.14));
+  border-radius: 100px;
+  padding: 0.1rem 0.45rem;
+  opacity: 0.85;
+}
 .clock {
   font-family: var(--font-mono);
   font-size: 0.72rem;

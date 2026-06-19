@@ -174,6 +174,13 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
   );
 
   api.post(
+    "/rooms/:id/participants/:pid/nudge",
+    wrap((req, res) => {
+      res.json(engine.nudgeParticipant(param(req, "id"), param(req, "pid")));
+    })
+  );
+
+  api.post(
     "/rooms/:id/approvals/:aid/decide",
     wrap((req, res) => {
       const { decision, instruction, decidedBy } = req.body ?? {};

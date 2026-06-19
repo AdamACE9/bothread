@@ -160,6 +160,11 @@ export class Engine {
   /** Pending blocking approvals: approvalId -> resolver. */
   private approvalWaiters = new Map<string, (r: ApprovalResult) => void>();
 
+  /** Participants currently parked in wait_for_update (actively listening). */
+  private parkedWaiters = new Set<string>();
+  /** Last time each participant entered wait_for_update — smooths the "listening" flag across poll cycles. */
+  private lastWaitAt = new Map<string, number>();
+
   constructor(db: DB, bus: RoomBus) {
     this.db = db;
     this.bus = bus;
@@ -506,6 +511,27 @@ export class Engine {
     return participant;
   }
 
+  /**
+   * Nudge a (possibly stopped) agent: post a high-priority @mention from the
+   * overseer asking it to check the room and continue. For an agent that's
+   * listening (parked in wait_for_update) this lands instantly; for one that has
+   * fully stopped its turn it sits as a directed prompt for when its host runs it
+   * again — Bothread can't start another agent's turn, only flag that it should.
+   */
+  nudgeParticipant(roomId: string, participantId: string, by = "You"): { listening: boolean } {
+    const p = this.partRow(participantId);
+    if (!p || p.room_id !== roomId) throw new BothreadError("no_participant", "Participant not found.");
+    const listening = this.isListening(participantId);
+    this.overseerMessage(
+      roomId,
+      `@${p.name} — please run get_room_state and continue; the overseer is nudging you.`,
+      "interrupt",
+      [p.name]
+    );
+    this.audit(roomId, "participant.nudge", { name: by }, { participant: p.name, wasListening: listening });
+    return { listening };
+  }
+
   /* ===================== Messages ===================== */
 
   private insertMessage(
@@ -612,27 +638,51 @@ export class Engine {
     const roomId = caller.room.id;
     const since = input.since ?? this.latestSeq(roomId);
     const maxWaitMs = input.maxWaitMs ?? 25000;
+    const me = caller.participant.id;
 
     const build = (): WaitForUpdateResult => {
       const latestSeq = this.latestSeq(roomId);
       const newMessages = this.msgRows(roomId, since).map((r) => this.toThreadEntry(this.mapMessage(r)));
+      const handoffsForYou = this.pendingHandoffs(roomId)
+        .filter((h) => h.holderId === me)
+        .map((h) => ({ id: h.id, path: h.path, requestedBy: h.requesterName, heldBy: h.holderName, message: h.message }));
       return {
-        changed: latestSeq > since,
+        changed: latestSeq > since || handoffsForYou.length > 0,
         latestSeq,
         newMessages,
         pendingApprovals: this.pendingApprovalViews(roomId),
+        handoffsForYou,
       };
     };
 
     const immediate = build();
     if (immediate.changed) return immediate;
 
-    await this.bus.waitFor(
-      roomId,
-      (ev) => ev.type === "message" || ev.type === "approval" || ev.type === "room" || ev.type === "collision",
-      maxWaitMs
-    );
+    // Mark this agent as actively listening for the duration of the long-poll.
+    this.parkedWaiters.add(me);
+    this.lastWaitAt.set(me, now());
+    try {
+      await this.bus.waitFor(
+        roomId,
+        (ev) =>
+          ev.type === "message" ||
+          ev.type === "approval" ||
+          ev.type === "room" ||
+          ev.type === "collision" ||
+          ev.type === "handoff",
+        maxWaitMs
+      );
+    } finally {
+      this.parkedWaiters.delete(me);
+    }
     return build();
+  }
+
+  /** Is this participant actively listening (parked in wait_for_update, or very recently)? */
+  private isListening(participantId: string): boolean {
+    if (this.parkedWaiters.has(participantId)) return true;
+    const last = this.lastWaitAt.get(participantId);
+    return last !== undefined && now() - last < 35_000;
   }
 
   private toThreadEntry(m: Message): ThreadEntry {
@@ -1113,6 +1163,7 @@ export class Engine {
         status: p.status as ParticipantStatus,
         claimedFiles: byParticipant.get(p.id) ?? [],
         lastSeen: p.last_seen_at,
+        listening: p.kind === "agent" && this.isListening(p.id),
       }));
 
     return {

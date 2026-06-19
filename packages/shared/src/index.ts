@@ -172,6 +172,8 @@ export const ParticipantView = z.object({
   status: ParticipantStatus,
   claimedFiles: z.array(z.string()),
   lastSeen: z.number(),
+  /** True if the agent is currently parked in wait_for_update — actively listening. */
+  listening: z.boolean().default(false),
 });
 export type ParticipantView = z.infer<typeof ParticipantView>;
 
@@ -361,6 +363,8 @@ export const WaitForUpdateResult = z.object({
   latestSeq: z.number(),
   newMessages: z.array(ThreadEntry),
   pendingApprovals: z.array(PendingApprovalView),
+  /** Open requests for files YOU hold — release them or reply so the waiter can proceed. */
+  handoffsForYou: z.array(HandoffView).default([]),
 });
 export type WaitForUpdateResult = z.infer<typeof WaitForUpdateResult>;
 

@@ -326,7 +326,7 @@ export default function RoomMock() {
     <div
       className="room"
       role="group"
-      aria-label="Live preview of a Bothread room: agents collaborate, a file collision is prevented, and you approve a deploy."
+      aria-label="Animated demo of a Bothread room (a scripted illustration, not a live session): agents collaborate, a file collision is prevented, and you approve a deploy."
     >
       <div className="room-head">
         <span className={`live${playing ? "" : " paused"}`}>
@@ -334,6 +334,9 @@ export default function RoomMock() {
           {playing ? "live" : "paused"}
         </span>
         <span className="room-id">payments-refactor</span>
+        <span className="demo-tag" title="A scripted illustration of how a Bothread room behaves — not a live agent session.">
+          demo
+        </span>
         <span className="clock" aria-hidden="true">
           {mins}:{pad(secs)}
         </span>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentBranch, Approval, DiffHunkView, ThreadEntry } from "@bothread/shared";
-import { applyHunks, decideApproval, discardBranch, listBranches, mergeBranch, sendOverseer, setParticipantStatus, setRoomStatus } from "./api";
+import { applyHunks, decideApproval, discardBranch, listBranches, mergeBranch, nudgeParticipant, sendOverseer, setParticipantStatus, setRoomStatus } from "./api";
 import ConnectPanel from "./ConnectPanel";
 import { useRoom } from "./useRoom";
 import { Avatar, brandClass, fmtTime, richText } from "./ui";
@@ -56,6 +56,11 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
                 </div>
                 <div className="meta">
                   {p.kind === "human" ? "overseer" : p.brand ?? "agent"} · {p.status}
+                  {p.kind === "agent" && p.listening && (
+                    <span className="listening" title="Actively listening (parked in wait_for_update)">
+                      <span className="pulse" /> listening
+                    </span>
+                  )}
                 </div>
                 {p.claimedFiles.length > 0 && (
                   <div className="files">
@@ -66,6 +71,13 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
                 )}
                 {p.kind === "agent" && p.status !== "revoked" && (
                   <div className="acts">
+                    <button
+                      className="btn sm"
+                      title={p.listening ? "Agent is listening — it'll see this at once" : "Agent isn't listening; this lands for when its app next runs it"}
+                      onClick={() => nudgeParticipant(roomId, p.id).then(refresh)}
+                    >
+                      Nudge
+                    </button>
                     {p.status === "muted" ? (
                       <button
                         className="btn sm"

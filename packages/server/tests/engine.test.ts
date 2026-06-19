@@ -278,3 +278,36 @@ describe("Engine — hand-offs (routed file requests)", () => {
     expect(res.reason).toMatch(/claim_files/);
   });
 });
+
+describe("Engine — liveness (listening, nudge, hand-off-aware wait)", () => {
+  it("marks an agent as listening after it enters wait_for_update", async () => {
+    const engine = makeEngine();
+    const { b, room } = twoAgentRoom(engine);
+    await engine.waitForUpdate(b, { maxWaitMs: 0 }); // park + return immediately
+    const snap = engine.snapshotForOverseer(room.id)!;
+    const view = snap.participants.find((p) => p.name === "Cursor")!;
+    expect(view.listening).toBe(true);
+  });
+
+  it("wait_for_update tells the holder which files others are waiting on", async () => {
+    const engine = makeEngine();
+    const { a, b } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/x.ts"] }); // Claude holds
+    engine.claimFiles(b, { paths: ["src/x.ts"] }); // Cursor blocked → handoff to Claude
+    const res = await engine.waitForUpdate(a, { maxWaitMs: 0 });
+    expect(res.changed).toBe(true);
+    expect(res.handoffsForYou.length).toBe(1);
+    expect(res.handoffsForYou[0]!.requestedBy).toBe("Cursor");
+    expect(res.handoffsForYou[0]!.path).toBe("src/x.ts");
+  });
+
+  it("nudge posts a high-priority @mention from the overseer", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+    const before = engine.readMessages(a, {}).latestSeq;
+    const res = engine.nudgeParticipant(room.id, b.participant.id);
+    expect(typeof res.listening).toBe("boolean");
+    const msgs = engine.readMessages(a, { since: before }).messages;
+    expect(msgs.some((m) => m.text.includes("@Cursor") && m.importance === "interrupt")).toBe(true);
+  });
+});
