@@ -33,6 +33,9 @@ Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same
   releasing files are captured as a reviewable diff. **Merge** it, **discard** it, or **keep only the
   hunks you want** — and your own uncommitted edits are never reverted. Automatic and opt-in (off unless
   the room has a git project folder).
+- 🤝 **Routed hand-offs** — when an agent is blocked on a file another holds, Bothread opens a tracked
+  request, @-mentions the holder, and notifies the waiter the moment it's released (or the agent can ask
+  proactively with `request_handoff`). No idle stalemates, and you see who's waiting on whom.
 - ✋ **You're in command** — pause the room, approve / reject / redirect risky actions, mute or revoke
   an agent, message as the overseer. Everything is audited.
 - 🏠 **Local-first** — binds `127.0.0.1`, stores state in SQLite, no cloud, no account.
@@ -129,7 +132,7 @@ Full details: [`skill/README.md`](skill/README.md).
 ## The agent tool surface
 
 `join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` ·
-`claim_files` · `release_files` · `renew_files` · `request_approval` · `leave_session`
+`claim_files` · `release_files` · `renew_files` · `request_handoff` · `request_approval` · `leave_session`
 
 Every call returns a clean structured result plus a readable summary, so an agent instantly understands
 the room.

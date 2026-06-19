@@ -109,4 +109,20 @@ CREATE TABLE IF NOT EXISTS branches (
 );
 CREATE INDEX IF NOT EXISTS idx_branch_room_status ON branches(room_id, status);
 CREATE INDEX IF NOT EXISTS idx_branch_participant ON branches(room_id, participant_id);
+
+-- Hand-off requests: a blocked agent asks the holder of a path to release it.
+CREATE TABLE IF NOT EXISTS handoffs (
+  id             TEXT PRIMARY KEY,
+  room_id        TEXT NOT NULL,
+  requester_id   TEXT NOT NULL,
+  requester_name TEXT NOT NULL,
+  holder_id      TEXT NOT NULL,
+  holder_name    TEXT NOT NULL,
+  path           TEXT NOT NULL,
+  message        TEXT,
+  status         TEXT NOT NULL DEFAULT 'pending',  -- pending|released|cancelled
+  created_at     INTEGER NOT NULL,
+  resolved_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_handoff_room_status ON handoffs(room_id, status);
 `;

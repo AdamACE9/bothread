@@ -5,6 +5,8 @@ import type {
   ApprovalStatus,
   ClaimFilesInput,
   ClaimResult,
+  Handoff,
+  HandoffView,
   Importance,
   Lease,
   LeaseConflict,
@@ -38,7 +40,7 @@ import type { DB } from "../db/database";
 import type { RoomBus } from "../realtime";
 import { BothreadError } from "./errors";
 import { newId, newSessionId } from "./ids";
-import { leasesConflict } from "./leases";
+import { globsOverlap, leasesConflict } from "./leases";
 
 /* ----- Raw row shapes ----- */
 interface RoomRow {
@@ -116,6 +118,19 @@ interface BranchRow {
   status: string;
   created_at: number;
   finalized_at: number | null;
+}
+interface HandoffRow {
+  id: string;
+  room_id: string;
+  requester_id: string;
+  requester_name: string;
+  holder_id: string;
+  holder_name: string;
+  path: string;
+  message: string | null;
+  status: string;
+  created_at: number;
+  resolved_at: number | null;
 }
 
 export interface Caller {
@@ -272,6 +287,21 @@ export class Engine {
       status: b.status as AgentBranch["status"],
       createdAt: b.created_at,
       finalizedAt: b.finalized_at ?? undefined,
+    };
+  }
+  private mapHandoff(h: HandoffRow): Handoff {
+    return {
+      id: h.id,
+      roomId: h.room_id,
+      requesterId: h.requester_id,
+      requesterName: h.requester_name,
+      holderId: h.holder_id,
+      holderName: h.holder_name,
+      path: h.path,
+      message: h.message ?? undefined,
+      status: h.status as Handoff["status"],
+      createdAt: h.created_at,
+      resolvedAt: h.resolved_at ?? undefined,
     };
   }
 
@@ -733,6 +763,9 @@ export class Engine {
         by: caller.participant.name,
         conflicts: result.conflicts,
       });
+      // Hub-routed hand-off: instead of a dead-end, open a tracked request to the
+      // holder and @-mention them, so the negotiation happens automatically.
+      this.openHandoffsForConflicts(caller, result.conflicts);
     }
     return result;
   }
@@ -767,6 +800,8 @@ export class Engine {
       this.publish(roomId, "lease", { leases: this.activeLeases(roomId) });
       // Finalize any open git tracking entries for this participant.
       this.finalizeGitTracking(caller.room, caller.participant);
+      // Tell anyone waiting on a path this participant just freed that it's available.
+      this.resolveHandoffsForHolder(roomId, caller.participant.id);
     }
     return { released };
   }
@@ -889,12 +924,153 @@ export class Engine {
     }));
   }
 
+  /* ===================== Hand-offs (routed file requests) ===================== */
+
+  private handoffRow(id: string): HandoffRow | undefined {
+    return this.db.prepare(`SELECT * FROM handoffs WHERE id = ?`).get(id) as HandoffRow | undefined;
+  }
+
+  /** The active holder of `path` (first overlapping active lease), if any. */
+  private holderOfPath(roomId: string, path: string): { id: string; name: string } | undefined {
+    for (const l of this.activeLeaseRows(roomId)) {
+      if (globsOverlap(l.path_pattern, path) || globsOverlap(path, l.path_pattern)) {
+        return { id: l.participant_id, name: l.participant_name };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Open a tracked hand-off request and @-mention the holder. De-duplicated:
+   * one pending request per (requester, holder, path). Returns the Handoff or
+   * undefined if it was a self-request or a duplicate.
+   */
+  private createHandoff(
+    roomId: string,
+    requester: { id: string; name: string },
+    holder: { id: string; name: string },
+    path: string,
+    message?: string
+  ): Handoff | undefined {
+    if (requester.id === holder.id) return undefined;
+    const dupe = this.db
+      .prepare(
+        `SELECT id FROM handoffs WHERE room_id = ? AND requester_id = ? AND holder_id = ? AND path = ? AND status = 'pending' LIMIT 1`
+      )
+      .get(roomId, requester.id, holder.id, path) as { id: string } | undefined;
+    if (dupe) return this.mapHandoff(this.handoffRow(dupe.id)!);
+
+    const id = newId("ho");
+    const createdAt = now();
+    this.db
+      .prepare(
+        `INSERT INTO handoffs (id, room_id, requester_id, requester_name, holder_id, holder_name, path, message, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+      )
+      .run(id, roomId, requester.id, requester.name, holder.id, holder.name, path, message ?? null, createdAt);
+
+    this.audit(roomId, "handoff.request", { id: requester.id, name: requester.name }, { holder: holder.name, path });
+    this.postSystemMessage(
+      roomId,
+      `@${holder.name} — ${requester.name} needs \`${path}\` (which you hold)${message ? `: "${message}"` : ""}. Release it when you can, or reply.`,
+      "steering"
+    );
+    const handoff = this.mapHandoff(this.handoffRow(id)!);
+    this.publish(roomId, "handoff", { handoff });
+    return handoff;
+  }
+
+  private openHandoffsForConflicts(caller: Caller, conflicts: LeaseConflict[]): void {
+    for (const c of conflicts) {
+      this.createHandoff(
+        caller.room.id,
+        { id: caller.participant.id, name: caller.participant.name },
+        { id: c.heldBy, name: c.heldByName },
+        c.path
+      );
+    }
+  }
+
+  /** After `holderId` releases, notify any waiters whose path is now free. */
+  private resolveHandoffsForHolder(roomId: string, holderId: string): void {
+    const pending = this.db
+      .prepare(`SELECT * FROM handoffs WHERE room_id = ? AND holder_id = ? AND status = 'pending'`)
+      .all(roomId, holderId) as HandoffRow[];
+    if (!pending.length) return;
+    const at = now();
+    for (const h of pending) {
+      // Still blocked by someone else? Leave it pending.
+      const stillHeld = this.holderOfPath(roomId, h.path);
+      if (stillHeld) continue;
+      this.db.prepare(`UPDATE handoffs SET status = 'released', resolved_at = ? WHERE id = ?`).run(at, h.id);
+      this.postSystemMessage(
+        roomId,
+        `@${h.requester_name} — \`${h.path}\` is free now (released by ${h.holder_name}). You can claim it.`,
+        "steering"
+      );
+      this.publish(roomId, "handoff", { handoff: this.mapHandoff(this.handoffRow(h.id)!) });
+    }
+  }
+
+  /** Proactive hand-off: an agent asks for a path it knows someone holds. */
+  requestHandoff(
+    caller: Caller,
+    input: { path: string; message?: string }
+  ): { routed: boolean; holder?: string; reason?: string } {
+    this.assertWritable(caller);
+    const holder = this.holderOfPath(caller.room.id, input.path);
+    if (!holder) {
+      return { routed: false, reason: "No one is holding that path — you can claim it directly with claim_files." };
+    }
+    if (holder.id === caller.participant.id) {
+      return { routed: false, reason: "You already hold that path." };
+    }
+    const handoff = this.createHandoff(
+      caller.room.id,
+      { id: caller.participant.id, name: caller.participant.name },
+      holder,
+      input.path,
+      input.message
+    );
+    return { routed: true, holder: holder.name, reason: handoff ? undefined : "A request to that holder is already open." };
+  }
+
+  pendingHandoffs(roomId: string): Handoff[] {
+    return (
+      this.db
+        .prepare(`SELECT * FROM handoffs WHERE room_id = ? AND status = 'pending' ORDER BY created_at ASC`)
+        .all(roomId) as HandoffRow[]
+    ).map((h) => this.mapHandoff(h));
+  }
+
+  private handoffViews(roomId: string): HandoffView[] {
+    return this.pendingHandoffs(roomId).map((h) => ({
+      id: h.id,
+      path: h.path,
+      requestedBy: h.requesterName,
+      heldBy: h.holderName,
+      message: h.message,
+    }));
+  }
+
+  /** When a participant leaves/revoked, cancel hand-offs that name them. */
+  private cancelHandoffsFor(roomId: string, participantId: string): void {
+    this.db
+      .prepare(
+        `UPDATE handoffs SET status = 'cancelled', resolved_at = ? WHERE room_id = ? AND status = 'pending' AND (requester_id = ? OR holder_id = ?)`
+      )
+      .run(now(), roomId, participantId, participantId);
+  }
+
   /* ===================== Leave ===================== */
 
   leaveSession(caller: Caller): void {
     const roomId = caller.room.id;
     this.releaseAllFor(roomId, caller.participant.id, "left");
     this.finalizeGitTracking(caller.room, caller.participant);
+    // Their files are now free — notify waiters — then drop any of their own requests.
+    this.resolveHandoffsForHolder(roomId, caller.participant.id);
+    this.cancelHandoffsFor(roomId, caller.participant.id);
     this.db
       .prepare(`UPDATE participants SET status = 'left', mcp_session_id = NULL WHERE id = ?`)
       .run(caller.participant.id);
@@ -958,6 +1134,7 @@ export class Engine {
         expiresAt: l.expiresAt,
       })),
       pendingApprovals: this.pendingApprovalViews(room.id),
+      handoffs: this.handoffViews(room.id),
       latestSeq: this.latestSeq(room.id),
       etiquette: ETIQUETTE,
     };

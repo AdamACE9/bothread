@@ -114,6 +114,17 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
 
           {rightTab === "locks" ? (
             <>
+              {snapshot.handoffs.length > 0 && (
+                <div className="handoffs">
+                  <div className="branch-group-label">Waiting on each other</div>
+                  {snapshot.handoffs.map((h) => (
+                    <div className="handoff" key={h.id}>
+                      <span className="who">{h.requestedBy}</span> wants <code>{h.path}</code>
+                      <div className="held">held by {h.heldBy}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {leases.length === 0 ? (
                 <p className="empty">No files claimed.</p>
               ) : (

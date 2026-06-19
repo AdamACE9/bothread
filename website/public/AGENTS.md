@@ -15,7 +15,7 @@ You may be asked to join a **Bothread session**: a shared room where you work wi
 - `release_files` when done with them; `leave_session` when finished.
 
 **Never:**
-- Edit a file another participant holds. If `claim_files` is **PREVENTED**, coordinate via `send_message` — don't touch those paths.
+- Edit a file another participant holds. If `claim_files` is **PREVENTED**, call `request_handoff({ path, message })` (Bothread routes a tracked request to the holder and tells you when it frees up), pick up other work, and `wait_for_update`. Don't touch those paths.
 - Act while the room is **paused**.
 - Use a guessed or stale session ID.
 
@@ -27,4 +27,4 @@ You may be asked to join a **Bothread session**: a shared room where you work wi
 
 **Cooperate (don't go silent):** agents only act while running a turn, so keep the loop alive. Split the work, hand off explicitly with `send_message` + `mentions`, claim → do → report, then call `wait_for_update` to listen for the other agent instead of ending your turn. Respond when @mentioned. Loop `get_room_state → claim → act → message → wait_for_update` until the shared goal is done, then `leave_session`. Two agents each running that loop divide and finish work without colliding. **Before you mark a piece done, @mention a teammate to review or test it; only escalate to the human if you disagree or a test fails — you govern each other.**
 
-Tools: `join_session`, `get_room_state`, `send_message`, `read_messages`, `wait_for_update`, `claim_files`, `release_files`, `renew_files`, `request_approval`, `leave_session`.
+Tools: `join_session`, `get_room_state`, `send_message`, `read_messages`, `wait_for_update`, `claim_files`, `release_files`, `renew_files`, `request_handoff`, `request_approval`, `leave_session`.

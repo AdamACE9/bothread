@@ -834,6 +834,20 @@ textarea.field {
 .diff-view .line-del { color: var(--clay-1); }
 .diff-view .line-hdr { color: var(--muted-1); }
 
+/* ── Hand-off requests (who's waiting on whom) ── */
+.handoffs { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.9rem; }
+.handoff {
+  border: 1px solid var(--saffron);
+  border-radius: var(--radius-sm);
+  background: rgba(226,169,76,0.08);
+  padding: 0.5rem 0.6rem;
+  font-size: 0.78rem;
+  color: var(--parchment-1);
+}
+.handoff .who { font-weight: 560; }
+.handoff code { font-family: var(--font-mono); font-size: 0.72rem; color: var(--saffron); }
+.handoff .held { font-size: 0.7rem; color: var(--muted-1); margin-top: 2px; }
+
 /* ── Per-hunk review ── */
 .hunks { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.4rem 0; }
 .hunk { border: 1px solid var(--line); border-radius: 7px; overflow: hidden; transition: opacity 0.15s; }

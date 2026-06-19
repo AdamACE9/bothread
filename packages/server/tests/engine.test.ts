@@ -217,3 +217,64 @@ describe("Engine — snapshot", () => {
     expect(snap.etiquette).toMatch(/claim_files/);
   });
 });
+
+describe("Engine — hand-offs (routed file requests)", () => {
+  it("opens a tracked hand-off when a claim is PREVENTED, mentioning the holder", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/pay/*"] }); // Claude holds it
+    const res = engine.claimFiles(b, { paths: ["src/pay/*"] }); // Cursor blocked
+    expect(res.granted).toBe(false);
+
+    const pend = engine.pendingHandoffs(room.id);
+    expect(pend.length).toBe(1);
+    expect(pend[0]!.requesterName).toBe("Cursor");
+    expect(pend[0]!.holderName).toBe("Claude Code");
+
+    // A directed @Claude Code message was posted.
+    const snap = engine.buildSnapshot(room, b.participant);
+    expect(snap.handoffs.length).toBe(1);
+    expect(snap.thread.some((m) => m.kind === "system" && m.text.includes("@Claude Code"))).toBe(true);
+  });
+
+  it("does not duplicate a hand-off when the same claim is retried", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/pay/*"] });
+    engine.claimFiles(b, { paths: ["src/pay/*"] });
+    engine.claimFiles(b, { paths: ["src/pay/*"] }); // retry
+    expect(engine.pendingHandoffs(room.id).length).toBe(1);
+  });
+
+  it("resolves the hand-off and notifies the requester when the holder releases", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/pay/webhook.ts"] });
+    engine.claimFiles(b, { paths: ["src/pay/webhook.ts"] }); // blocked → handoff
+    expect(engine.pendingHandoffs(room.id).length).toBe(1);
+
+    engine.releaseFiles(a, { paths: ["src/pay/webhook.ts"] });
+    expect(engine.pendingHandoffs(room.id).length).toBe(0); // resolved
+
+    const snap = engine.buildSnapshot(room, b.participant);
+    expect(snap.thread.some((m) => m.kind === "system" && m.text.includes("@Cursor") && m.text.includes("free"))).toBe(true);
+  });
+
+  it("requestHandoff routes proactively to the holder", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/core/**"] });
+    const res = engine.requestHandoff(b, { path: "src/core/db.ts", message: "need an export" });
+    expect(res.routed).toBe(true);
+    expect(res.holder).toBe("Claude Code");
+    expect(engine.pendingHandoffs(room.id).length).toBe(1);
+  });
+
+  it("requestHandoff on an unheld path tells you to just claim it", () => {
+    const engine = makeEngine();
+    const { b } = twoAgentRoom(engine);
+    const res = engine.requestHandoff(b, { path: "src/free.ts" });
+    expect(res.routed).toBe(false);
+    expect(res.reason).toMatch(/claim_files/);
+  });
+});

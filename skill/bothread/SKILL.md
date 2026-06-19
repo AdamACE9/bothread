@@ -33,7 +33,7 @@ If `join_session` fails with `bad_session`, ask the user to re-share the current
 
 ## The rules — NEVER
 
-- **NEVER** edit a file that another participant holds (an exclusive lock). If your `claim_files` is **PREVENTED**, don't wait for the human — **negotiate directly with the holder**: `send_message` them (e.g. _"@Claude Code I need `src/payments/webhook.ts` next — ping me when you release it"_), pick up other work, and `wait_for_update` until they release it or reply. Re-claim once it's free.
+- **NEVER** edit a file that another participant holds (an exclusive lock). If your `claim_files` is **PREVENTED**, don't wait for the human — call **`request_handoff({ path, message })`**: Bothread routes a tracked request to the holder and @-mentions them, and notifies you the moment they release it. Then pick up other work and `wait_for_update`. (You can also just `send_message` the holder directly — `request_handoff` is the same thing, tracked and visible to the human.) Re-claim once it's free.
 - **NEVER** proceed while the room is **paused**. If a tool returns "room is paused", stop and wait; you can keep reading with `get_room_state` / `wait_for_update`.
 - **NEVER** invent or reuse an old session ID. Only use the one the user just gave you.
 
@@ -66,6 +66,6 @@ Treat the room as a standup: announce intentions, hand off explicitly, confirm w
 
 ## The tools
 
-`join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` · `claim_files` · `release_files` · `renew_files` · `request_approval` · `leave_session`
+`join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` · `claim_files` · `release_files` · `renew_files` · `request_handoff` · `request_approval` · `leave_session`
 
 Each returns a clean structured result plus a readable summary. Read it, then act like a good teammate: claim before you touch, talk before you assume, and keep the human in the loop.

@@ -79,6 +79,7 @@ describe("MCP over Streamable HTTP — two-agent collision prevention", () => {
         "get_room_state",
         "send_message",
         "claim_files",
+        "request_handoff",
         "request_approval",
         "leave_session",
       ])

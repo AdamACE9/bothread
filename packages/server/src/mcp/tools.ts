@@ -8,6 +8,7 @@ import {
   RenewFilesInput,
   ReleaseFilesInput,
   RequestApprovalInput,
+  RequestHandoffInput,
   SendMessageInput,
   WaitForUpdateInput,
   type RoomSnapshot,
@@ -64,6 +65,14 @@ export function renderSnapshot(s: RoomSnapshot): string {
   if (s.pendingApprovals.length) {
     lines.push("Pending approvals (awaiting the human):");
     for (const a of s.pendingApprovals) lines.push(`  • ${a.requestedBy}: ${a.action} — ${a.details}`);
+  }
+
+  if (s.handoffs.length) {
+    lines.push("Open hand-off requests:");
+    for (const h of s.handoffs) {
+      const mine = h.heldBy === s.you.name ? " ← you hold this; release it or reply" : "";
+      lines.push(`  • ${h.requestedBy} wants ${h.path} (held by ${h.heldBy})${mine}`);
+    }
   }
 
   if (s.thread.length) {
@@ -249,6 +258,30 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
         const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
         const res = engine.renewFiles(caller, args);
         return ok(`Renewed ${res.renewed} lease(s).`, res);
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    "request_handoff",
+    {
+      title: "Ask the holder to hand off a file",
+      description:
+        "When you need a path that another participant currently holds (e.g. your claim_files was PREVENTED), call this. Bothread routes a tracked request to the holder and @-mentions them; when they release it, you're notified it's free. Then keep working on something else and wait_for_update — don't edit the held path.",
+      inputSchema: RequestHandoffInput.shape,
+    },
+    async (args) => {
+      try {
+        const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
+        const res = engine.requestHandoff(caller, args);
+        return ok(
+          res.routed
+            ? `Requested ${args.path} from ${res.holder}. They've been notified; wait_for_update and you'll hear when it's free.`
+            : res.reason ?? "Could not route the request.",
+          res
+        );
       } catch (e) {
         return fail(e);
       }

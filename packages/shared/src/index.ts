@@ -194,6 +194,37 @@ export const PendingApprovalView = z.object({
 });
 export type PendingApprovalView = z.infer<typeof PendingApprovalView>;
 
+/* ----- Handoffs: hub-routed "I need a file you hold" requests ----- */
+
+export const HandoffStatus = z.enum(["pending", "released", "cancelled"]);
+export type HandoffStatus = z.infer<typeof HandoffStatus>;
+
+/** A routed request from a blocked agent to the holder of a file/path. */
+export const Handoff = z.object({
+  id: z.string(),
+  roomId: z.string(),
+  requesterId: z.string(),
+  requesterName: z.string(),
+  holderId: z.string(),
+  holderName: z.string(),
+  path: z.string(),
+  message: z.string().optional(),
+  status: HandoffStatus,
+  createdAt: z.number(),
+  resolvedAt: z.number().optional(),
+});
+export type Handoff = z.infer<typeof Handoff>;
+
+/** Compact handoff for the snapshot/UI: who's waiting on whom, for what. */
+export const HandoffView = z.object({
+  id: z.string(),
+  path: z.string(),
+  requestedBy: z.string(),
+  heldBy: z.string(),
+  message: z.string().optional(),
+});
+export type HandoffView = z.infer<typeof HandoffView>;
+
 export const RoomSnapshot = z.object({
   room: z.object({ name: z.string(), status: RoomStatus }),
   you: z.object({
@@ -206,6 +237,8 @@ export const RoomSnapshot = z.object({
   thread: z.array(ThreadEntry),
   locks: z.array(LockView),
   pendingApprovals: z.array(PendingApprovalView),
+  /** Open hand-off requests: who is waiting on a file someone else holds. */
+  handoffs: z.array(HandoffView).default([]),
   latestSeq: z.number(),
   etiquette: z.string(),
 });
@@ -286,6 +319,13 @@ export const RequestApprovalInput = z.object({
   sessionId: z.string().optional(),
 });
 export type RequestApprovalInput = z.infer<typeof RequestApprovalInput>;
+
+export const RequestHandoffInput = z.object({
+  path: z.string().min(1).describe("The file/path you need that another participant currently holds."),
+  message: z.string().max(500).optional().describe("A short note to the holder, e.g. why you need it."),
+  sessionId: z.string().optional(),
+});
+export type RequestHandoffInput = z.infer<typeof RequestHandoffInput>;
 
 export const LeaveSessionInput = z.object({
   sessionId: z.string().optional(),
@@ -376,6 +416,7 @@ export const ServerEventType = z.enum([
   "audit",
   "collision",
   "branch",
+  "handoff",
 ]);
 export type ServerEventType = z.infer<typeof ServerEventType>;
 
