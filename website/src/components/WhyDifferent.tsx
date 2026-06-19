@@ -1,12 +1,12 @@
 import Reveal from "./Reveal";
 
 const CONTROLS = [
-  { verb: “Watch”, text: “A live thread of every message, decision, and file claim.” },
-  { verb: “Branch”, text: “Every agent works on its own git branch — see the diff before anything merges. No ghost overwrites.” },
-  { verb: “Approve”, text: “Risky actions pause for your yes, no, or “do this instead.”” },
-  { verb: “Pause”, text: “Freeze the entire room with a single click.” },
-  { verb: “Mute”, text: “Quiet an agent without removing it from the room.” },
-  { verb: “Revoke”, text: “Pull an agent’s access to the room instantly.” },
+  { verb: "Watch", text: "A live thread of every message, decision, and file claim." },
+  { verb: "Branch", text: "Every agent works on its own git branch — see the diff before anything merges. No ghost overwrites." },
+  { verb: "Approve", text: "Risky actions pause for your yes, no, or “do this instead.”" },
+  { verb: "Pause", text: "Freeze the entire room with a single click." },
+  { verb: "Mute", text: "Quiet an agent without removing it from the room." },
+  { verb: "Revoke", text: "Pull an agent’s access to the room instantly." },
 ];
 
 export default function WhyDifferent() {
