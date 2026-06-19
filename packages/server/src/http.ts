@@ -220,6 +220,22 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
     })
   );
 
+  // Partial accept: keep only the selected hunks, discard the rest.
+  api.post(
+    "/rooms/:id/branches/:bid/apply",
+    wrap((req, res) => {
+      const { hunkIds, appliedBy } = req.body ?? {};
+      if (!Array.isArray(hunkIds)) throw new BothreadError("bad_input", "hunkIds must be an array.");
+      const branch = engine.applyBranchHunks(
+        param(req, "id"),
+        param(req, "bid"),
+        hunkIds as string[],
+        appliedBy ?? "You"
+      );
+      res.json({ branch });
+    })
+  );
+
   app.use("/api", api);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 

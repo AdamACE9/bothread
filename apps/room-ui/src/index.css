@@ -832,6 +832,27 @@ textarea.field {
 /* diff colouring */
 .diff-view .line-add { color: var(--teal-1); }
 .diff-view .line-del { color: var(--clay-1); }
+.diff-view .line-hdr { color: var(--muted-1); }
+
+/* ── Per-hunk review ── */
+.hunks { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.4rem 0; }
+.hunk { border: 1px solid var(--line); border-radius: 7px; overflow: hidden; transition: opacity 0.15s; }
+.hunk.dropped { opacity: 0.4; }
+.hunk-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  background: rgba(34,29,22,0.55);
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+.hunk-head input { accent-color: var(--copper); cursor: pointer; }
+.hunk-file { font-family: var(--font-mono); color: var(--parchment-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hunk-stat { margin-left: auto; font-family: var(--font-mono); white-space: nowrap; }
+.hunk-stat .add { color: var(--teal-1); }
+.hunk-stat .del { color: var(--clay-1); }
+.hunk .diff-view { border: none; border-radius: 0; max-height: 200px; }
 
 @media (max-width: 860px) {
   .rmain {

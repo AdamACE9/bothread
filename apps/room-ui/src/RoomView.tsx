@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentBranch, Approval, ThreadEntry } from "@bothread/shared";
-import { decideApproval, discardBranch, listBranches, mergeBranch, sendOverseer, setParticipantStatus, setRoomStatus } from "./api";
+import type { AgentBranch, Approval, DiffHunkView, ThreadEntry } from "@bothread/shared";
+import { applyHunks, decideApproval, discardBranch, listBranches, mergeBranch, sendOverseer, setParticipantStatus, setRoomStatus } from "./api";
 import ConnectPanel from "./ConnectPanel";
 import { useRoom } from "./useRoom";
 import { Avatar, brandClass, fmtTime, richText } from "./ui";
@@ -286,7 +286,6 @@ function CommandBar({ roomId, paused, afterSend }: { roomId: string; paused: boo
 
 function BranchPanel({ roomId, afterAction }: { roomId: string; afterAction: () => void }) {
   const [branches, setBranches] = useState<AgentBranch[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -329,41 +328,7 @@ function BranchPanel({ roomId, afterAction }: { roomId: string; afterAction: () 
         <div className="branch-group">
           <div className="branch-group-label">Ready to review</div>
           {readyBranches.map((b) => (
-            <div className="branch-card ready" key={b.id}>
-              <div className="branch-head">
-                <span className="branch-agent">{b.participantName}</span>
-                <span className="branch-paths">{b.paths.length} path{b.paths.length !== 1 ? "s" : ""}</span>
-              </div>
-              {b.diff ? (
-                <button
-                  className="diff-toggle"
-                  onClick={() => setExpanded(expanded === b.id ? null : b.id)}
-                >
-                  {expanded === b.id ? "▲ hide diff" : "▼ view diff"}
-                </button>
-              ) : (
-                <p className="empty" style={{ fontSize: ".72rem", margin: "4px 0" }}>No changes detected.</p>
-              )}
-              {expanded === b.id && b.diff && (
-                <pre className="diff-view">{b.diff}</pre>
-              )}
-              <div className="branch-acts">
-                <button
-                  className="btn sm danger"
-                  disabled={busy === b.id}
-                  onClick={() => act(() => discardBranch(roomId, b.id), b.id)}
-                >
-                  Discard
-                </button>
-                <button
-                  className="btn sm primary"
-                  disabled={busy === b.id}
-                  onClick={() => act(() => mergeBranch(roomId, b.id), b.id)}
-                >
-                  {busy === b.id ? "…" : "Merge to git"}
-                </button>
-              </div>
-            </div>
+            <ReadyBranchCard key={b.id} branch={b} busy={busy === b.id} act={act} roomId={roomId} />
           ))}
         </div>
       )}
@@ -374,6 +339,104 @@ function BranchPanel({ roomId, afterAction }: { roomId: string; afterAction: () 
           {showAll ? "Hide history" : "Show history"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function ReadyBranchCard({
+  branch: b,
+  busy,
+  act,
+  roomId,
+}: {
+  branch: AgentBranch;
+  busy: boolean;
+  act: (fn: () => Promise<unknown>, branchId: string) => Promise<void>;
+  roomId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const hunks = b.hunks ?? [];
+  // Selection: hunk id -> kept. Default: keep all.
+  const [kept, setKept] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(hunks.map((h) => [h.id, true]))
+  );
+  const keptIds = hunks.filter((h) => kept[h.id]).map((h) => h.id);
+  const allKept = keptIds.length === hunks.length;
+  const noneKept = keptIds.length === 0;
+
+  const toggle = (id: string) => setKept((k) => ({ ...k, [id]: !k[id] }));
+
+  return (
+    <div className="branch-card ready">
+      <div className="branch-head">
+        <span className="branch-agent">{b.participantName}</span>
+        <span className="branch-paths">
+          {hunks.length > 0
+            ? `${hunks.length} change${hunks.length !== 1 ? "s" : ""}`
+            : `${b.paths.length} path${b.paths.length !== 1 ? "s" : ""}`}
+        </span>
+      </div>
+
+      {hunks.length > 0 ? (
+        <>
+          <button className="diff-toggle" onClick={() => setOpen((o) => !o)}>
+            {open ? "▲ hide changes" : `▼ review ${hunks.length} change${hunks.length !== 1 ? "s" : ""}`}
+          </button>
+          {open && (
+            <div className="hunks">
+              {hunks.map((h) => (
+                <HunkBlock key={h.id} hunk={h} kept={!!kept[h.id]} onToggle={() => toggle(h.id)} />
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="empty" style={{ fontSize: ".72rem", margin: "4px 0" }}>No textual changes detected.</p>
+      )}
+
+      <div className="branch-acts">
+        <button className="btn sm danger" disabled={busy} onClick={() => act(() => discardBranch(roomId, b.id), b.id)}>
+          Discard all
+        </button>
+        {allKept || hunks.length === 0 ? (
+          <button className="btn sm primary" disabled={busy} onClick={() => act(() => mergeBranch(roomId, b.id), b.id)}>
+            {busy ? "…" : "Merge all"}
+          </button>
+        ) : (
+          <button
+            className="btn sm primary"
+            disabled={busy || noneKept}
+            onClick={() => act(() => applyHunks(roomId, b.id, keptIds), b.id)}
+            title={noneKept ? "Select at least one change, or use Discard all" : ""}
+          >
+            {busy ? "…" : `Apply ${keptIds.length} selected`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HunkBlock({ hunk, kept, onToggle }: { hunk: DiffHunkView; kept: boolean; onToggle: () => void }) {
+  return (
+    <div className={`hunk${kept ? "" : " dropped"}`}>
+      <label className="hunk-head">
+        <input type="checkbox" checked={kept} onChange={onToggle} />
+        <span className="hunk-file">{hunk.file}</span>
+        <span className="hunk-stat">
+          <span className="add">+{hunk.additions}</span> <span className="del">−{hunk.deletions}</span>
+        </span>
+      </label>
+      <pre className="diff-view">
+        {hunk.lines.map((ln, i) => {
+          const cls = ln.startsWith("+") ? "line-add" : ln.startsWith("-") ? "line-del" : ln.startsWith("@@") ? "line-hdr" : "";
+          return (
+            <div key={i} className={cls}>
+              {ln || " "}
+            </div>
+          );
+        })}
+      </pre>
     </div>
   );
 }

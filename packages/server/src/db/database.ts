@@ -16,5 +16,11 @@ export function openDatabase(dbPath: string): DB {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA_SQL);
+  // Lightweight migration: add base_tree to branches if an older DB predates it.
+  try {
+    db.exec("ALTER TABLE branches ADD COLUMN base_tree TEXT");
+  } catch {
+    /* column already exists — fine */
+  }
   return db;
 }

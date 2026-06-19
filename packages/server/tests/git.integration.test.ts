@@ -126,4 +126,62 @@ describe("Git micro-branching (integration)", () => {
     engine.releaseFiles(a, { paths: ["app.js"] });
     expect(engine.listBranches(a.room.id).length).toBe(0);
   });
+
+  it("DIRTY WORKDIR: discard preserves the human's pre-claim uncommitted edits", () => {
+    // The eval's flaw #1: a human has uncommitted work; an agent then claims the
+    // same file. Discard must roll back ONLY the agent's changes, not the human's.
+    const engine = makeEngine();
+    // Human's uncommitted edit, made BEFORE any agent claims app.js.
+    fs.writeFileSync(path.join(repoDir, "app.js"), "const x = 1;\nconst HUMAN_WIP = true;\n");
+
+    const { sessionId } = engine.createRoom({ name: "feat", projectPath: repoDir });
+    engine.joinSession("mcp-A", { sessionId, agentName: "Claude Code", brand: "claude" });
+    const a = engine.resolveCaller("mcp-A");
+
+    engine.claimFiles(a, { paths: ["app.js"] }); // snapshot baseline = human's WIP
+    // Agent appends its own line on top of the human's WIP.
+    fs.writeFileSync(path.join(repoDir, "app.js"), "const x = 1;\nconst HUMAN_WIP = true;\nconst agent = 'work';\n");
+    engine.releaseFiles(a, { paths: ["app.js"] });
+
+    const branch = engine.listBranches(a.room.id)[0]!;
+    // The captured diff is scoped to the agent's change only. HUMAN_WIP may appear
+    // as an unchanged CONTEXT line, but must NOT be presented as an added change.
+    expect(branch.diff).toContain("+const agent = 'work';");
+    expect(branch.diff).not.toContain("+const HUMAN_WIP");
+
+    engine.discardBranch(a.room.id, branch.id);
+    // Human's uncommitted work survives; agent's line is gone.
+    const after = fs.readFileSync(path.join(repoDir, "app.js"), "utf8");
+    expect(after).toBe("const x = 1;\nconst HUMAN_WIP = true;\n");
+  });
+
+  it("HUNK-LEVEL: applies only the selected hunks and discards the rest", () => {
+    const engine = makeEngine();
+    // A file with two well-separated regions so the agent's edits form two hunks.
+    const base = Array.from({ length: 12 }, (_, i) => `a${i + 1}`).join("\n") + "\n";
+    fs.writeFileSync(path.join(repoDir, "app.js"), base);
+    git(repoDir, ["add", "-A"]);
+    git(repoDir, ["commit", "-q", "-m", "twelve lines"]);
+
+    const { sessionId } = engine.createRoom({ name: "feat", projectPath: repoDir });
+    engine.joinSession("mcp-A", { sessionId, agentName: "Cursor", brand: "cursor" });
+    const a = engine.resolveCaller("mcp-A");
+
+    engine.claimFiles(a, { paths: ["app.js"] });
+    // Edit line 2 and line 11 — two separate hunks.
+    const edited = base.replace("a2\n", "A2_CHANGED\n").replace("a11\n", "A11_CHANGED\n");
+    fs.writeFileSync(path.join(repoDir, "app.js"), edited);
+    engine.releaseFiles(a, { paths: ["app.js"] });
+
+    const branch = engine.listBranches(a.room.id)[0]!;
+    expect(branch.hunks && branch.hunks.length).toBe(2);
+    // Keep only the SECOND hunk (the a11 change); drop the a2 change.
+    const second = branch.hunks!.find((h) => h.lines.join("\n").includes("A11_CHANGED"))!;
+    engine.applyBranchHunks(a.room.id, branch.id, [second.id]);
+
+    const after = fs.readFileSync(path.join(repoDir, "app.js"), "utf8");
+    expect(after).toContain("A11_CHANGED"); // kept
+    expect(after).not.toContain("A2_CHANGED"); // discarded
+    expect(after).toContain("a2"); // reverted to baseline
+  });
 });

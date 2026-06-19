@@ -332,6 +332,17 @@ export type WaitForUpdateResult = z.infer<typeof WaitForUpdateResult>;
 export const BranchStatus = z.enum(["tracking", "ready", "merged", "discarded"]);
 export type BranchStatus = z.infer<typeof BranchStatus>;
 
+/** One reviewable hunk of an agent's diff (for line/hunk-level keep-or-drop review). */
+export const DiffHunkView = z.object({
+  id: z.string(),
+  file: z.string(),
+  header: z.string(),
+  lines: z.array(z.string()),
+  additions: z.number(),
+  deletions: z.number(),
+});
+export type DiffHunkView = z.infer<typeof DiffHunkView>;
+
 /**
  * A git micro-branch record: captures what one agent changed in one session.
  * `diff` is a unified diff (set when the agent releases their files).
@@ -346,6 +357,8 @@ export const AgentBranch = z.object({
   baseSha: z.string(),
   paths: z.array(z.string()),
   diff: z.string().optional(),
+  /** The diff split into reviewable hunks (present on 'ready' branches with a diff). */
+  hunks: z.array(DiffHunkView).optional(),
   commitSha: z.string().optional(),
   status: BranchStatus,
   createdAt: z.number(),

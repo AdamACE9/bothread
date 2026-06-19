@@ -22,6 +22,7 @@ import type {
 } from "@bothread/shared";
 import { ETIQUETTE, RECENT_THREAD_LIMIT, SNAPSHOT_THREAD_LIMIT, RoomSettings as RoomSettingsSchema } from "@bothread/shared";
 import {
+  applySelectedHunks,
   commitToCurrentBranch,
   createBranchCommit,
   currentSha,
@@ -30,7 +31,9 @@ import {
   isGitRepo,
   restoreFilesToSha,
   sanitizeBranchSegment,
+  snapshotPaths,
 } from "./git";
+import { buildPatch, listHunks } from "./diffHunks";
 import type { DB } from "../db/database";
 import type { RoomBus } from "../realtime";
 import { BothreadError } from "./errors";
@@ -106,6 +109,7 @@ interface BranchRow {
   participant_name: string;
   branch_name: string;
   base_sha: string;
+  base_tree: string | null;
   paths: string;
   diff: string | null;
   commit_sha: string | null;
@@ -263,6 +267,7 @@ export class Engine {
       baseSha: b.base_sha,
       paths: JSON.parse(b.paths) as string[],
       diff: b.diff ?? undefined,
+      hunks: b.diff ? listHunks(b.diff) : undefined,
       commitSha: b.commit_sha ?? undefined,
       status: b.status as AgentBranch["status"],
       createdAt: b.created_at,
@@ -1002,22 +1007,29 @@ export class Engine {
         .get(room.id, participant.id) as BranchRow | undefined;
 
       if (existing) {
-        // Merge new paths into the existing entry.
+        // Add the new paths, extending the baseline snapshot so already-claimed
+        // paths keep their original claim-time baseline (don't reset their diff).
         const existingPaths = JSON.parse(existing.paths) as string[];
         const merged = Array.from(new Set([...existingPaths, ...paths]));
+        const base = existing.base_tree ?? existing.base_sha;
+        const newTree = snapshotPaths(room.projectPath, base, paths) ?? existing.base_tree;
         this.db
-          .prepare(`UPDATE branches SET paths = ? WHERE id = ?`)
-          .run(JSON.stringify(merged), existing.id);
+          .prepare(`UPDATE branches SET paths = ?, base_tree = ? WHERE id = ?`)
+          .run(JSON.stringify(merged), newTree ?? null, existing.id);
       } else {
+        // Snapshot the claimed paths' working-tree state NOW — this baseline
+        // includes the human's own uncommitted edits, so diff/discard later are
+        // scoped to the agent's changes and never clobber the human's work.
+        const baseTree = snapshotPaths(room.projectPath, sha, paths) ?? null;
         const id = newId("br");
         const seg = sanitizeBranchSegment(participant.name);
         const branchName = `bothread/${seg}-${participant.id.slice(-6)}`;
         this.db
           .prepare(
-            `INSERT INTO branches (id, room_id, participant_id, participant_name, branch_name, base_sha, paths, status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'tracking', ?)`
+            `INSERT INTO branches (id, room_id, participant_id, participant_name, branch_name, base_sha, base_tree, paths, status, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'tracking', ?)`
           )
-          .run(id, room.id, participant.id, participant.name, branchName, sha, JSON.stringify(paths), now());
+          .run(id, room.id, participant.id, participant.name, branchName, sha, baseTree, JSON.stringify(paths), now());
       }
     } catch {
       /* git unavailable or not a repo — silently skip */
@@ -1039,7 +1051,10 @@ export class Engine {
     for (const row of rows) {
       try {
         const paths = JSON.parse(row.paths) as string[];
-        const diff = diffWorkingTree(room.projectPath, row.base_sha, paths);
+        // Diff against the claim-time snapshot (not HEAD): captures only what the
+        // agent changed since claiming, leaving the human's pre-existing work out.
+        const base = row.base_tree ?? row.base_sha;
+        const diff = diffWorkingTree(room.projectPath, base, paths);
         const commitSha = diff
           ? createBranchCommit(
               room.projectPath,
@@ -1125,7 +1140,9 @@ export class Engine {
   }
 
   /**
-   * Discard: restore the files to their baseSha state, removing the agent's edits.
+   * Discard: restore the files to their claim-time snapshot, removing the
+   * agent's edits while preserving any uncommitted human work that predated the
+   * claim.
    */
   discardBranch(roomId: string, branchId: string, discardedBy = "You"): AgentBranch {
     const row = this.db.prepare(`SELECT * FROM branches WHERE id = ? AND room_id = ?`).get(branchId, roomId) as
@@ -1137,7 +1154,7 @@ export class Engine {
     if (!room?.projectPath) throw new BothreadError("no_project", "Room has no project path.");
 
     const paths = JSON.parse(row.paths) as string[];
-    restoreFilesToSha(room.projectPath, row.base_sha, paths);
+    restoreFilesToSha(room.projectPath, row.base_tree ?? row.base_sha, paths);
 
     this.db
       .prepare(`UPDATE branches SET status = 'discarded', finalized_at = ? WHERE id = ?`)
@@ -1150,6 +1167,54 @@ export class Engine {
     this.postSystemMessage(
       roomId,
       `${discardedBy} discarded ${row.participant_name}'s changes — files restored to before their session.`,
+      "steering"
+    );
+    this.publish(roomId, "branch", { branch: this.mapBranch(updated) });
+    return this.mapBranch(updated);
+  }
+
+  /**
+   * Partial accept (hunk-level review): keep only the selected hunks of an
+   * agent's diff and commit them; the rest is reverted to the claim-time
+   * baseline. `selectedHunkIds` are ids from the branch's `hunks` list.
+   * Empty selection ⇒ behaves like discard.
+   */
+  applyBranchHunks(roomId: string, branchId: string, selectedHunkIds: string[], appliedBy = "You"): AgentBranch {
+    const row = this.db.prepare(`SELECT * FROM branches WHERE id = ? AND room_id = ?`).get(branchId, roomId) as
+      | BranchRow
+      | undefined;
+    if (!row) throw new BothreadError("no_branch", "Branch not found.");
+    if (row.status !== "ready") throw new BothreadError("bad_state", "Branch is not ready to review.");
+    const room = this.getRoom(roomId);
+    if (!room?.projectPath) throw new BothreadError("no_project", "Room has no project path.");
+    if (!row.diff) throw new BothreadError("no_diff", "This branch has no diff to apply.");
+
+    const paths = JSON.parse(row.paths) as string[];
+    const allHunks = listHunks(row.diff);
+    const selected = new Set(selectedHunkIds);
+    const keptCount = allHunks.filter((h) => selected.has(h.id)).length;
+    const patch = buildPatch(row.diff, selected);
+    const baseTree = row.base_tree ?? row.base_sha;
+
+    const ok = applySelectedHunks(
+      room.projectPath,
+      baseTree,
+      paths,
+      patch,
+      `bothread: ${row.participant_name} (${keptCount} of ${allHunks.length} change${allHunks.length !== 1 ? "s" : ""} accepted)`
+    );
+    if (!ok) throw new BothreadError("apply_failed", "Couldn't apply the selected changes cleanly.");
+
+    this.db
+      .prepare(`UPDATE branches SET status = 'merged', finalized_at = ? WHERE id = ?`)
+      .run(now(), branchId);
+    if (room.projectPath) deleteTrackingBranch(room.projectPath, row.branch_name);
+
+    const updated = this.db.prepare(`SELECT * FROM branches WHERE id = ?`).get(branchId) as BranchRow;
+    this.audit(roomId, "branch.apply", { name: appliedBy }, { branchId, kept: keptCount, total: allHunks.length });
+    this.postSystemMessage(
+      roomId,
+      `${appliedBy} accepted ${keptCount} of ${allHunks.length} change${allHunks.length !== 1 ? "s" : ""} from ${row.participant_name} and discarded the rest.`,
       "steering"
     );
     this.publish(roomId, "branch", { branch: this.mapBranch(updated) });

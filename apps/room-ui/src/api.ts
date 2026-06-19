@@ -45,3 +45,5 @@ export const listBranches = (id: string, all = false) =>
   jget<{ branches: AgentBranch[] }>(`/api/rooms/${id}/branches${all ? "?all=true" : ""}`).then((r) => r.branches);
 export const mergeBranch = (id: string, bid: string) => jpost(`/api/rooms/${id}/branches/${bid}/merge`);
 export const discardBranch = (id: string, bid: string) => jpost(`/api/rooms/${id}/branches/${bid}/discard`);
+export const applyHunks = (id: string, bid: string, hunkIds: string[]) =>
+  jpost(`/api/rooms/${id}/branches/${bid}/apply`, { hunkIds });

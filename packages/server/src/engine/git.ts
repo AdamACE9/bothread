@@ -7,12 +7,13 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-function runGit(cwd: string, args: string[], env?: NodeJS.ProcessEnv): string {
+function runGit(cwd: string, args: string[], env?: NodeJS.ProcessEnv, input?: string): string {
   return execFileSync("git", args, {
     cwd,
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
     env: env ?? process.env,
+    input,
   }).trim();
 }
 
@@ -36,14 +37,52 @@ export function currentSha(dir: string): string | undefined {
 }
 
 /**
- * Returns a unified diff of `paths` (glob patterns or literal paths) between
- * `baseSha` and the current working tree, or an empty string on failure.
+ * Snapshot the *current working-tree state* of `paths` as a git tree object,
+ * layered over `startRef` (a commit/tree-ish). Returns the tree SHA.
+ *
+ * This is the claim-time baseline: it captures whatever is on disk for the
+ * claimed paths at the moment of the claim — INCLUDING the human's own
+ * uncommitted edits — so a later diff/discard is scoped to what the AGENT
+ * changed since the claim, and never reverts the human's pre-existing work.
  */
-export function diffWorkingTree(dir: string, baseSha: string, paths: string[]): string {
+export function snapshotPaths(dir: string, startRef: string, paths: string[]): string | undefined {
+  if (!paths.length) return undefined;
+  const gitDir = (() => {
+    try {
+      return runGit(dir, ["rev-parse", "--git-dir"]);
+    } catch {
+      return path.join(dir, ".git");
+    }
+  })();
+  const tmpIdx = path.join(
+    path.isAbsolute(gitDir) ? gitDir : path.join(dir, gitDir),
+    `bothread-snap-${Date.now()}.idx`
+  );
+  try {
+    const env = { ...process.env, GIT_INDEX_FILE: tmpIdx };
+    runGit(dir, ["read-tree", startRef], env);
+    runGit(dir, ["add", "--", ...paths], env);
+    return runGit(dir, ["write-tree"], env);
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      fs.unlinkSync(tmpIdx);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Returns a unified diff of `paths` between `baseRef` (a commit OR tree-ish —
+ * we pass the claim-time snapshot tree) and the current working tree, or an
+ * empty string on failure.
+ */
+export function diffWorkingTree(dir: string, baseRef: string, paths: string[]): string {
   if (!paths.length) return "";
   try {
-    // --diff-filter=ACM: Added, Copied, Modified (skip deletions of unrelated files)
-    return runGit(dir, ["diff", baseSha, "--", ...paths]);
+    return runGit(dir, ["diff", baseRef, "--", ...paths]);
   } catch {
     return "";
   }
@@ -135,13 +174,47 @@ export function commitToCurrentBranch(dir: string, message: string, paths: strin
 }
 
 /**
- * Restore `paths` to their state at `sha` in the working tree (the human's
- * "discard this" action).  Returns true on success.
+ * Restore `paths` in the working tree to their state at `treeish` — the
+ * claim-time snapshot (the human's "discard this" action). Because the baseline
+ * is the snapshot (not HEAD), this restores to what was on disk when the agent
+ * claimed, preserving the human's pre-existing uncommitted edits.
+ * Returns true on success.
  */
-export function restoreFilesToSha(dir: string, sha: string, paths: string[]): boolean {
+export function restoreFilesToSha(dir: string, treeish: string, paths: string[]): boolean {
   if (!paths.length) return false;
   try {
-    runGit(dir, ["checkout", sha, "--", ...paths]);
+    runGit(dir, ["checkout", treeish, "--", ...paths]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Partial accept: reset `paths` to the claim-time `baselineTree`, then apply
+ * only `patchText` (a unified diff containing the human-selected hunks) on top,
+ * and commit. Powers line/hunk-level "keep some, discard the rest" review.
+ * If `patchText` is empty, this is a full discard-to-baseline + commit (which
+ * commits nothing new — handled by the caller). Returns true on success.
+ */
+export function applySelectedHunks(
+  dir: string,
+  baselineTree: string,
+  paths: string[],
+  patchText: string,
+  message: string
+): boolean {
+  if (!paths.length) return false;
+  try {
+    // 1) Revert the claimed paths to their claim-time baseline.
+    runGit(dir, ["checkout", baselineTree, "--", ...paths]);
+    // 2) Re-apply only the selected hunks (exact context → clean apply).
+    if (patchText.trim()) {
+      runGit(dir, ["apply", "--whitespace=nowarn"], undefined, patchText);
+    }
+    // 3) Commit exactly these paths.
+    runGit(dir, ["add", "--", ...paths]);
+    runGit(dir, ["commit", "-m", message, "--", ...paths]);
     return true;
   } catch {
     return false;

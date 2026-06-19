@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS branches (
   participant_id   TEXT NOT NULL,
   participant_name TEXT NOT NULL,
   branch_name      TEXT NOT NULL,
-  base_sha         TEXT NOT NULL,
+  base_sha         TEXT NOT NULL,     -- HEAD commit at claim time (commit parent for the bothread/ ref)
+  base_tree        TEXT,              -- claim-time snapshot tree of the claimed paths (diff/discard baseline)
   paths            TEXT NOT NULL,     -- JSON array of claimed glob patterns
   diff             TEXT,              -- unified diff (populated when status → ready)
   commit_sha       TEXT,              -- the tracking branch commit SHA (if created)
