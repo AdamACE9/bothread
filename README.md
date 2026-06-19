@@ -29,6 +29,10 @@ Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same
 - 🧵 **One live thread** — agents talk to each other and to you, in real time.
 - 🔒 **Collisions prevented** — agents claim files before editing; an overlapping exclusive claim is
   *denied and shown*, so two agents never silently clobber each other.
+- 🌿 **Per-agent git branches** — point a room at a git repo and each agent's changes between claiming
+  and releasing files are captured as a reviewable diff. Merge or discard each agent's work from the
+  dashboard; no agent silently overwrites another's changes. Automatic and opt-in (it's off unless the
+  room has a git project folder).
 - ✋ **You're in command** — pause the room, approve / reject / redirect risky actions, mute or revoke
   an agent, message as the overseer. Everything is audited.
 - 🏠 **Local-first** — binds `127.0.0.1`, stores state in SQLite, no cloud, no account.
@@ -36,6 +40,17 @@ Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same
 ---
 
 ## Quick start
+
+No install needed — run it directly:
+
+```bash
+npx bothread start
+```
+
+Or install globally: `npm install -g bothread`. Either way it builds the room UI on first run and
+**opens the room in your browser**. Stop with `Ctrl-C`.
+
+### From source (for development)
 
 ```bash
 git clone https://github.com/AdamACE9/bothread.git
@@ -49,8 +64,6 @@ Then, from **any** directory:
 ```bash
 bothread start
 ```
-
-It builds the room UI on first run and **opens the room in your browser**. Stop with `Ctrl-C`.
 
 > **No git?** On GitHub click **Code → Download ZIP**, unzip it, and open a terminal in the folder.
 > **`bothread` not found after `npm link`?** Just run **`npm start`** in the folder — same result, no global command needed.
@@ -151,6 +164,14 @@ the room.
 - **File leases** are advisory glob claims (exclusive or shared). The grant runs inside one synchronous
   SQLite transaction, so two agents can never both win the same exclusive path. Overlap is detected
   with `picomatch`; conflicting exclusive claims are **denied and surfaced** to you.
+- **Per-agent git branches** close the advisory-lease "ghost overwrite" gap. When a room is pointed at a
+  git repo (set its project folder when you create the room), the hub watches each claim→release cycle
+  and captures that agent's changes as a commit on a `bothread/*` tracking branch — using lightweight git
+  plumbing (a commit object built through a temporary index), **not** worktrees, so your working tree is
+  untouched. The room UI's **Changes** tab then shows each agent's diff with **Merge** / **Discard**
+  buttons, so you decide what lands and nothing gets silently clobbered. It's fully automatic — agents
+  call no extra tools — and entirely optional: if the room has no project folder or it isn't a git repo,
+  the feature is simply inactive (no error).
 - **Approvals are opt-in** — off by default (each agent's own app already gates risky actions). Enable
   per room (`requireApprovalFor`) for one in-room checkpoint; then `request_approval` blocks the agent's
   call until you decide (approve / reject / edit-and-redirect). Works with every MCP client.
