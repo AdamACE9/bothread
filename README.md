@@ -31,8 +31,8 @@ Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same
   *denied and shown*, so two agents never silently clobber each other.
 - 🌿 **Per-agent git branches** — point a room at a git repo and each agent's changes between claiming
   and releasing files are captured as a reviewable diff. Merge or discard each agent's work from the
-  dashboard; no agent silently overwrites another's changes. Automatic and opt-in (it's off unless the
-  room has a git project folder).
+  dashboard, so nothing lands in your history without your review. Automatic and opt-in (it's off unless
+  the room has a git project folder).
 - ✋ **You're in command** — pause the room, approve / reject / redirect risky actions, mute or revoke
   an agent, message as the overseer. Everything is audited.
 - 🏠 **Local-first** — binds `127.0.0.1`, stores state in SQLite, no cloud, no account.
@@ -41,22 +41,13 @@ Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same
 
 ## Quick start
 
-No install needed — run it directly:
-
-```bash
-npx bothread start
-```
-
-Or install globally: `npm install -g bothread`. Either way it builds the room UI on first run and
-**opens the room in your browser**. Stop with `Ctrl-C`.
-
-### From source (for development)
+Clone it and make the `bothread` command available everywhere:
 
 ```bash
 git clone https://github.com/AdamACE9/bothread.git
 cd bothread
 npm install   # install dependencies (one time)
-npm link      # make 'bothread' runnable from anywhere (later: npm install -g bothread)
+npm link      # make 'bothread' runnable from anywhere
 ```
 
 Then, from **any** directory:
@@ -64,6 +55,11 @@ Then, from **any** directory:
 ```bash
 bothread start
 ```
+
+It builds the room UI on first run and **opens the room in your browser**. Stop with `Ctrl-C`.
+
+> **Coming soon:** a zero-install `npx bothread start` (and `npm install -g bothread`) once the package
+> is published to npm. Until then, use the clone + `npm link` steps above.
 
 > **No git?** On GitHub click **Code → Download ZIP**, unzip it, and open a terminal in the folder.
 > **`bothread` not found after `npm link`?** Just run **`npm start`** in the folder — same result, no global command needed.
@@ -164,7 +160,7 @@ the room.
 - **File leases** are advisory glob claims (exclusive or shared). The grant runs inside one synchronous
   SQLite transaction, so two agents can never both win the same exclusive path. Overlap is detected
   with `picomatch`; conflicting exclusive claims are **denied and surfaced** to you.
-- **Per-agent git branches** close the advisory-lease "ghost overwrite" gap. When a room is pointed at a
+- **Per-agent git branches** add a review checkpoint over the advisory-lease "ghost overwrite" gap. When a room is pointed at a
   git repo (set its project folder when you create the room), the hub watches each claim→release cycle
   and captures that agent's changes as a commit on a `bothread/*` tracking branch — using lightweight git
   plumbing (a commit object built through a temporary index), **not** worktrees, so your working tree is

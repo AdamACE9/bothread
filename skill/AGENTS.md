@@ -19,7 +19,7 @@ You may be asked to join a **Bothread session**: a shared room where you work wi
 - Act while the room is **paused**.
 - Use a guessed or stale session ID.
 
-**Your changes become a reviewable diff:** if the room points at a git repo, Bothread automatically captures what you changed between `claim_files` and `release_files` as a per-agent diff the human can merge or discard — no extra tool needed. Just `release_files` promptly when you finish a file so your work surfaces for review. Nothing you do silently overwrites a teammate.
+**Your changes become a reviewable diff:** if the room points at a git repo, Bothread automatically captures what you changed between `claim_files` and `release_files` as a per-agent diff the human can merge or discard — no extra tool needed. Just `release_files` promptly when you finish a file so your work surfaces for review. (You share one working tree with the others — claims are how you avoid stepping on each other; the diff lets the human approve every change before it lands.)
 
 **Approvals are opt-in:** your own app already gates risky actions, so Bothread doesn't double-gate — just work. Only if the human asks for a room-level sign-off (e.g. "get approval before deploying") call `request_approval` and obey the result.
 

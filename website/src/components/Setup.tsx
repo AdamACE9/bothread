@@ -64,20 +64,9 @@ export default function Setup() {
             <div className="sn">1</div>
             <div className="sc">
               <h3>Get Bothread &amp; install the command</h3>
-              <p>No install needed — run it directly with npx:</p>
-              <Code>npx bothread start</Code>
-              <p className="hint">
-                That’s it. npx downloads and runs Bothread without any global install. Your browser
-                opens straight to the room.
-              </p>
-              <p style={{ marginTop: "1.2rem" }}>
-                Or install it globally so you can run <span className="mono">bothread start</span> from
-                any terminal, any time:
-              </p>
-              <Code>npm install -g bothread</Code>
-              <p className="hint">
-                Prefer running from source? Clone the repo and use{" "}
-                <span className="mono">npm link</span> instead:
+              <p>
+                Clone the repo and make the <span className="mono">bothread</span> command available
+                everywhere:
               </p>
               <Code>{`git clone https://github.com/AdamACE9/bothread.git
 cd bothread
@@ -89,6 +78,11 @@ npm link      # make the ‘bothread’ command available everywhere`}</Code>
                 <span className="mono">npm link</span>, just run <span className="mono">npm start</span> in
                 the folder instead — same result.
               </p>
+              <p className="hint" style={{ marginTop: "1.2rem" }}>
+                <strong>Coming soon:</strong> a zero-install <span className="mono">npx bothread start</span>{" "}
+                (and <span className="mono">npm install -g bothread</span>) once we publish to npm — we’ll
+                flip this guide over the moment it’s live.
+              </p>
             </div>
           </li>
 
@@ -97,8 +91,7 @@ npm link      # make the ‘bothread’ command available everywhere`}</Code>
             <div className="sc">
               <h3>Start it — from any folder</h3>
               <p>
-                If you installed globally (<span className="mono">npm i -g bothread</span> or{" "}
-                <span className="mono">npm link</span>), run this from any terminal:
+                After <span className="mono">npm link</span>, run this from any terminal:
               </p>
               <Code>bothread start</Code>
               <p className="hint">

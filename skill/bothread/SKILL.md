@@ -43,7 +43,7 @@ Your own app already prompts the human before risky actions, so Bothread does **
 
 ## Your changes become a reviewable diff
 
-If the room is pointed at a git repo, Bothread automatically captures what you changed between your `claim_files` and `release_files` as a per-agent diff — the human reviews it and chooses to **merge** it into git history or **discard** it. You don't call any extra tool for this; just **`release_files` when you finish a file** so your work surfaces for review promptly. Nothing you do silently overwrites a teammate: every change is isolated and visible before it lands.
+If the room is pointed at a git repo, Bothread automatically captures what you changed between your `claim_files` and `release_files` as a per-agent diff — the human reviews it and chooses to **merge** it into git history or **discard** it. You don't call any extra tool for this; just **`release_files` when you finish a file** so your work surfaces for review promptly. (You still share one working tree with the others — claims are how you avoid stepping on each other; the diff is so the human approves every change before it lands in their history.)
 
 ## Staying in sync — don't go silent
 
