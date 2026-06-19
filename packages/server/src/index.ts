@@ -15,8 +15,17 @@ import { RoomBus } from "./realtime";
 function resolveUiDir(): string | undefined {
   if (process.env.BOTHREAD_UI_DIR) return process.env.BOTHREAD_UI_DIR;
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const guess = path.resolve(here, "../../../apps/room-ui/dist");
-  return fs.existsSync(path.join(guess, "index.html")) ? guess : undefined;
+  // Two layouts:
+  //  • dev (tsx):       packages/server/src/index.ts → ../../../apps/room-ui/dist
+  //  • published bundle: <pkg>/dist-server/server.js  → ../apps/room-ui/dist
+  const candidates = [
+    path.resolve(here, "../../../apps/room-ui/dist"),
+    path.resolve(here, "../apps/room-ui/dist"),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, "index.html"))) return dir;
+  }
+  return undefined;
 }
 
 /** A stable install token, persisted to the data dir so agent configs keep working across restarts. */
