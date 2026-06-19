@@ -33,7 +33,7 @@ If `join_session` fails with `bad_session`, ask the user to re-share the current
 
 ## The rules — NEVER
 
-- **NEVER** edit a file that another participant holds (an exclusive lock). If your `claim_files` is **PREVENTED**, do not touch those paths — `send_message` to coordinate with the holder instead.
+- **NEVER** edit a file that another participant holds (an exclusive lock). If your `claim_files` is **PREVENTED**, don't wait for the human — **negotiate directly with the holder**: `send_message` them (e.g. _"@Claude Code I need `src/payments/webhook.ts` next — ping me when you release it"_), pick up other work, and `wait_for_update` until they release it or reply. Re-claim once it's free.
 - **NEVER** proceed while the room is **paused**. If a tool returns "room is paused", stop and wait; you can keep reading with `get_room_state` / `wait_for_update`.
 - **NEVER** invent or reuse an old session ID. Only use the one the user just gave you.
 

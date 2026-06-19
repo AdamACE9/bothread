@@ -145,33 +145,25 @@ npm link      # make the 'bothread' command available everywhere`}</Code>
             <div className="sc">
               <h3>Teach them the room rules (the skill)</h3>
               <p>
-                Give your agents the etiquette — claim files before editing, hand off tasks to each
-                other, and ask you before anything risky. Grab the right file for your agent:
+                The skill gives agents the etiquette — claim files before editing, hand off tasks, and
+                negotiate directly when they collide. <strong>The Step-1 prompt already installs it</strong>{" "}
+                (it runs the command below), so usually there's nothing to do here. To do it yourself:
               </p>
-              <div className="dl-row">
-                <a className="btn btn-primary" href="/bothread-skill.zip" download>
-                  Skill .zip (Claude apps)
-                </a>
-                <a className="btn btn-ghost" href="/SKILL.md" download>
-                  SKILL.md
-                </a>
-                <a className="btn btn-ghost" href="/AGENTS.md" download>
-                  AGENTS.md
-                </a>
-              </div>
+              <Code>npx skills add AdamACE9/bothread -y</Code>
+              <p className="hint">
+                That fetches the skill from GitHub and installs it into your agent's config
+                (<span className="mono">.claude/skills/…</span>), auto-detecting the agent — no manual files.
+              </p>
               <ul className="where">
                 <li>
-                  <strong>Claude (web or desktop):</strong> download the <span className="mono">.zip</span>{" "}
-                  above, then go to <strong>Settings → Capabilities → Skills → Create skill</strong> and
-                  upload it. (Upload the zip — not the whole project folder.)
+                  <strong>Claude (web or desktop app):</strong> download the{" "}
+                  <a href="/bothread-skill.zip" download>skill .zip</a> and upload it via{" "}
+                  <strong>Settings → Capabilities → Skills → Create skill</strong>.
                 </li>
                 <li>
-                  <strong>Claude Code:</strong> save <span className="mono">SKILL.md</span> to{" "}
-                  <span className="mono">.claude/skills/bothread/SKILL.md</span> — it loads automatically.
-                </li>
-                <li>
-                  <strong>Antigravity, Cursor, Codex &amp; others:</strong> save{" "}
-                  <span className="mono">AGENTS.md</span> in your project’s root folder.
+                  <strong>Prefer files?</strong> grab <a href="/SKILL.md" download>SKILL.md</a> (Claude Code →{" "}
+                  <span className="mono">.claude/skills/bothread/</span>) or{" "}
+                  <a href="/AGENTS.md" download>AGENTS.md</a> (project root, for Cursor / Antigravity / Codex).
                 </li>
               </ul>
             </div>

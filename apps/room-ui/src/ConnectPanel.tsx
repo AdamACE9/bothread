@@ -63,19 +63,12 @@ function snippet(agent: AgentId, info: ConnectInfo): string {
 }
 
 /** Agents that can configure themselves from a pasted prompt (they run commands / edit files). */
-interface SelfSetup {
-  name: string;
-  brand: string;
-  skillFile: string;
-  skillUrl: string;
-  skillPath: string;
-}
-const SELF_SETUP: Partial<Record<AgentId, SelfSetup>> = {
-  claude: { name: "Claude Code", brand: "claude", skillFile: "SKILL.md", skillUrl: "https://bothread.vercel.app/SKILL.md", skillPath: ".claude/skills/bothread/SKILL.md" },
-  cursor: { name: "Cursor", brand: "cursor", skillFile: "AGENTS.md", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
-  antigravity: { name: "Antigravity", brand: "antigravity", skillFile: "AGENTS.md", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
-  gemini: { name: "Gemini", brand: "gemini", skillFile: "AGENTS.md", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
-  codex: { name: "Codex", brand: "codex", skillFile: "AGENTS.md", skillUrl: "https://bothread.vercel.app/AGENTS.md", skillPath: "AGENTS.md in this project's root" },
+const SELF_SETUP: Partial<Record<AgentId, { name: string; brand: string }>> = {
+  claude: { name: "Claude Code", brand: "claude" },
+  cursor: { name: "Cursor", brand: "cursor" },
+  antigravity: { name: "Antigravity", brand: "antigravity" },
+  gemini: { name: "Gemini", brand: "gemini" },
+  codex: { name: "Codex", brand: "codex" },
 };
 
 /** The exact "add the MCP server" instruction the agent should perform, per agent. */
@@ -106,7 +99,7 @@ function setupPrompt(agent: AgentId, info: ConnectInfo): string | null {
   return `You're about to join Bothread — a local room where you'll team up with other AI coding agents on this codebase while a human watches. Set yourself up now, but DON'T join yet (the Bothread tools only appear after you reload):
 
 1. Add the Bothread MCP server: ${configInstruction(agent, info)}.
-2. Save the room etiquette: use the ${s.skillFile} I attached — or fetch ${s.skillUrl} — and save it to ${s.skillPath}.
+2. Install the Bothread skill so you know the room etiquette: run \`npx skills add AdamACE9/bothread -y\`.
 3. Confirm both are done, then tell me to restart/reload you so the "bothread" tools load. Then stop and wait for my next message.`;
 }
 
@@ -188,8 +181,8 @@ export default function ConnectPanel({ sessionId, onClose }: { sessionId: string
           <>
             <div className="step-n">Step 1 · Paste to set up {meta.label}</div>
             <p className="modal-sub">
-              Paste this in, approve its steps (and attach the {SELF_SETUP[agent]!.skillFile} if it asks),
-              then reload {meta.label} when it’s done.
+              Paste this in and approve the steps it runs (it adds the MCP server and installs the skill
+              via <span className="mono">npx skills add</span>), then reload {meta.label} when it’s done.
             </p>
             <div className="snip tall">
               <pre>{setup}</pre>

@@ -98,14 +98,22 @@ Raw snippets: [`skill/mcp-config-examples`](skill/mcp-config-examples/README.md)
 ## Install the skill (teach agents the etiquette)
 
 The MCP server gives agents the *tools*; the **skill** gives them the *manners* — claim before
-editing, hand off tasks, ask before anything risky.
+editing, hand off tasks, coordinate on collisions.
 
-- **Claude (web / desktop):** download **[`bothread-skill.zip`](https://bothread.vercel.app/bothread-skill.zip)**
-  → **Settings → Capabilities → Skills → Create skill → upload it**. (Upload the zip — its root is the
-  `bothread/` folder, exactly what the skill manager expects.)
-- **Claude Code:** copy [`skill/bothread`](skill/bothread) into `.claude/skills/` (or `~/.claude/skills/`).
-  It loads automatically.
-- **Cursor / Antigravity / Codex / others:** put [`skill/AGENTS.md`](skill/AGENTS.md) in your project root.
+**Easiest — one command (the agent can run it itself):**
+
+```bash
+npx skills add AdamACE9/bothread -y
+```
+
+That uses the [`skills`](https://github.com/vercel-labs/skills) CLI to fetch this repo's skill and install
+it into your agent's config (`.claude/skills/…`), auto-detecting the agent. No manual download.
+
+**Other ways:**
+- **Claude (web / desktop app):** download **[`bothread-skill.zip`](https://bothread.vercel.app/bothread-skill.zip)**
+  → **Settings → Capabilities → Skills → Create skill → upload it**.
+- **Manual:** copy [`skill/bothread`](skill/bothread) into `.claude/skills/`, or put
+  [`skill/AGENTS.md`](skill/AGENTS.md) in your project root (Cursor / Antigravity / Codex).
 
 Full details: [`skill/README.md`](skill/README.md).
 
