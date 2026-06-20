@@ -3,6 +3,7 @@ import type {
   Approval,
   ApprovalResult,
   ApprovalStatus,
+  AuditEvent,
   ClaimFilesInput,
   ClaimResult,
   Handoff,
@@ -131,6 +132,16 @@ interface HandoffRow {
   status: string;
   created_at: number;
   resolved_at: number | null;
+}
+interface AuditRow {
+  id: string;
+  room_id: string;
+  seq: number;
+  ts: number;
+  actor_id: string | null;
+  actor_name: string | null;
+  type: string;
+  payload: string | null;
 }
 
 export interface Caller {
@@ -309,6 +320,26 @@ export class Engine {
       resolvedAt: h.resolved_at ?? undefined,
     };
   }
+  private mapAudit(a: AuditRow): AuditEvent {
+    return {
+      id: a.id,
+      roomId: a.room_id,
+      seq: a.seq,
+      ts: a.ts,
+      actorId: a.actor_id ?? undefined,
+      actorName: a.actor_name ?? undefined,
+      type: a.type,
+      payload: a.payload ? (JSON.parse(a.payload) as Record<string, unknown>) : undefined,
+    };
+  }
+
+  /** The append-only governance trail for a room, most-recent-first. */
+  listAudit(roomId: string, limit = 150): AuditEvent[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM audit WHERE room_id = ? ORDER BY seq DESC LIMIT ?`)
+      .all(roomId, limit) as AuditRow[];
+    return rows.map((r) => this.mapAudit(r));
+  }
 
   /* ===================== Rooms ===================== */
 
@@ -375,6 +406,23 @@ export class Engine {
           : "Room closed by the overseer.",
       status === "active" ? "info" : "steering"
     );
+    this.publish(roomId, "room", { room });
+    return room;
+  }
+
+  /** Update room governance settings (approval gates, lease TTL). Overseer action. */
+  updateRoomSettings(roomId: string, partial: Partial<RoomSettings>, by = "You"): Room {
+    const r = this.roomRow(roomId);
+    if (!r) throw new BothreadError("no_room", "Room not found.");
+    const current = JSON.parse(r.settings) as RoomSettings;
+    const merged = RoomSettingsSchema.parse({ ...current, ...partial });
+    this.db.prepare(`UPDATE rooms SET settings = ? WHERE id = ?`).run(JSON.stringify(merged), roomId);
+    const room = this.mapRoom(this.roomRow(roomId)!);
+    this.audit(roomId, "room.settings", { name: by }, { settings: merged });
+    const gates = merged.requireApprovalFor.length
+      ? `Approval now required for: ${merged.requireApprovalFor.join(", ")}.`
+      : "Approval gates cleared — agents proceed without a room-level sign-off.";
+    this.postSystemMessage(roomId, `Overseer updated room settings. ${gates}`, "steering");
     this.publish(roomId, "room", { room });
     return room;
   }
@@ -1167,7 +1215,7 @@ export class Engine {
       }));
 
     return {
-      room: { name: room.name, status: room.status },
+      room: { name: room.name, status: room.status, requireApprovalFor: room.settings.requireApprovalFor },
       you: {
         id: self.id,
         name: self.name,

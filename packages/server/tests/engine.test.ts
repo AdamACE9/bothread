@@ -311,3 +311,29 @@ describe("Engine — liveness (listening, nudge, hand-off-aware wait)", () => {
     expect(msgs.some((m) => m.text.includes("@Cursor") && m.importance === "interrupt")).toBe(true);
   });
 });
+
+describe("Engine — governance (settings + audit log)", () => {
+  it("updateRoomSettings surfaces requireApprovalFor to agents via the snapshot", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+    expect(engine.buildSnapshot(room, a.participant).room.requireApprovalFor).toEqual([]);
+    engine.updateRoomSettings(room.id, { requireApprovalFor: ["deploy", "git_push"] });
+    const snap = engine.buildSnapshot(engine.getRoom(room.id)!, a.participant);
+    expect(snap.room.requireApprovalFor).toEqual(["deploy", "git_push"]);
+  });
+
+  it("listAudit returns the append-only governance trail", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/x.ts"] });
+    engine.updateRoomSettings(room.id, { requireApprovalFor: ["delete"] });
+    const types = engine.listAudit(room.id).map((e) => e.type);
+    expect(types).toContain("room.create");
+    expect(types).toContain("participant.join");
+    expect(types).toContain("lease.claim");
+    expect(types).toContain("room.settings");
+    // Newest-first ordering.
+    const seqs = engine.listAudit(room.id).map((e) => e.seq);
+    expect(seqs[0]!).toBeGreaterThan(seqs[seqs.length - 1]!);
+  });
+});

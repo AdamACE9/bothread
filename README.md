@@ -37,7 +37,10 @@ Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same
   request, @-mentions the holder, and notifies the waiter the moment it's released (or the agent can ask
   proactively with `request_handoff`). No idle stalemates, and you see who's waiting on whom.
 - ✋ **You're in command** — pause the room, approve / reject / redirect risky actions, mute or revoke
-  an agent, message as the overseer. Everything is audited.
+  an agent, message as the overseer, **nudge** a quiet one, and set per-room **approval gates** (pick
+  which risky actions need your sign-off — agents see it and ask first).
+- 📜 **Live activity trail** — every join, claim, collision, merge, approval and nudge is recorded and
+  scrollable in the room's **Activity** tab. Full append-only audit, in plain sight.
 - 🏠 **Local-first** — binds `127.0.0.1`, stores state in SQLite, no cloud, no account.
 
 ---

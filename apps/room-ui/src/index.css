@@ -834,6 +834,44 @@ textarea.field {
 .diff-view .line-del { color: var(--clay-1); }
 .diff-view .line-hdr { color: var(--muted-1); }
 
+/* ── Activity / audit timeline ── */
+.audit { display: flex; flex-direction: column; gap: 0.1rem; }
+.audit-row { display: flex; gap: 0.55rem; padding: 0.4rem 0; border-bottom: 1px solid var(--line-soft); }
+.audit-row:last-child { border-bottom: none; }
+.audit-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--muted-1); margin-top: 0.32rem; flex: none;
+}
+.audit-row.steer .audit-dot { background: var(--saffron); }
+.audit-row.alert .audit-dot { background: var(--clay-1); }
+.audit-body { min-width: 0; flex: 1; }
+.audit-line { display: flex; align-items: baseline; gap: 0.45rem; flex-wrap: wrap; }
+.audit-type { font-size: 0.78rem; font-weight: 540; color: var(--parchment-1); }
+.audit-actor { font-size: 0.72rem; color: var(--muted); }
+.audit-time { margin-left: auto; font-size: 0.66rem; color: var(--muted-1); font-family: var(--font-mono); }
+.audit-detail {
+  font-family: var(--font-mono); font-size: 0.68rem; color: var(--muted);
+  margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Settings modal ── */
+.btn.icon { padding: 0.35rem 0.5rem; font-size: 0.95rem; line-height: 1; }
+.settings-modal { width: min(520px, 100%); }
+.settings-intro { color: var(--muted); font-size: 0.86rem; line-height: 1.55; margin: 0.4rem 0 1rem; }
+.settings-intro code { color: var(--saffron); font-family: var(--font-mono); }
+.risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.risk {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: rgba(34,29,22,0.4); cursor: pointer; font-size: 0.82rem; color: var(--parchment-1);
+  transition: border-color 0.15s, background 0.15s;
+}
+.risk:hover { border-color: var(--copper); }
+.risk.on { border-color: var(--copper-1); background: rgba(207,122,60,0.12); }
+.risk input { accent-color: var(--copper); }
+.modal-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 1.2rem; }
+@media (max-width: 520px) { .risk-grid { grid-template-columns: 1fr; } }
+
 /* ── "Listening" presence (parked in wait_for_update) ── */
 .listening {
   display: inline-flex;

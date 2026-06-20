@@ -228,7 +228,12 @@ export const HandoffView = z.object({
 export type HandoffView = z.infer<typeof HandoffView>;
 
 export const RoomSnapshot = z.object({
-  room: z.object({ name: z.string(), status: RoomStatus }),
+  room: z.object({
+    name: z.string(),
+    status: RoomStatus,
+    /** Risky actions the human requires a room-level approval for (empty = none). */
+    requireApprovalFor: z.array(RiskAction).default([]),
+  }),
   you: z.object({
     id: z.string(),
     name: z.string(),

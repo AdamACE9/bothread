@@ -1,4 +1,4 @@
-import type { AgentBranch, Approval, Lease, Participant, Room, RoomSnapshot } from "@bothread/shared";
+import type { AgentBranch, Approval, AuditEvent, Lease, Participant, Room, RoomSnapshot } from "@bothread/shared";
 
 const J = { "content-type": "application/json" };
 
@@ -36,6 +36,10 @@ export const sendOverseer = (id: string, text: string, importance = "steering") 
   jpost(`/api/rooms/${id}/message`, { text, importance });
 export const setRoomStatus = (id: string, status: "active" | "paused" | "closed") =>
   jpost(`/api/rooms/${id}/status`, { status });
+export const updateRoomSettings = (id: string, settings: { requireApprovalFor?: string[]; defaultLeaseTtlMs?: number }) =>
+  jpost<{ room: Room }>(`/api/rooms/${id}/settings`, settings);
+export const getAudit = (id: string, limit = 150) =>
+  jget<{ audit: AuditEvent[] }>(`/api/rooms/${id}/audit?limit=${limit}`).then((r) => r.audit);
 export const setParticipantStatus = (id: string, pid: string, status: "active" | "muted" | "revoked") =>
   jpost(`/api/rooms/${id}/participants/${pid}/status`, { status });
 export const nudgeParticipant = (id: string, pid: string) =>

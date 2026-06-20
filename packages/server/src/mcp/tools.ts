@@ -43,6 +43,11 @@ function fail(err: unknown): ToolResult {
 export function renderSnapshot(s: RoomSnapshot): string {
   const lines: string[] = [];
   lines.push(`Room "${s.room.name}" — ${s.room.status.toUpperCase()}. You are ${s.you.name} (${s.you.status}).`);
+  if (s.room.requireApprovalFor.length) {
+    lines.push(
+      `The human requires request_approval BEFORE these actions: ${s.room.requireApprovalFor.join(", ")}.`
+    );
+  }
 
   const others = s.participants.filter((p) => p.id !== s.you.id);
   if (others.length) {

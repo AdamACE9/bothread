@@ -37,9 +37,9 @@ If `join_session` fails with `bad_session`, ask the user to re-share the current
 - **NEVER** proceed while the room is **paused**. If a tool returns "room is paused", stop and wait; you can keep reading with `get_room_state` / `wait_for_update`.
 - **NEVER** invent or reuse an old session ID. Only use the one the user just gave you.
 
-## Approvals (only when the human asks)
+## Approvals (honor the room's gates)
 
-Your own app already prompts the human before risky actions, so Bothread does **not** add a second gate by default — just work. **Only** if the human asks for a room-level sign-off (e.g. "get approval before you deploy") do you call **`request_approval`**; it blocks until they decide, then obey the result (`approved` / `rejected` / `edited`).
+By default Bothread adds **no** second gate — your own app already prompts the human before risky actions, so just work. But **check the snapshot's `requireApprovalFor` list**: if the human has put an action there (e.g. `deploy`, `git_push`, `delete`), you **must** call **`request_approval`** for that action *before* doing it. It blocks until they decide, then obey the result (`approved` / `rejected` / `edited`). The human can also ask in chat for a one-off sign-off — same tool.
 
 ## Your changes become a reviewable diff
 

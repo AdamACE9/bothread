@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentBranch, Approval, DiffHunkView, ThreadEntry } from "@bothread/shared";
-import { applyHunks, decideApproval, discardBranch, listBranches, mergeBranch, nudgeParticipant, sendOverseer, setParticipantStatus, setRoomStatus } from "./api";
+import type { AgentBranch, Approval, AuditEvent, DiffHunkView, RiskAction, ThreadEntry } from "@bothread/shared";
+import { applyHunks, decideApproval, discardBranch, getAudit, listBranches, mergeBranch, nudgeParticipant, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings } from "./api";
 import ConnectPanel from "./ConnectPanel";
 import { useRoom } from "./useRoom";
 import { Avatar, brandClass, fmtTime, richText } from "./ui";
@@ -8,7 +8,8 @@ import { Avatar, brandClass, fmtTime, richText } from "./ui";
 export default function RoomView({ roomId, onBack }: { roomId: string; onBack: () => void }) {
   const { detail, connected, refresh } = useRoom(roomId);
   const [showConnect, setShowConnect] = useState(false);
-  const [rightTab, setRightTab] = useState<"locks" | "changes">("locks");
+  const [showSettings, setShowSettings] = useState(false);
+  const [rightTab, setRightTab] = useState<"locks" | "changes" | "activity">("locks");
 
   if (!detail) {
     return (
@@ -41,6 +42,7 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
         onBack={onBack}
         afterAction={refresh}
         onConnect={() => setShowConnect(true)}
+        onSettings={() => setShowSettings(true)}
       />
 
       <div className="rmain">
@@ -122,6 +124,12 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
             >
               Changes
             </button>
+            <button
+              className={`rail-tab${rightTab === "activity" ? " active" : ""}`}
+              onClick={() => setRightTab("activity")}
+            >
+              Activity
+            </button>
           </div>
 
           {rightTab === "locks" ? (
@@ -156,8 +164,10 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
                 ))
               )}
             </>
-          ) : (
+          ) : rightTab === "changes" ? (
             <BranchPanel roomId={roomId} afterAction={refresh} />
+          ) : (
+            <AuditPanel roomId={roomId} connected={connected} />
           )}
         </aside>
       </div>
@@ -167,6 +177,15 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
       {pending && <ApprovalDock roomId={roomId} approval={pending} afterDecide={refresh} />}
 
       {showConnect && <ConnectPanel sessionId={sessionId} onClose={() => setShowConnect(false)} />}
+
+      {showSettings && (
+        <SettingsModal
+          roomId={roomId}
+          requireApprovalFor={snapshot.room.requireApprovalFor}
+          onClose={() => setShowSettings(false)}
+          afterSave={refresh}
+        />
+      )}
     </div>
   );
 }
@@ -181,6 +200,7 @@ function Header(props: {
   onBack: () => void;
   afterAction: () => void;
   onConnect: () => void;
+  onSettings: () => void;
 }) {
   const [reveal, setReveal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -235,6 +255,9 @@ function Header(props: {
         onClick={() => setRoomStatus(props.roomId, paused ? "active" : "paused").then(props.afterAction)}
       >
         {paused ? "Resume" : "Pause"}
+      </button>
+      <button className="btn icon" title="Room settings" aria-label="Room settings" onClick={props.onSettings}>
+        ⚙
       </button>
     </header>
   );
@@ -460,6 +483,163 @@ function HunkBlock({ hunk, kept, onToggle }: { hunk: DiffHunkView; kept: boolean
           );
         })}
       </pre>
+    </div>
+  );
+}
+
+const AUDIT_LABELS: Record<string, string> = {
+  "room.create": "Room created",
+  "room.active": "Room resumed",
+  "room.paused": "Room paused",
+  "room.closed": "Room closed",
+  "room.settings": "Settings changed",
+  "participant.join": "Joined",
+  "participant.leave": "Left",
+  "participant.muted": "Muted",
+  "participant.active": "Un-muted",
+  "participant.revoked": "Revoked",
+  "participant.nudge": "Nudged",
+  "message.send": "Message",
+  "message.overseer": "Overseer message",
+  "lease.claim": "Claimed files",
+  "lease.release": "Released files",
+  "lease.renew": "Renewed claim",
+  "lease.collision": "Collision prevented",
+  "approval.request": "Approval requested",
+  "approval.approved": "Approved",
+  "approval.rejected": "Rejected",
+  "approval.edited": "Edited & redirected",
+  "branch.merge": "Changes merged",
+  "branch.discard": "Changes discarded",
+  "branch.apply": "Changes partly applied",
+  "handoff.request": "Hand-off requested",
+};
+
+function auditDetail(e: AuditEvent): string {
+  const p = (e.payload ?? {}) as Record<string, unknown>;
+  if (Array.isArray(p.paths)) return (p.paths as string[]).join(", ");
+  if (typeof p.path === "string") return p.path;
+  if (Array.isArray(p.conflicts) && p.conflicts.length) {
+    const c = p.conflicts[0] as { path?: string };
+    return c?.path ?? "";
+  }
+  if (typeof p.participant === "string") return p.participant;
+  if (typeof p.holder === "string") return `→ ${p.holder}`;
+  if (typeof p.action === "string") return p.action;
+  if (p.settings && typeof p.settings === "object") {
+    const s = p.settings as { requireApprovalFor?: string[] };
+    return s.requireApprovalFor?.length ? `approve: ${s.requireApprovalFor.join(", ")}` : "no approval gates";
+  }
+  return "";
+}
+
+function AuditPanel({ roomId, connected }: { roomId: string; connected: boolean }) {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const load = () => getAudit(roomId, 200).then(setEvents).catch(() => null);
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 4000);
+    return () => clearInterval(iv);
+  }, [roomId, connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!events.length) return <p className="empty">No activity recorded yet.</p>;
+
+  return (
+    <div className="audit">
+      {events.map((e) => {
+        const detail = auditDetail(e);
+        const tone = e.type.startsWith("lease.collision")
+          ? "alert"
+          : e.type.startsWith("approval") || e.type.startsWith("room.") || e.type === "participant.revoked"
+            ? "steer"
+            : "";
+        return (
+          <div className={`audit-row ${tone}`} key={e.id}>
+            <span className="audit-dot" />
+            <div className="audit-body">
+              <div className="audit-line">
+                <span className="audit-type">{AUDIT_LABELS[e.type] ?? e.type}</span>
+                {e.actorName && <span className="audit-actor">{e.actorName}</span>}
+                <span className="audit-time">{fmtTime(e.ts)}</span>
+              </div>
+              {detail && <div className="audit-detail">{detail}</div>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const RISK_ACTIONS: RiskAction[] = ["delete", "deploy", "shell", "git_push", "install", "migration", "network", "other"];
+const RISK_LABELS: Record<RiskAction, string> = {
+  delete: "Delete files/folders",
+  deploy: "Deploy",
+  shell: "Run shell commands",
+  git_push: "git push",
+  install: "Install packages",
+  migration: "Run DB migrations",
+  network: "Network calls",
+  other: "Other risky actions",
+};
+
+function SettingsModal({
+  roomId,
+  requireApprovalFor,
+  onClose,
+  afterSave,
+}: {
+  roomId: string;
+  requireApprovalFor: RiskAction[];
+  onClose: () => void;
+  afterSave: () => void;
+}) {
+  const [sel, setSel] = useState<Set<RiskAction>>(new Set(requireApprovalFor));
+  const [busy, setBusy] = useState(false);
+  const toggle = (a: RiskAction) =>
+    setSel((s) => {
+      const n = new Set(s);
+      n.has(a) ? n.delete(a) : n.add(a);
+      return n;
+    });
+  const save = async () => {
+    setBusy(true);
+    try {
+      await updateRoomSettings(roomId, { requireApprovalFor: [...sel] });
+      afterSave();
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal settings-modal" role="dialog" aria-label="Room settings" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>Room settings</h2>
+          <button className="btn sm" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <p className="settings-intro">
+          Choose which risky actions an agent must get your <strong>approval</strong> for before doing.
+          Agents see this the moment it changes and will call <code>request_approval</code> first. Off by
+          default — each agent's own app already gates risky actions.
+        </p>
+        <div className="risk-grid">
+          {RISK_ACTIONS.map((a) => (
+            <label key={a} className={`risk${sel.has(a) ? " on" : ""}`}>
+              <input type="checkbox" checked={sel.has(a)} onChange={() => toggle(a)} />
+              <span>{RISK_LABELS[a]}</span>
+            </label>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <button className="btn" onClick={() => setSel(new Set())} disabled={busy}>Clear all</button>
+          <button className="btn primary" onClick={save} disabled={busy} style={{ marginLeft: "auto" }}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

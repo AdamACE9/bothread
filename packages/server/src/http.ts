@@ -164,6 +164,32 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
   );
 
   api.post(
+    "/rooms/:id/settings",
+    wrap((req, res) => {
+      const { requireApprovalFor, defaultLeaseTtlMs } = req.body ?? {};
+      const partial: { requireApprovalFor?: string[]; defaultLeaseTtlMs?: number } = {};
+      if (requireApprovalFor !== undefined) {
+        if (!Array.isArray(requireApprovalFor)) throw new BothreadError("bad_input", "requireApprovalFor must be an array.");
+        partial.requireApprovalFor = requireApprovalFor as string[];
+      }
+      if (defaultLeaseTtlMs !== undefined) {
+        if (typeof defaultLeaseTtlMs !== "number" || defaultLeaseTtlMs <= 0)
+          throw new BothreadError("bad_input", "defaultLeaseTtlMs must be a positive number.");
+        partial.defaultLeaseTtlMs = defaultLeaseTtlMs;
+      }
+      res.json({ room: engine.updateRoomSettings(param(req, "id"), partial as never) });
+    })
+  );
+
+  api.get(
+    "/rooms/:id/audit",
+    wrap((req, res) => {
+      const limit = Math.min(Number(req.query["limit"] ?? 150) || 150, 500);
+      res.json({ audit: engine.listAudit(param(req, "id"), limit) });
+    })
+  );
+
+  api.post(
     "/rooms/:id/participants/:pid/status",
     wrap((req, res) => {
       const { status } = req.body ?? {};
