@@ -18,6 +18,18 @@ export default function WaitlistForm({ source }: { source: WaitlistSource }) {
     if (r.ok) setEmail("");
   }
 
+  if (status === "ok") {
+    return (
+      <div className="wl-success" role="status" aria-live="polite">
+        <span className="wl-check" aria-hidden="true">✓</span>
+        <div>
+          <strong>You’re on the list.</strong>
+          <p>{msg || "We’ll email you the moment the room opens."}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form className="hero-form" onSubmit={onSubmit} noValidate>
       <input
@@ -38,7 +50,7 @@ export default function WaitlistForm({ source }: { source: WaitlistSource }) {
       </button>
       <p
         id={`wlmsg-${id}`}
-        className={`form-msg ${status === "ok" ? "ok" : status === "err" ? "err" : ""}`}
+        className={`form-msg ${status === "err" ? "err" : ""}`}
         role="status"
         aria-live="polite"
       >

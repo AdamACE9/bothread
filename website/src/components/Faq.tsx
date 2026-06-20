@@ -56,6 +56,59 @@ const QA: { q: string; a: ReactNode }[] = [
     ),
   },
   {
+    q: "Is my code sent anywhere?",
+    a: (
+      <>
+        <strong>No.</strong> Bothread runs on <span className="mono">127.0.0.1</span> and only touches the
+        project folder you point a room at. It coordinates the agents you already run; it never uploads
+        your code, and nothing is exposed to the internet. The only network calls are the ones your own
+        agents already make.
+      </>
+    ),
+  },
+  {
+    q: "What happens when two agents want the same file?",
+    a: (
+      <>
+        The first to <em>claim</em> it gets an advisory lock; the second is <strong>prevented</strong> and
+        sees it in the room. Instead of stalling, it can fire a <span className="mono">request_handoff</span>{" "}
+        — Bothread routes a tracked request to the holder and pings the waiter the moment the file is free.
+        No silent overwrites, no deadlocks.
+      </>
+    ),
+  },
+  {
+    q: "What does it cost?",
+    a: (
+      <>
+        Bothread itself is <strong>free and open-source</strong> (MIT). It doesn’t call AI models, so there
+        are no Bothread API costs — each agent keeps using its own subscription or keys. The website’s
+        waitlist is just for early-access updates.
+      </>
+    ),
+  },
+  {
+    q: "Do I need to be a developer to use it?",
+    a: (
+      <>
+        It’s built for <strong>solo builders and vibe-coders</strong>, not just veteran engineers. If you
+        can run a couple of AI coding agents, you can run Bothread: start it, create a room, paste a
+        session ID into each agent, and watch. The room does the coordinating; you stay in command.
+      </>
+    ),
+  },
+  {
+    q: "Can I use it on an existing project?",
+    a: (
+      <>
+        Yes. Point a room at any folder. If it’s a git repo, each agent’s edits show up as a{" "}
+        <strong>reviewable diff</strong> you merge or discard — even line by line — and your own uncommitted
+        work is never touched. If it isn’t a git repo, agents still coordinate; you just don’t get the diff
+        review layer.
+      </>
+    ),
+  },
+  {
     q: "Is this related to “Brothread” embroidery thread?",
     a: (
       <>
