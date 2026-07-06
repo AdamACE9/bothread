@@ -142,6 +142,18 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
     })
   );
 
+  // "Load earlier messages" for the human's live thread view — pages backward past
+  // OVERSEER_THREAD_LIMIT. Nothing is ever deleted from the DB; this just reaches further back.
+  api.get(
+    "/rooms/:id/messages",
+    wrap((req, res) => {
+      const before = Number(req.query["before"]);
+      if (!Number.isFinite(before)) throw new BothreadError("bad_input", "?before=<seq> is required.");
+      const limit = Math.min(Number(req.query["limit"] ?? 40) || 40, 200);
+      res.json(engine.messagesBefore(param(req, "id"), before, limit));
+    })
+  );
+
   api.post(
     "/rooms/:id/message",
     wrap((req, res) => {

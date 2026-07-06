@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentBranch, Approval, AuditEvent, DiffHunkView, RiskAction, ThreadEntry } from "@bothread/shared";
-import { applyHunks, decideApproval, discardBranch, getAudit, listBranches, mergeBranch, nudgeParticipant, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings } from "./api";
+import { OVERSEER_THREAD_LIMIT } from "@bothread/shared";
+import { applyHunks, decideApproval, discardBranch, getAudit, getMessagesBefore, listBranches, mergeBranch, nudgeParticipant, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings } from "./api";
 import ConnectPanel from "./ConnectPanel";
 import { useRoom } from "./useRoom";
 import { Avatar, brandClass, fmtTime, richText } from "./ui";
@@ -108,7 +109,7 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
           ))}
         </aside>
 
-        <Thread thread={snapshot.thread} brandByName={brandByName} />
+        <Thread roomId={roomId} thread={snapshot.thread} brandByName={brandByName} />
 
         <aside className="rail right">
           <div className="rail-tabs">
@@ -263,16 +264,60 @@ function Header(props: {
   );
 }
 
-function Thread({ thread, brandByName }: { thread: ThreadEntry[]; brandByName: Map<string, string | undefined> }) {
+function Thread({
+  roomId,
+  thread,
+  brandByName,
+}: {
+  roomId: string;
+  thread: ThreadEntry[];
+  brandByName: Map<string, string | undefined>;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  const [older, setOlder] = useState<ThreadEntry[]>([]);
+  // null = no explicit answer yet; fall back to a length heuristic so the button
+  // appears for long-running rooms even before the first "load earlier" click.
+  const [serverHasMore, setServerHasMore] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Switching rooms starts a fresh pagination state.
+  useEffect(() => {
+    setOlder([]);
+    setServerHasMore(null);
+  }, [roomId]);
+
   useEffect(() => {
     const el = ref.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [thread.length]);
 
+  const hasMore = serverHasMore ?? thread.length >= OVERSEER_THREAD_LIMIT;
+  const oldestSeq = older[0]?.seq ?? thread[0]?.seq;
+
+  const loadEarlier = async () => {
+    if (oldestSeq === undefined || loading) return;
+    setLoading(true);
+    try {
+      const { messages, hasMore: more } = await getMessagesBefore(roomId, oldestSeq, 40);
+      setOlder((o) => [...messages, ...o]);
+      setServerHasMore(more);
+    } catch {
+      /* transient — try again */
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const combined = [...older, ...thread];
+
   return (
     <div className="thread" ref={ref} role="log" aria-live="polite" aria-label="Room conversation">
-      {thread.map((m) => {
+      {hasMore && (
+        <button className="load-earlier" onClick={loadEarlier} disabled={loading}>
+          {loading ? "Loading…" : "▲ Load earlier messages"}
+        </button>
+      )}
+      {combined.map((m) => {
         if (m.kind === "system") {
           const cls = m.importance === "interrupt" ? "interrupt" : m.importance === "steering" ? "steering" : "";
           return (

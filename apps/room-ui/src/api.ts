@@ -1,4 +1,4 @@
-import type { AgentBranch, Approval, AuditEvent, Lease, Participant, Room, RoomSnapshot } from "@bothread/shared";
+import type { AgentBranch, Approval, AuditEvent, Lease, Participant, Room, RoomSnapshot, ThreadEntry } from "@bothread/shared";
 
 const J = { "content-type": "application/json" };
 
@@ -32,6 +32,8 @@ export const listRooms = () => jget<{ rooms: Room[] }>("/api/rooms").then((r) =>
 export const createRoom = (name: string, projectPath?: string) =>
   jpost<{ room: Room; sessionId: string }>("/api/rooms", { name, projectPath });
 export const getRoom = (id: string) => jget<RoomDetail>(`/api/rooms/${id}`);
+export const getMessagesBefore = (id: string, beforeSeq: number, limit = 40) =>
+  jget<{ messages: ThreadEntry[]; hasMore: boolean }>(`/api/rooms/${id}/messages?before=${beforeSeq}&limit=${limit}`);
 export const sendOverseer = (id: string, text: string, importance = "steering") =>
   jpost(`/api/rooms/${id}/message`, { text, importance });
 export const setRoomStatus = (id: string, status: "active" | "paused" | "closed") =>

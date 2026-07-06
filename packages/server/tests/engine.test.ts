@@ -337,3 +337,43 @@ describe("Engine — governance (settings + audit log)", () => {
     expect(seqs[0]!).toBeGreaterThan(seqs[seqs.length - 1]!);
   });
 });
+
+describe("Engine — transcript persistence (overseer view vs agent snapshot)", () => {
+  it("never deletes messages, and the overseer's snapshot sees far more than the lean agent window", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+    // Send more messages than SNAPSHOT_THREAD_LIMIT (12) but fewer than OVERSEER_THREAD_LIMIT (300).
+    for (let i = 0; i < 40; i++) engine.sendMessage(a, { text: `msg ${i}` });
+
+    // Agent-facing snapshot (join_session / get_room_state) stays lean.
+    const agentSnap = engine.buildSnapshot(room, a.participant);
+    expect(agentSnap.thread.length).toBe(12);
+
+    // The overseer's own live view is NOT capped at the agent's lean window.
+    const overseerSnap = engine.snapshotForOverseer(room.id)!;
+    expect(overseerSnap.thread.length).toBeGreaterThan(12);
+    // All 40 sent messages are visible to the overseer (well under OVERSEER_THREAD_LIMIT).
+    expect(overseerSnap.thread.filter((m) => m.text.startsWith("msg ")).length).toBe(40);
+  });
+
+  it("messagesBefore pages backward through history that predates the overseer window, losing nothing", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+    for (let i = 0; i < 25; i++) engine.sendMessage(a, { text: `m${i}` });
+
+    // Simulate the UI's initial view being just the most recent 10 (as if OVERSEER_THREAD_LIMIT were tiny).
+    const recent = engine.buildSnapshot(room, a.participant, 10).thread;
+    expect(recent.map((m) => m.text)).toEqual(["m15", "m16", "m17", "m18", "m19", "m20", "m21", "m22", "m23", "m24"]);
+
+    // Page backward from the oldest visible message.
+    const page1 = engine.messagesBefore(room.id, recent[0]!.seq, 10);
+    expect(page1.messages.map((m) => m.text)).toEqual(["m5", "m6", "m7", "m8", "m9", "m10", "m11", "m12", "m13", "m14"]);
+    expect(page1.hasMore).toBe(true);
+
+    // Keep paging until exhausted — every earlier message is reachable, nothing lost.
+    const page2 = engine.messagesBefore(room.id, page1.messages[0]!.seq, 10);
+    // page2 includes the two hello messages from twoAgentRoom's join + up to m0..m4.
+    expect(page2.messages.map((m) => m.text)).toContain("m0");
+    expect(page2.hasMore).toBe(false);
+  });
+});

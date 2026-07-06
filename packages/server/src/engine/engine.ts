@@ -23,7 +23,7 @@ import type {
   ThreadEntry,
   WaitForUpdateResult,
 } from "@bothread/shared";
-import { ETIQUETTE, RECENT_THREAD_LIMIT, SNAPSHOT_THREAD_LIMIT, RoomSettings as RoomSettingsSchema } from "@bothread/shared";
+import { ETIQUETTE, OVERSEER_THREAD_LIMIT, RECENT_THREAD_LIMIT, SNAPSHOT_THREAD_LIMIT, RoomSettings as RoomSettingsSchema } from "@bothread/shared";
 import {
   applySelectedHunks,
   commitToCurrentBranch,
@@ -1191,7 +1191,7 @@ export class Engine {
     }
   }
 
-  buildSnapshot(room: Room, self: Participant): RoomSnapshot {
+  buildSnapshot(room: Room, self: Participant, threadLimit: number = SNAPSHOT_THREAD_LIMIT): RoomSnapshot {
     const at = now();
     this.sweepExpiredTx(room.id, at);
     const leases = this.activeLeaseRows(room.id).map((l) => this.mapLease(l));
@@ -1223,8 +1223,9 @@ export class Engine {
         leases: byParticipant.get(self.id) ?? [],
       },
       participants,
-      // Lean thread in the snapshot to save agent context; read_messages(since) pages further back.
-      thread: this.msgRows(room.id, undefined, SNAPSHOT_THREAD_LIMIT).map((r) => this.toThreadEntry(this.mapMessage(r))),
+      // Lean for agents (default SNAPSHOT_THREAD_LIMIT) to save context; the overseer's own view
+      // asks for a much larger window (OVERSEER_THREAD_LIMIT) since it isn't sent over MCP.
+      thread: this.msgRows(room.id, undefined, threadLimit).map((r) => this.toThreadEntry(this.mapMessage(r))),
       locks: leases.map((l) => ({
         path: l.pathPattern,
         heldBy: l.participantId,
@@ -1252,7 +1253,22 @@ export class Engine {
       joinedAt: now(),
       lastSeenAt: now(),
     };
-    return this.buildSnapshot(room, overseer);
+    return this.buildSnapshot(room, overseer, OVERSEER_THREAD_LIMIT);
+  }
+
+  /**
+   * Backward pagination for the room UI's "load earlier messages": everything
+   * older than `beforeSeq`, newest-first internally then returned chronological.
+   * Nothing is ever actually gone — messages are append-only and never deleted —
+   * this just lets the human page arbitrarily far back beyond OVERSEER_THREAD_LIMIT.
+   */
+  messagesBefore(roomId: string, beforeSeq: number, limit: number = RECENT_THREAD_LIMIT): { messages: ThreadEntry[]; hasMore: boolean } {
+    const rows = this.db
+      .prepare(`SELECT * FROM messages WHERE room_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?`)
+      .all(roomId, beforeSeq, limit + 1) as MsgRow[];
+    const hasMore = rows.length > limit;
+    const page = (hasMore ? rows.slice(0, limit) : rows).reverse();
+    return { messages: page.map((r) => this.toThreadEntry(this.mapMessage(r))), hasMore };
   }
 
   /** Reject any still-pending approvals (e.g. on shutdown). */

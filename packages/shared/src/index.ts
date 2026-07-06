@@ -455,3 +455,7 @@ export const RECENT_THREAD_LIMIT = 40;
 /** Leaner thread length embedded in a RoomSnapshot/get_room_state — keeps agent context small;
  *  use read_messages(since) to page further back instead of bloating every snapshot. */
 export const SNAPSHOT_THREAD_LIMIT = 12;
+/** Thread length for the HUMAN overseer's own live room view — NOT sent to agents over MCP, so
+ *  it isn't token-constrained like SNAPSHOT_THREAD_LIMIT. Generous enough that a normal working
+ *  session is fully visible without paging; the room UI can still load further back on demand. */
+export const OVERSEER_THREAD_LIMIT = 300;
