@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ParticipantView } from "@bothread/shared";
 
 const KNOWN = ["claude", "cursor", "gemini", "codex"];
@@ -30,10 +31,55 @@ export function fmtTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-/** Render inline `code` spans from text wrapped in backticks. */
-export function richText(text: string) {
-  const parts = text.split(/(`[^`]+`)/g);
-  return parts.map((p, i) =>
-    p.startsWith("`") && p.endsWith("`") ? <code key={i}>{p.slice(1, -1)}</code> : <span key={i}>{p}</span>
-  );
+/** Matches a relative `.bothread/attachments/<file>.<img-ext>` reference in message text. */
+const ATTACHMENT_IMAGE_RE = /[^\s]*\.bothread\/attachments\/([^\s]+\.(?:png|jpe?g|gif|webp))/gi;
+
+/** Extract just the basename (no directories) from a matched attachment path. */
+function attachmentBasename(matchedPath: string): string {
+  const cleaned = matchedPath.replace(/\\/g, "/");
+  const idx = cleaned.lastIndexOf("/");
+  return idx === -1 ? cleaned : cleaned.slice(idx + 1);
+}
+
+/**
+ * Render inline `code` spans (backtick-wrapped text) and, when `roomId` is
+ * given, inline <img> previews for any `.bothread/attachments/*.png|jpg|...`
+ * reference found in the text — so screenshots agents drop in the shared
+ * attachments folder actually render in the room, not just as a path string.
+ */
+export function richText(text: string, roomId?: string) {
+  const codeParts = text.split(/(`[^`]+`)/g);
+  const nodes: ReactNode[] = [];
+  const images: string[] = [];
+
+  codeParts.forEach((part, i) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      nodes.push(<code key={`c${i}`}>{part.slice(1, -1)}</code>);
+      return;
+    }
+    if (!roomId) {
+      nodes.push(<span key={`s${i}`}>{part}</span>);
+      return;
+    }
+    // Keep the surrounding prose intact; separately collect each attachment
+    // image reference found in this segment for an inline preview below it.
+    nodes.push(<span key={`s${i}`}>{part}</span>);
+    for (const match of part.matchAll(ATTACHMENT_IMAGE_RE)) {
+      images.push(attachmentBasename(match[1]!));
+    }
+  });
+
+  images.forEach((basename, i) => {
+    nodes.push(
+      <img
+        key={`img-${i}-${basename}`}
+        className="attachment-preview"
+        src={`/api/rooms/${roomId}/attachments/${encodeURIComponent(basename)}`}
+        alt={basename}
+        loading="lazy"
+      />
+    );
+  });
+
+  return nodes;
 }

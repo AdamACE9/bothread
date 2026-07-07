@@ -155,6 +155,56 @@ describe("Git micro-branching (integration)", () => {
     expect(after).toBe("const x = 1;\nconst HUMAN_WIP = true;\n");
   });
 
+  it("ATTACHMENTS: never captures .bothread/attachments/** in the diff, even under a whole-project claim", () => {
+    const engine = makeEngine();
+    const { sessionId } = engine.createRoom({ name: "feat", projectPath: repoDir });
+    engine.joinSession("mcp-A", { sessionId, agentName: "Claude Code", brand: "claude" });
+    const a = engine.resolveCaller("mcp-A");
+
+    // Room creation should have already bootstrapped the attachments folder.
+    const attachmentsDir = path.join(repoDir, ".bothread", "attachments");
+    expect(fs.existsSync(attachmentsDir)).toBe(true);
+    expect(fs.existsSync(path.join(repoDir, ".bothread", ".gitignore"))).toBe(true);
+
+    // Claim the whole project dir — this would otherwise sweep in everything,
+    // including the attachments folder, if it weren't explicitly excluded.
+    const claim = engine.claimFiles(a, { paths: ["app.js", ".bothread/attachments"] });
+    expect(claim.granted).toBe(true);
+
+    // Agent makes a real code change...
+    fs.writeFileSync(path.join(repoDir, "app.js"), "const x = 1;\nconst y = 2;\n");
+    // ...and drops a screenshot into the attachments folder using the naming convention.
+    fs.writeFileSync(
+      path.join(attachmentsDir, "claude-code_1783373052738_bossfight-screenshot.png"),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47]) // PNG magic bytes stub
+    );
+
+    engine.releaseFiles(a, { paths: ["app.js", ".bothread/attachments"] });
+
+    const branches = engine.listBranches(a.room.id);
+    expect(branches.length).toBe(1);
+    const b = branches[0]!;
+    expect(b.status).toBe("ready");
+    // The code change is captured...
+    expect(b.diff).toContain("const y = 2;");
+    // ...but the attachments path never entered the tracked paths or the diff.
+    expect(b.paths.some((p) => p.includes(".bothread/attachments"))).toBe(false);
+    expect(b.diff ?? "").not.toContain("bossfight-screenshot");
+    expect(b.diff ?? "").not.toContain(".bothread/attachments");
+
+    // The tracking branch commit (if any) must not include the attachment file either.
+    if (b.commitSha) {
+      const showFiles = git(repoDir, ["show", "--name-only", "--pretty=format:", b.commitSha]);
+      expect(showFiles).not.toContain(".bothread/attachments");
+      expect(showFiles).not.toContain("bossfight-screenshot");
+    }
+
+    // And the attachment file itself is still sitting on disk, untouched.
+    expect(
+      fs.existsSync(path.join(attachmentsDir, "claude-code_1783373052738_bossfight-screenshot.png"))
+    ).toBe(true);
+  });
+
   it("HUNK-LEVEL: applies only the selected hunks and discards the rest", () => {
     const engine = makeEngine();
     // A file with two well-separated regions so the agent's edits form two hunks.

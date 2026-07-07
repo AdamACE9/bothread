@@ -47,6 +47,7 @@ import {
   currentSha,
   deleteTrackingBranch,
   diffWorkingTree,
+  ensureAttachmentsFolder,
   isGitRepo,
   restoreFilesToSha,
   sanitizeBranchSegment,
@@ -450,6 +451,11 @@ export class Engine {
          VALUES (?, ?, ?, ?, 'active', ?, ?)`
       )
       .run(id, opts.name, opts.projectPath ?? null, sessionId, createdAt, JSON.stringify(settings));
+
+    // Best-effort: bootstrap the shared `.bothread/attachments/` drop folder (+
+    // its own .gitignore) so screenshots/artifacts have somewhere to land from
+    // the start. Never blocks room creation if the projectPath is missing/bad.
+    if (opts.projectPath) ensureAttachmentsFolder(opts.projectPath);
 
     // Every room has a human overseer participant (the person at the UI).
     const overseerId = newId("part");
@@ -1738,12 +1744,30 @@ export class Engine {
   /* ===================== Git micro-branching ===================== */
 
   /**
+   * Attachments dropped under `.bothread/attachments/` are evidence (screenshots,
+   * structured results), not deliverable code — never let them enter the
+   * claim/diff/review pipeline. Matches the path whether it's relative to the
+   * project root or given with a leading `./`, and regardless of slash direction.
+   */
+  private static isAttachmentPath(p: string): boolean {
+    const norm = p.replace(/\\/g, "/").replace(/^\.\//, "");
+    return norm === ".bothread/attachments" || norm.startsWith(".bothread/attachments/");
+  }
+
+  /** Filter out `.bothread/attachments/**` paths before they enter git tracking. */
+  private static excludeAttachments(paths: string[]): string[] {
+    return paths.filter((p) => !Engine.isAttachmentPath(p));
+  }
+
+  /**
    * Called after a successful claimFiles: if the room has a projectPath that's a
    * git repo, upsert a 'tracking' branch entry for this participant (adding the
    * new paths to an existing entry if one already exists this session).
    */
-  private startGitTracking(room: Room, participant: Participant, paths: string[]): void {
+  private startGitTracking(room: Room, participant: Participant, rawPaths: string[]): void {
     if (!room.projectPath) return;
+    const paths = Engine.excludeAttachments(rawPaths);
+    if (!paths.length) return;
     try {
       if (!isGitRepo(room.projectPath)) return;
       const sha = currentSha(room.projectPath);
@@ -1798,7 +1822,15 @@ export class Engine {
     const at = now();
     for (const row of rows) {
       try {
-        const paths = JSON.parse(row.paths) as string[];
+        // Defensive re-filter: attachments should already be excluded at claim
+        // time (startGitTracking), but never let them slip into a diff/commit.
+        const paths = Engine.excludeAttachments(JSON.parse(row.paths) as string[]);
+        if (!paths.length) {
+          this.db
+            .prepare(`UPDATE branches SET status = 'ready', finalized_at = ? WHERE id = ?`)
+            .run(at, row.id);
+          continue;
+        }
         // Diff against the claim-time snapshot (not HEAD): captures only what the
         // agent changed since claiming, leaving the human's pre-existing work out.
         const base = row.base_tree ?? row.base_sha;
