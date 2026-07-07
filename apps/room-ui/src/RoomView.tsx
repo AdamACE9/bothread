@@ -72,6 +72,13 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
                     ))}
                   </div>
                 )}
+                {p.capabilities && p.capabilities.length > 0 && (
+                  <div className="capabilities" title="Self-declared capabilities from join time">
+                    {p.capabilities.map((c) => (
+                      <span key={c}>{c}</span>
+                    ))}
+                  </div>
+                )}
                 {p.kind === "agent" && p.status !== "revoked" && (
                   <div className="acts">
                     <button

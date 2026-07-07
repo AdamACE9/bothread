@@ -54,7 +54,8 @@ export function renderSnapshot(s: RoomSnapshot): string {
     lines.push("Participants:");
     for (const p of others) {
       const files = p.claimedFiles.length ? ` holding [${p.claimedFiles.join(", ")}]` : "";
-      lines.push(`  • ${p.name}${p.brand ? ` (${p.brand})` : ""} — ${p.status}${files}`);
+      const caps = p.capabilities?.length ? ` [capabilities: ${p.capabilities.join(", ")}]` : "";
+      lines.push(`  • ${p.name}${p.brand ? ` (${p.brand})` : ""} — ${p.status}${files}${caps}`);
     }
   }
 

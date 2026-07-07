@@ -1212,6 +1212,7 @@ export class Engine {
         claimedFiles: byParticipant.get(p.id) ?? [],
         lastSeen: p.last_seen_at,
         listening: p.kind === "agent" && this.isListening(p.id),
+        capabilities: p.capabilities ? (JSON.parse(p.capabilities) as string[]) : undefined,
       }));
 
     return {

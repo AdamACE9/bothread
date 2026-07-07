@@ -174,6 +174,8 @@ export const ParticipantView = z.object({
   lastSeen: z.number(),
   /** True if the agent is currently parked in wait_for_update — actively listening. */
   listening: z.boolean().default(false),
+  /** Self-declared capabilities from join time (e.g. "can-view-video"), visible to everyone. */
+  capabilities: z.array(z.string()).optional(),
 });
 export type ParticipantView = z.infer<typeof ParticipantView>;
 
