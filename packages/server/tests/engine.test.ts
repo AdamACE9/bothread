@@ -377,3 +377,96 @@ describe("Engine — transcript persistence (overseer view vs agent snapshot)", 
     expect(page2.hasMore).toBe(false);
   });
 });
+
+describe("Engine — overseer 'last seen' watermark", () => {
+  it("does not silently auto-advance between polls, and updates on the next poll", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+
+    // First poll: nobody has polled before, so there's no prior watermark yet.
+    const first = engine.snapshotForOverseer(room.id)!;
+    expect(first.overseerLastSeenSeq).toBeUndefined();
+    const seqAtFirstPoll = first.latestSeq;
+
+    // Send more messages WITHOUT polling again.
+    engine.sendMessage(a, { text: "one" });
+    engine.sendMessage(a, { text: "two" });
+    engine.sendMessage(a, { text: "three" });
+
+    // Nothing re-computed this until we poll again — the watermark from the
+    // engine's internal state must still reflect the first poll, not silently
+    // track the latest seq. We can only observe it via the NEXT call, so verify
+    // the next call reports the seq as of the FIRST poll, not as of right now.
+    const second = engine.snapshotForOverseer(room.id)!;
+    expect(second.overseerLastSeenSeq).toBe(seqAtFirstPoll);
+    // Proves it's a real "last polled" signal, not always-current: three
+    // messages were sent since, so the exposed watermark is well behind latestSeq.
+    expect(second.latestSeq).toBeGreaterThan(second.overseerLastSeenSeq!);
+    expect(second.latestSeq - second.overseerLastSeenSeq!).toBe(3);
+
+    // A third poll immediately after now reflects the second poll's latestSeq.
+    const third = engine.snapshotForOverseer(room.id)!;
+    expect(third.overseerLastSeenSeq).toBe(second.latestSeq);
+  });
+
+  it("overseerActive is true only when polls land within the active window, false after a gap", () => {
+    vi.useFakeTimers();
+    try {
+      const engine = makeEngine();
+      const { room } = twoAgentRoom(engine);
+
+      // First poll ever: no previous poll to compare against, so not "active".
+      const first = engine.snapshotForOverseer(room.id)!;
+      expect(first.overseerActive).toBe(false);
+
+      // Poll again quickly (well within the 15s window) — now active.
+      vi.advanceTimersByTime(2_000);
+      const second = engine.snapshotForOverseer(room.id)!;
+      expect(second.overseerActive).toBe(true);
+
+      // Let a long gap pass (tab closed / human stepped away) before polling again.
+      vi.advanceTimersByTime(30_000);
+      const third = engine.snapshotForOverseer(room.id)!;
+      expect(third.overseerActive).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("Engine — idle participant detection", () => {
+  it("flags an agent idle after 5+ minutes of no activity, and not for a freshly-active one", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+
+    // Directly poke participant b's last_seen_at back to simulate a long absence
+    // (the schema's participants.last_seen_at column — see db/schema.ts).
+    const longAgo = Date.now() - 6 * 60 * 1000; // 6 minutes ago
+    (engine as any).db.prepare(`UPDATE participants SET last_seen_at = ? WHERE id = ?`).run(longAgo, b.participant.id);
+
+    const snap = engine.buildSnapshot(room, a.participant);
+    const bView = snap.participants.find((p) => p.id === b.participant.id)!;
+    const aView = snap.participants.find((p) => p.id === a.participant.id)!;
+
+    expect(bView.idle).toBe(true);
+    // `a` just called resolveCaller (via twoAgentRoom) so its last_seen_at is fresh.
+    expect(aView.idle).toBe(false);
+  });
+
+  it("idle is independent of listening — a parked waiter with stale last_seen_at is both", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+
+    // b enters wait_for_update (marks it "listening")...
+    void engine.waitForUpdate(b, { maxWaitMs: 0 });
+    // ...but its last_seen_at is artificially old (e.g. the process has been
+    // parked in a long-poll for a while with no other tool calls in between).
+    const longAgo = Date.now() - 10 * 60 * 1000;
+    (engine as any).db.prepare(`UPDATE participants SET last_seen_at = ? WHERE id = ?`).run(longAgo, b.participant.id);
+
+    const snap = engine.buildSnapshot(room, a.participant);
+    const bView = snap.participants.find((p) => p.id === b.participant.id)!;
+    expect(bView.listening).toBe(true);
+    expect(bView.idle).toBe(true);
+  });
+});

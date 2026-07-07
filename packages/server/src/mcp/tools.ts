@@ -54,7 +54,27 @@ export function renderSnapshot(s: RoomSnapshot): string {
     lines.push("Participants:");
     for (const p of others) {
       const files = p.claimedFiles.length ? ` holding [${p.claimedFiles.join(", ")}]` : "";
-      lines.push(`  • ${p.name}${p.brand ? ` (${p.brand})` : ""} — ${p.status}${files}`);
+      if (p.idle) {
+        const mins = Math.max(1, Math.round((Date.now() - p.lastSeen) / 60000));
+        lines.push(`  • ${p.name}${p.brand ? ` (${p.brand})` : ""} — idle (no activity in ${mins}m, may have dropped off)${files}`);
+      } else {
+        lines.push(`  • ${p.name}${p.brand ? ` (${p.brand})` : ""} — ${p.status}${files}`);
+      }
+    }
+  }
+
+  if (s.overseerActive !== undefined) {
+    if (s.overseerActive) {
+      lines.push("The human's room UI is open and actively watching right now.");
+    } else if (s.overseerLastSeenSeq !== undefined) {
+      const behind = s.latestSeq - s.overseerLastSeenSeq;
+      lines.push(
+        behind > 0
+          ? `The human isn't actively watching right now — as of their last look, they were ${behind} message(s) behind the current thread.`
+          : "The human isn't actively watching right now, but was caught up as of their last look."
+      );
+    } else {
+      lines.push("The human hasn't opened the room UI yet this session.");
     }
   }
 
