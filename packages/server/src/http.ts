@@ -176,6 +176,17 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
   );
 
   api.post(
+    "/rooms/:id/rename",
+    wrap((req, res) => {
+      const { name } = req.body ?? {};
+      if (!name || typeof name !== "string" || !name.trim()) {
+        throw new BothreadError("bad_input", "A non-empty room name is required.");
+      }
+      res.json({ room: engine.renameRoom(param(req, "id"), name.trim()) });
+    })
+  );
+
+  api.post(
     "/rooms/:id/settings",
     wrap((req, res) => {
       const { requireApprovalFor, defaultLeaseTtlMs } = req.body ?? {};

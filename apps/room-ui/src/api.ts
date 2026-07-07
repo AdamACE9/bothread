@@ -38,6 +38,8 @@ export const sendOverseer = (id: string, text: string, importance = "steering") 
   jpost(`/api/rooms/${id}/message`, { text, importance });
 export const setRoomStatus = (id: string, status: "active" | "paused" | "closed") =>
   jpost(`/api/rooms/${id}/status`, { status });
+export const renameRoom = (id: string, name: string) =>
+  jpost<{ room: Room }>(`/api/rooms/${id}/rename`, { name });
 export const updateRoomSettings = (id: string, settings: { requireApprovalFor?: string[]; defaultLeaseTtlMs?: number }) =>
   jpost<{ room: Room }>(`/api/rooms/${id}/settings`, settings);
 export const getAudit = (id: string, limit = 150) =>

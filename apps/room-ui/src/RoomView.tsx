@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentBranch, Approval, AuditEvent, DiffHunkView, RiskAction, ThreadEntry } from "@bothread/shared";
 import { OVERSEER_THREAD_LIMIT } from "@bothread/shared";
-import { applyHunks, decideApproval, discardBranch, getAudit, getMessagesBefore, listBranches, mergeBranch, nudgeParticipant, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings } from "./api";
+import { applyHunks, decideApproval, discardBranch, getAudit, getMessagesBefore, listBranches, mergeBranch, nudgeParticipant, renameRoom, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings } from "./api";
 import ConnectPanel from "./ConnectPanel";
 import { useRoom } from "./useRoom";
 import { Avatar, brandClass, fmtTime, richText } from "./ui";
@@ -205,6 +205,8 @@ function Header(props: {
 }) {
   const [reveal, setReveal] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(props.name);
   const paused = props.status === "paused";
 
   const copy = async () => {
@@ -217,12 +219,44 @@ function Header(props: {
     }
   };
 
+  const startEditingName = () => {
+    setNameDraft(props.name);
+    setEditingName(true);
+  };
+  const saveName = async () => {
+    const next = nameDraft.trim();
+    setEditingName(false);
+    if (!next || next === props.name) return;
+    await renameRoom(props.roomId, next);
+    props.afterAction();
+  };
+
   return (
     <header className="rhead">
       <button className="back" onClick={props.onBack} aria-label="Back to rooms">
         ‹
       </button>
-      <h1>{props.name}</h1>
+      {editingName ? (
+        <input
+          className="field room-name-edit"
+          autoFocus
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={saveName}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              saveName();
+            } else if (e.key === "Escape") {
+              setEditingName(false);
+            }
+          }}
+        />
+      ) : (
+        <h1 className="room-name" title="Click to rename" onClick={startEditingName}>
+          {props.name}
+        </h1>
+      )}
       <span className={`pill ${props.status}`}>
         <span className="dot" />
         {props.status}
@@ -279,11 +313,15 @@ function Thread({
   // appears for long-running rooms even before the first "load earlier" click.
   const [serverHasMore, setServerHasMore] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
+  // Client-side topic filter over the existing (unused-until-now) threadId field.
+  // "" = All topics. Purely cosmetic — no server-side query, just narrows what renders.
+  const [topic, setTopic] = useState("");
 
   // Switching rooms starts a fresh pagination state.
   useEffect(() => {
     setOlder([]);
     setServerHasMore(null);
+    setTopic("");
   }, [roomId]);
 
   useEffect(() => {
@@ -309,37 +347,65 @@ function Thread({
   };
 
   const combined = [...older, ...thread];
+  const topics = Array.from(new Set(combined.map((m) => m.threadId).filter((t): t is string => !!t))).sort();
+  const visible = topic ? combined.filter((m) => m.threadId === topic || m.kind === "system") : combined;
 
   return (
-    <div className="thread" ref={ref} role="log" aria-live="polite" aria-label="Room conversation">
-      {hasMore && (
-        <button className="load-earlier" onClick={loadEarlier} disabled={loading}>
-          {loading ? "Loading…" : "▲ Load earlier messages"}
-        </button>
+    <div className="thread-col">
+      {topics.length > 0 && (
+        <div className="topic-pills" role="tablist" aria-label="Filter by topic">
+          <button
+            className={`topic-pill${topic === "" ? " active" : ""}`}
+            role="tab"
+            aria-selected={topic === ""}
+            onClick={() => setTopic("")}
+          >
+            All
+          </button>
+          {topics.map((t) => (
+            <button
+              key={t}
+              className={`topic-pill${topic === t ? " active" : ""}`}
+              role="tab"
+              aria-selected={topic === t}
+              onClick={() => setTopic(t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
       )}
-      {combined.map((m) => {
-        if (m.kind === "system") {
-          const cls = m.importance === "interrupt" ? "interrupt" : m.importance === "steering" ? "steering" : "";
+      <div className="thread" ref={ref} role="log" aria-live="polite" aria-label="Room conversation">
+        {hasMore && (
+          <button className="load-earlier" onClick={loadEarlier} disabled={loading}>
+            {loading ? "Loading…" : "▲ Load earlier messages"}
+          </button>
+        )}
+        {visible.map((m) => {
+          if (m.kind === "system") {
+            const cls = m.importance === "interrupt" ? "interrupt" : m.importance === "steering" ? "steering" : "";
+            return (
+              <div className={`sysline ${cls}`} key={m.seq} role={m.importance === "interrupt" ? "alert" : undefined}>
+                <span className="bar" />
+                <span>{richText(m.text)}</span>
+              </div>
+            );
+          }
           return (
-            <div className={`sysline ${cls}`} key={m.seq} role={m.importance === "interrupt" ? "alert" : undefined}>
-              <span className="bar" />
-              <span>{richText(m.text)}</span>
+            <div className={`msg ${m.kind}`} key={m.seq}>
+              <Avatar name={m.author} brand={brandByName.get(m.author)} kind={m.kind === "human" ? "human" : "agent"} />
+              <div className="body">
+                <div className="head">
+                  <span className="author">{m.author}</span>
+                  {m.threadId && <span className="topic-tag">{m.threadId}</span>}
+                  <span className="time">{fmtTime(m.at)}</span>
+                </div>
+                <div className="text">{richText(m.text)}</div>
+              </div>
             </div>
           );
-        }
-        return (
-          <div className={`msg ${m.kind}`} key={m.seq}>
-            <Avatar name={m.author} brand={brandByName.get(m.author)} kind={m.kind === "human" ? "human" : "agent"} />
-            <div className="body">
-              <div className="head">
-                <span className="author">{m.author}</span>
-                <span className="time">{fmtTime(m.at)}</span>
-              </div>
-              <div className="text">{richText(m.text)}</div>
-            </div>
-          </div>
-        );
-      })}
+        })}
+      </div>
     </div>
   );
 }
