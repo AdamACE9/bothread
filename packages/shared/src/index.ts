@@ -193,6 +193,8 @@ export const ThreadEntry = z.object({
   importance: Importance,
   text: z.string(),
   mentions: z.array(z.string()),
+  /** Lightweight topic tag (from send_message's threadId) — lets the UI group/filter a mixed thread. */
+  threadId: z.string().optional(),
   at: z.number(),
 });
 export type ThreadEntry = z.infer<typeof ThreadEntry>;

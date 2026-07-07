@@ -461,6 +461,18 @@ export class Engine {
     return room;
   }
 
+  /** Rename the room — scope pivots happen mid-session; the title shouldn't lie about it. */
+  renameRoom(roomId: string, name: string, by = "You"): Room {
+    const r = this.roomRow(roomId);
+    if (!r) throw new BothreadError("no_room", "Room not found.");
+    this.db.prepare(`UPDATE rooms SET name = ? WHERE id = ?`).run(name, roomId);
+    const room = this.mapRoom(this.roomRow(roomId)!);
+    this.audit(roomId, "room.rename", { name: by }, { name });
+    this.postSystemMessage(roomId, `${by} renamed the room to "${name}".`, "steering");
+    this.publish(roomId, "room", { room });
+    return room;
+  }
+
   /** Update room governance settings (approval gates, lease TTL). Overseer action. */
   updateRoomSettings(roomId: string, partial: Partial<RoomSettings>, by = "You"): Room {
     const r = this.roomRow(roomId);
@@ -817,6 +829,7 @@ export class Engine {
       importance: m.importance,
       text: m.text,
       mentions: m.mentions,
+      threadId: m.threadId,
       at: m.createdAt,
     };
   }

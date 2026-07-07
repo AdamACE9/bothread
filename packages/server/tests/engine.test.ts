@@ -574,3 +574,52 @@ describe("Engine — checkFiles (quiet ownership peek, zero side effects)", () =
     expect(engine.latestSeq(room.id)).toBe(seqBefore);
   });
 });
+
+describe("Engine — room identity (rename + topic tagging)", () => {
+  it("renameRoom updates the name, is reflected in a fresh fetch, and posts audit + system message", () => {
+    const engine = makeEngine();
+    const { room } = twoAgentRoom(engine);
+    expect(room.name).toBe("payments-refactor");
+
+    const seqBefore = engine.latestSeq(room.id);
+    const renamed = engine.renameRoom(room.id, "mario-platformer", "You");
+    expect(renamed.name).toBe("mario-platformer");
+
+    // Reflected in a fresh getRoom fetch and in a fresh snapshot.
+    expect(engine.getRoom(room.id)!.name).toBe("mario-platformer");
+    const a = engine.resolveCaller("mcp-A");
+    expect(engine.buildSnapshot(engine.getRoom(room.id)!, a.participant).room.name).toBe("mario-platformer");
+
+    // Audit entry posted.
+    const types = engine.listAudit(room.id).map((e) => e.type);
+    expect(types).toContain("room.rename");
+
+    // System message posted, visible to agents reading since the rename.
+    const after = engine.readMessages(a, { since: seqBefore });
+    expect(after.messages.some((m) => m.kind === "system" && m.text.includes('renamed the room to "mario-platformer"'))).toBe(
+      true
+    );
+  });
+
+  it("throws BothreadError when renaming a nonexistent room", () => {
+    const engine = makeEngine();
+    expect(() => engine.renameRoom("no-such-room", "x")).toThrow(BothreadError);
+  });
+
+  it("send_message's threadId round-trips through storage into ThreadEntry (topic tagging, no new field)", () => {
+    const engine = makeEngine();
+    const { a, b } = twoAgentRoom(engine);
+    engine.sendMessage(a, { text: "working on mario jump physics", threadId: "mario-game" });
+    engine.sendMessage(b, { text: "wiring up the tarzan swing", threadId: "tarzan-game" });
+    engine.sendMessage(a, { text: "untagged general chatter" });
+
+    const { messages } = engine.readMessages(a, {});
+    const marioMsg = messages.find((m) => m.text.includes("mario jump"));
+    const tarzanMsg = messages.find((m) => m.text.includes("tarzan swing"));
+    const untagged = messages.find((m) => m.text.includes("untagged"));
+
+    expect(marioMsg?.threadId).toBe("mario-game");
+    expect(tarzanMsg?.threadId).toBe("tarzan-game");
+    expect(untagged?.threadId).toBeUndefined();
+  });
+});
