@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "../src/db/database";
 import { Engine, type Caller } from "../src/engine/engine";
@@ -689,5 +693,94 @@ describe("Engine — notes (durable decisions / issues / verification)", () => {
     const note = engine.recordNote(overseerCaller, { kind: "decision", title: "ship the MVP without symbol-level locks" });
     expect(note.authorName).toBe(overseerCaller.participant.name);
     expect(engine.listNotes(room.id).some((n) => n.id === note.id)).toBe(true);
+  });
+});
+
+describe("Engine — rejoin digest", () => {
+  const git = (cwd: string, args: string[]) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+
+  function makeRepo(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bothread-rejoin-"));
+    git(dir, ["init", "-q"]);
+    git(dir, ["config", "user.email", "test@bothread.local"]);
+    git(dir, ["config", "user.name", "Bothread Test"]);
+    git(dir, ["config", "commit.gpgsign", "false"]);
+    git(dir, ["config", "core.autocrlf", "false"]);
+    fs.writeFileSync(path.join(dir, "app.js"), "const x = 1;\n");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-q", "-m", "initial"]);
+    return dir;
+  }
+
+  let repoDir: string;
+  beforeEach(() => {
+    repoDir = makeRepo();
+  });
+  afterEach(() => {
+    try {
+      fs.rmSync(repoDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it("is undefined on a fresh join, and reflects real activity on a true rejoin", () => {
+    const engine = makeEngine();
+    const { sessionId } = engine.createRoom({ name: "rejoin-room", projectPath: repoDir });
+
+    // Fresh join: brand-new participant, nothing to digest.
+    const first = engine.joinSession("mcp-A", { sessionId, agentName: "Claude Code", brand: "claude" });
+    expect(first.rejoinDigest).toBeUndefined();
+    const a = engine.resolveCaller("mcp-A");
+
+    // A second agent so there's someone else driving activity + resolving hand-offs.
+    engine.joinSession("mcp-B", { sessionId, agentName: "Cursor", brand: "cursor" });
+    const b = engine.resolveCaller("mcp-B");
+
+    // Advance room state while A is "away": messages, a claim/edit/release (branch
+    // ready + merged), and a hand-off request/resolution.
+    engine.sendMessage(b, { text: "one" });
+    engine.sendMessage(b, { text: "two" });
+    engine.sendMessage(b, { text: "three" });
+
+    const claim = engine.claimFiles(b, { paths: ["app.js"] });
+    expect(claim.granted).toBe(true);
+    // A asks for the file B holds — opens a tracked hand-off.
+    const ho = engine.requestHandoff(a, { path: "app.js", message: "need it" });
+    expect(ho.routed).toBe(true);
+
+    fs.writeFileSync(path.join(repoDir, "app.js"), "const x = 1;\nconst y = 2;\n");
+    engine.releaseFiles(b, { paths: ["app.js"] }); // finalizes branch -> 'ready'; also resolves the hand-off
+    const branch = engine.listBranches(a.room.id)[0]!;
+    expect(branch.status).toBe("ready");
+    engine.mergeBranch(a.room.id, branch.id); // -> 'merged', finalized_at set
+
+    // Now A rejoins on the SAME mcp session id — a true rejoin.
+    const rejoin = engine.joinSession("mcp-A", { sessionId, agentName: "Claude Code", brand: "claude" });
+    expect(rejoin.rejoinDigest).toBeDefined();
+    const digest = rejoin.rejoinDigest!;
+
+    expect(digest.awayMs).toBeGreaterThanOrEqual(0);
+    // 3 explicit sends + system messages from join/claim/handoff/release/merge — at least our 3.
+    expect(digest.newMessages).toBeGreaterThanOrEqual(3);
+    expect(digest.branchesResolved).toBe(1);
+    expect(digest.handoffEvents).toBeGreaterThanOrEqual(1);
+    expect(digest.tasksChanged).toBe(0); // no task board in this build
+
+    // Confirm the same participant row was reused (rejoin, not a new participant).
+    expect(rejoin.participant.id).toBe(a.participant.id);
+  });
+
+  it("does not attach a digest when a brand-new participant joins an already-active room", () => {
+    const engine = makeEngine();
+    const { sessionId } = engine.createRoom({ name: "room2" });
+    engine.joinSession("mcp-X", { sessionId, agentName: "Claude Code" });
+    const x = engine.resolveCaller("mcp-X");
+    engine.sendMessage(x, { text: "hello" });
+
+    // A different connection joining for the first time — fresh join, not a rejoin.
+    const freshJoin = engine.joinSession("mcp-Y", { sessionId, agentName: "Gemini" });
+    expect(freshJoin.rejoinDigest).toBeUndefined();
   });
 });

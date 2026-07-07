@@ -178,11 +178,25 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
     },
     async (args) => {
       try {
-        const { participant, snapshot, previousRoomName } = engine.joinSession(conn.sessionId, args);
+        const { participant, snapshot, previousRoomName, rejoinDigest } = engine.joinSession(conn.sessionId, args);
         const switchNote = previousRoomName
           ? `⚠ Room switch: you were in "${previousRoomName}" — that connection has now moved to THIS room; you've left "${previousRoomName}". If you meant to stay there, re-join with its session ID.\n\n`
           : "";
-        return ok(`${switchNote}Joined as ${participant.name}.\n\n${renderSnapshot(snapshot)}`, snapshot);
+        let welcomeBack = "";
+        if (rejoinDigest) {
+          const awayMin = Math.max(1, Math.round(rejoinDigest.awayMs / 60000));
+          const bits: string[] = [];
+          if (rejoinDigest.newMessages) bits.push(`${rejoinDigest.newMessages} new message${rejoinDigest.newMessages !== 1 ? "s" : ""}`);
+          if (rejoinDigest.tasksChanged) bits.push(`${rejoinDigest.tasksChanged} task${rejoinDigest.tasksChanged !== 1 ? "s" : ""} updated`);
+          if (rejoinDigest.branchesResolved) bits.push(`${rejoinDigest.branchesResolved} branch${rejoinDigest.branchesResolved !== 1 ? "es" : ""} resolved`);
+          if (rejoinDigest.handoffEvents) bits.push(`${rejoinDigest.handoffEvents} hand-off event${rejoinDigest.handoffEvents !== 1 ? "s" : ""}`);
+          const summary = bits.length ? bits.join(", ") + "." : "nothing changed while you were away.";
+          welcomeBack =
+            `Welcome back — you were away ~${awayMin}m. ${summary}` +
+            (rejoinDigest.newMessages ? " Use read_messages(since=...) if you need the full detail." : "") +
+            "\n\n";
+        }
+        return ok(`${switchNote}${welcomeBack}Joined as ${participant.name}.\n\n${renderSnapshot(snapshot)}`, snapshot);
       } catch (e) {
         return fail(e);
       }
