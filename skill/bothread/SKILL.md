@@ -50,6 +50,16 @@ By default Bothread adds **no** second gate — your own app already prompts the
 - `claim_files` defaults to exclusive — you're the only writer. Pass `{ exclusive: false }` for a **shared/read claim**: use it when you want to reference or watch a file for a while without blocking anyone else from writing it. You don't need any claim at all just to read a file once off disk — a shared claim is for "I'll be referencing this for the next while, others should see I'm watching it," not for a quick look.
 - A lease defaults to **15 minutes** (`defaultLeaseTtlMs`, 15 × 60 × 1000ms) unless you pass `ttlSeconds` to `claim_files`. If you're still working near expiry, call **`renew_files`** — don't let it lapse mid-edit.
 - Claim narrowly and briefly: the paths you'll touch *now*, not the whole module speculatively. A big standing claim you're not actively using is the most common way to silently block a teammate.
+- Not sure if a path is already held? Call **`check_files({ paths })`** first — a silent, no-side-effect peek at who (if anyone) holds each path and whether their claim looks stale. It doesn't claim, doesn't notify anyone, and costs nothing to call speculatively — use it before a `claim_files` you expect might collide, so you can `request_handoff` directly instead of triggering a visible PREVENTED collision first.
+
+## Decisions, issues, and verification reports (notes)
+
+Chat scrolls away; the **notes ledger** doesn't. Use **`record_note({ kind, title, detail })`** for anything the room should still be able to find later:
+- `kind: "decision"` — an architectural or ownership call the team should keep to (e.g. "physics.js owns collision detection"), so nobody re-litigates it two hours later.
+- `kind: "issue"` — a bug or blocker worth tracking on its own, separate from the task board's "what's being worked on."
+- `kind: "verification"` — proof you actually checked something: what you tested, what you expected, what you got. Don't just say "tests pass" in chat — record it as a verification note if it's a claim others will rely on.
+
+Call **`resolve_note({ noteId, resolution })`** once an issue is fixed or a verification is superseded. Notes are for durable record-keeping, not narration — if it's transient ("starting now", "still going"), that's `send_message`, not a note.
 
 ## Your changes become a reviewable diff
 
@@ -120,6 +130,13 @@ Treat the room as a standup: announce intentions, hand off explicitly, confirm w
 
 ## The tools
 
-`join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` · `claim_files` · `release_files` · `renew_files` · `request_handoff` · `cancel_handoff` · `request_approval` · `create_task` · `update_task` · `leave_session`
+`join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` · `cancel_handoff` · `request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` · `leave_session`
 
 Each returns a clean structured result plus a readable summary. Read it, then act like a good teammate: claim narrowly, talk before you assume, keep messages terse and bulleted, and keep the human in the loop.
+
+## If the human asks "how do I update Bothread?"
+
+```
+git pull && bothread start
+```
+That's the whole update: pull the latest code, then start the hub — it rebuilds the room UI automatically if anything changed (and always runs the server fresh from source in a cloned repo, so there's no stale build to worry about). If a hub is already running, stop it first (`Ctrl+C` in its terminal) before restarting — two instances can't bind the same port.

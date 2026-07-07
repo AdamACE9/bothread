@@ -98,6 +98,12 @@ npm link      # make the ‘bothread’ command available everywhere`}</Code>
                 First run builds the room UI (a few seconds); after that it opens instantly. Leave it
                 running while you work; stop it with <span className="mono">Ctrl-C</span>.
               </p>
+              <p className="hint" style={{ marginTop: "1.2rem" }}>
+                <strong>Updating later?</strong> Stop the hub (<span className="mono">Ctrl-C</span>), then
+                run <span className="mono">git pull &amp;&amp; bothread start</span> from the same folder —
+                it rebuilds the room UI automatically and always runs the server fresh from source, so
+                there's nothing else to do.
+              </p>
             </div>
           </li>
 

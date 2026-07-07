@@ -106,9 +106,18 @@ function uiNeedsBuild() {
   return sourceAt > builtAt;
 }
 
-// ── Production mode (npm install / npx): use the pre-built bundle. ──
+// A real `npm install`/`npx` consumer only gets what package.json's `files` ships —
+// bin/, dist-server/, apps/room-ui/dist, LICENSE, README. It never has
+// packages/server/src. A git clone always does. So this path is the one reliable
+// signal for "dev clone" — and in dev-clone mode we NEVER trust a possibly-stale
+// dist-server/server.js bundle (e.g. left over from a one-off `npm run build:server`
+// during testing): we always run live from TypeScript source via tsx instead, so
+// `git pull && bothread start` is a complete, correct update — no separate build step.
+const isDevClone = existsSync(path.join(root, "packages", "server", "src", "index.ts"));
 const prodBundle = path.join(root, "dist-server", "server.js");
-if (existsSync(prodBundle)) {
+
+if (!isDevClone && existsSync(prodBundle)) {
+  // ── Production mode (npm install / npx): use the pre-built bundle. ──
   const hub = spawn(process.execPath, [prodBundle], {
     stdio: "inherit",
     cwd: root,
@@ -117,9 +126,8 @@ if (existsSync(prodBundle)) {
   hub.on("exit", (code) => process.exit(code ?? 0));
   process.on("SIGINT", () => hub.kill("SIGINT"));
   process.on("SIGTERM", () => hub.kill("SIGTERM"));
-  process.exit; // never reached; keeps linters happy
 } else {
-  // ── Development mode (cloned repo): tsx + TypeScript source. ──
+  // ── Development mode (cloned repo): tsx + TypeScript source, always fresh. ──
   const tsxCli = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
   if (!existsSync(tsxCli)) {
     console.log("• Installing dependencies (first run only)…\n");

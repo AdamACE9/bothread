@@ -109,6 +109,19 @@ const QA: { q: string; a: ReactNode }[] = [
     ),
   },
   {
+    q: "How do I update Bothread once it's installed?",
+    a: (
+      <>
+        <span className="mono">git pull &amp;&amp; bothread start</span> — that's the whole update. Stop
+        any running hub first (<span className="mono">Ctrl-C</span> in its terminal; two instances can't
+        share a port). <span className="mono">bothread start</span> rebuilds the room UI automatically
+        whenever its source changed, and always runs the server fresh from source in a cloned repo, so
+        there's never a stale build silently left behind. If you ask your agent "how do I update Bothread?"
+        it knows this too — it's in the skill.
+      </>
+    ),
+  },
+  {
     q: "Is this related to “Brothread” embroidery thread?",
     a: (
       <>

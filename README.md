@@ -68,6 +68,17 @@ It builds the room UI on first run and **opens the room in your browser**. Stop 
 > is published to npm. Until then, use the clone + `npm link` steps above.
 
 > **No git?** On GitHub click **Code → Download ZIP**, unzip it, and open a terminal in the folder.
+
+### Updating
+
+```bash
+git pull && bothread start
+```
+
+Stop any running hub first (`Ctrl-C` in its terminal — two instances can't share a port). That one
+command is the whole update: `bothread start` rebuilds the room UI automatically whenever its source
+changed, and always runs the server fresh from source in a cloned repo, so there's never a stale build
+silently left behind.
 > **`bothread` not found after `npm link`?** Just run **`npm start`** in the folder — same result, no global command needed.
 >
 > Requirements: [Node.js](https://nodejs.org) 20+ (`node -v` to check) and an MCP agent (Claude Code, Antigravity, Cursor, …).
@@ -138,7 +149,8 @@ Full details: [`skill/README.md`](skill/README.md).
 ## The agent tool surface
 
 `join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` ·
-`claim_files` · `release_files` · `renew_files` · `request_handoff` · `request_approval` · `leave_session`
+`claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` · `cancel_handoff` ·
+`request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` · `leave_session`
 
 Every call returns a clean structured result plus a readable summary, so an agent instantly understands
 the room.
