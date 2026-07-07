@@ -933,6 +933,42 @@ textarea.field {
 .handoff code { font-family: var(--font-mono); font-size: 0.72rem; color: var(--saffron); }
 .handoff .held { font-size: 0.7rem; color: var(--muted-1); margin-top: 2px; }
 
+/* ── Task board ── */
+.field.sm { min-height: 36px; padding: 0.45rem 0.7rem; font-size: 0.84rem; }
+.task-board { display: flex; flex-direction: column; gap: 0.8rem; }
+.task-new { display: flex; flex-direction: column; gap: 0.4rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--line-soft); }
+.task-claim {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.76rem; color: var(--muted); cursor: pointer;
+}
+.task-claim input { accent-color: var(--copper); }
+.task-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.task-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.7rem;
+  background: rgba(34,29,22,0.4);
+}
+.task-card.done, .task-card.cancelled { opacity: 0.55; }
+.task-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.3rem; }
+.task-status {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.45rem;
+  border-radius: 100px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.task-status.in_progress { color: var(--saffron); border-color: rgba(226,169,76,0.4); }
+.task-status.done { color: var(--teal-1); border-color: rgba(124,193,164,0.4); }
+.task-status.open { color: var(--copper-1); border-color: rgba(207,122,60,0.35); }
+.task-owner { font-size: 0.72rem; color: var(--muted-1); }
+.task-title { font-size: 0.9rem; color: var(--parchment-1); font-weight: 540; }
+.task-note { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.task-acts { display: flex; gap: 6px; margin-top: 0.5rem; }
+
 /* ── Per-hunk review ── */
 .hunks { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.4rem 0; }
 .hunk { border: 1px solid var(--line); border-radius: 7px; overflow: hidden; transition: opacity 0.15s; }

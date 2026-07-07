@@ -22,6 +22,9 @@ dist-server/
 *.db
 .bothread/
 
+# Parallel-agent worktrees (never commit these — they're isolated scratch checkouts)
+.claude/worktrees/
+
 # Logs
 *.log
 npm-debug.log*

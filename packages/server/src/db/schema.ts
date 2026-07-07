@@ -125,4 +125,19 @@ CREATE TABLE IF NOT EXISTS handoffs (
   resolved_at    INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_handoff_room_status ON handoffs(room_id, status);
+
+-- Shared task board: lightweight task -> owner -> status, so agents don't have to
+-- reconstruct "who owns what" by re-reading the whole chat thread.
+CREATE TABLE IF NOT EXISTS tasks (
+  id         TEXT PRIMARY KEY,
+  room_id    TEXT NOT NULL,
+  title      TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'open',  -- open|in_progress|done|cancelled
+  owner_id   TEXT,
+  owner_name TEXT,
+  note       TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_room_status ON tasks(room_id, status);
 `;

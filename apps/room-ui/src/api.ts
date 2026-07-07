@@ -1,4 +1,4 @@
-import type { AgentBranch, Approval, AuditEvent, Lease, Participant, Room, RoomSnapshot, ThreadEntry } from "@bothread/shared";
+import type { AgentBranch, Approval, AuditEvent, Lease, Participant, Room, RoomSnapshot, RoomTask, TaskStatus, ThreadEntry } from "@bothread/shared";
 
 const J = { "content-type": "application/json" };
 
@@ -55,3 +55,11 @@ export const mergeBranch = (id: string, bid: string) => jpost(`/api/rooms/${id}/
 export const discardBranch = (id: string, bid: string) => jpost(`/api/rooms/${id}/branches/${bid}/discard`);
 export const applyHunks = (id: string, bid: string, hunkIds: string[]) =>
   jpost(`/api/rooms/${id}/branches/${bid}/apply`, { hunkIds });
+
+export const createTask = (id: string, title: string, note?: string, claim?: boolean) =>
+  jpost<{ task: RoomTask }>(`/api/rooms/${id}/tasks`, { title, note, claim });
+export const updateTask = (
+  id: string,
+  taskId: string,
+  patch: { status?: TaskStatus; note?: string; takeOwnership?: boolean }
+) => jpost<{ task: RoomTask }>(`/api/rooms/${id}/tasks/${taskId}`, patch);

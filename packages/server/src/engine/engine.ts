@@ -20,10 +20,19 @@ import type {
   Room,
   RoomSettings,
   RoomSnapshot,
+  RoomTask,
+  TaskStatus,
   ThreadEntry,
   WaitForUpdateResult,
 } from "@bothread/shared";
-import { ETIQUETTE, OVERSEER_THREAD_LIMIT, RECENT_THREAD_LIMIT, SNAPSHOT_THREAD_LIMIT, RoomSettings as RoomSettingsSchema } from "@bothread/shared";
+import {
+  DEFAULT_WAIT_MS,
+  ETIQUETTE,
+  OVERSEER_THREAD_LIMIT,
+  RECENT_THREAD_LIMIT,
+  SNAPSHOT_THREAD_LIMIT,
+  RoomSettings as RoomSettingsSchema,
+} from "@bothread/shared";
 import {
   applySelectedHunks,
   commitToCurrentBranch,
@@ -36,7 +45,7 @@ import {
   sanitizeBranchSegment,
   snapshotPaths,
 } from "./git";
-import { buildPatch, listHunks } from "./diffHunks";
+import { buildPatch, listHunks, parseDiff } from "./diffHunks";
 import type { DB } from "../db/database";
 import type { RoomBus } from "../realtime";
 import { BothreadError } from "./errors";
@@ -142,6 +151,17 @@ interface AuditRow {
   actor_name: string | null;
   type: string;
   payload: string | null;
+}
+interface TaskRow {
+  id: string;
+  room_id: string;
+  title: string;
+  status: string;
+  owner_id: string | null;
+  owner_name: string | null;
+  note: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface Caller {
@@ -332,6 +352,19 @@ export class Engine {
       payload: a.payload ? (JSON.parse(a.payload) as Record<string, unknown>) : undefined,
     };
   }
+  private mapTask(t: TaskRow): RoomTask {
+    return {
+      id: t.id,
+      roomId: t.room_id,
+      title: t.title,
+      status: t.status as TaskStatus,
+      ownerId: t.owner_id ?? undefined,
+      ownerName: t.owner_name ?? undefined,
+      note: t.note ?? undefined,
+      createdAt: t.created_at,
+      updatedAt: t.updated_at,
+    };
+  }
 
   /** The append-only governance trail for a room, most-recent-first. */
   listAudit(roomId: string, limit = 150): AuditEvent[] {
@@ -461,7 +494,7 @@ export class Engine {
   joinSession(
     mcpSessionId: string | undefined,
     input: { sessionId: string; agentName: string; brand?: string; capabilities?: string[] }
-  ): { participant: Participant; snapshot: RoomSnapshot } {
+  ): { participant: Participant; snapshot: RoomSnapshot; previousRoomName?: string } {
     const roomRow = this.roomRowBySession(input.sessionId);
     if (!roomRow) {
       throw new BothreadError("bad_session", "No room matches that session ID. Ask the human to re-share it.");
@@ -472,6 +505,7 @@ export class Engine {
 
     const ts = now();
     let part = mcpSessionId ? this.partRowByMcp(mcpSessionId) : undefined;
+    let previousRoomName: string | undefined;
 
     if (part && part.room_id === roomRow.id) {
       // Re-join on the same connection: refresh identity, mark active.
@@ -482,8 +516,12 @@ export class Engine {
         )
         .run(input.agentName, input.brand ?? null, input.capabilities ? JSON.stringify(input.capabilities) : null, ts, part.id);
     } else {
-      // If this connection was bound elsewhere, unbind it first.
+      // If this connection was bound elsewhere, unbind it first — and remember which
+      // room, so the agent gets an explicit "you switched rooms" signal rather than a
+      // silent rebind. (Pasting a second session ID for a DIFFERENT room looks
+      // identical to a normal join otherwise — a real confusion point.)
       if (part && mcpSessionId) {
+        previousRoomName = this.roomRow(part.room_id)?.name;
         this.db.prepare(`UPDATE participants SET mcp_session_id = NULL WHERE id = ?`).run(part.id);
       }
       const id = newId("part");
@@ -510,7 +548,7 @@ export class Engine {
     this.audit(room.id, "participant.join", { id: participant.id, name: participant.name }, { brand: participant.brand });
     this.postSystemMessage(room.id, `${participant.name} joined the room.`, "info");
     this.publish(room.id, "participant", { participant });
-    return { participant, snapshot: this.buildSnapshot(room, participant) };
+    return { participant, snapshot: this.buildSnapshot(room, participant), previousRoomName };
   }
 
   /** Resolve + validate the caller for a room-scoped tool. */
@@ -617,8 +655,8 @@ export class Engine {
     return msg;
   }
 
-  postSystemMessage(roomId: string, text: string, importance: Importance = "info"): Message {
-    return this.insertMessage(roomId, { id: "system", name: "Bothread" }, "system", importance, text);
+  postSystemMessage(roomId: string, text: string, importance: Importance = "info", mentions: string[] = []): Message {
+    return this.insertMessage(roomId, { id: "system", name: "Bothread" }, "system", importance, text, mentions);
   }
 
   sendMessage(
@@ -685,7 +723,7 @@ export class Engine {
   ): Promise<WaitForUpdateResult> {
     const roomId = caller.room.id;
     const since = input.since ?? this.latestSeq(roomId);
-    const maxWaitMs = input.maxWaitMs ?? 25000;
+    const maxWaitMs = input.maxWaitMs ?? DEFAULT_WAIT_MS;
     const me = caller.participant.id;
 
     const build = (): WaitForUpdateResult => {
@@ -1160,6 +1198,109 @@ export class Engine {
       .run(now(), roomId, participantId, participantId);
   }
 
+  /**
+   * Retract your OWN pending hand-off request — e.g. you no longer need the
+   * file. Only the original requester may cancel it; the holder is not notified
+   * (nothing to act on for them).
+   */
+  cancelHandoff(caller: Caller, handoffId: string): { cancelled: boolean } {
+    const row = this.handoffRow(handoffId);
+    if (!row || row.room_id !== caller.room.id) throw new BothreadError("no_handoff", "Hand-off not found.");
+    if (row.requester_id !== caller.participant.id) {
+      throw new BothreadError("not_yours", "Only the participant who requested it can cancel a hand-off.");
+    }
+    if (row.status !== "pending") return { cancelled: false };
+    this.db.prepare(`UPDATE handoffs SET status = 'cancelled', resolved_at = ? WHERE id = ?`).run(now(), handoffId);
+    this.publish(caller.room.id, "handoff", { handoff: this.mapHandoff(this.handoffRow(handoffId)!) });
+    return { cancelled: true };
+  }
+
+  /* ===================== Task board ===================== */
+
+  private taskRow(id: string): TaskRow | undefined {
+    return this.db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(id) as TaskRow | undefined;
+  }
+
+  /** All non-terminal-forever tasks for the snapshot/UI, newest first. Cancelled tasks stay
+   *  visible too (short list, no reason to hide history) but done/cancelled sort last. */
+  listTasks(roomId: string): RoomTask[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM tasks WHERE room_id = ?
+           ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 WHEN 'done' THEN 2 ELSE 3 END, updated_at DESC`
+        )
+        .all(roomId) as TaskRow[]
+    ).map((t) => this.mapTask(t));
+  }
+
+  createTask(caller: Caller, input: { title: string; note?: string; claim?: boolean }): RoomTask {
+    this.assertWritable(caller);
+    const id = newId("task");
+    const at = now();
+    const claim = input.claim ?? false;
+    this.db
+      .prepare(
+        `INSERT INTO tasks (id, room_id, title, status, owner_id, owner_name, note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        caller.room.id,
+        input.title,
+        claim ? "in_progress" : "open",
+        claim ? caller.participant.id : null,
+        claim ? caller.participant.name : null,
+        input.note ?? null,
+        at,
+        at
+      );
+    const task = this.mapTask(this.taskRow(id)!);
+    this.audit(caller.room.id, "task.create", { id: caller.participant.id, name: caller.participant.name }, { taskId: id, title: input.title });
+    this.postSystemMessage(
+      caller.room.id,
+      `${caller.participant.name} added a task: "${input.title}"${claim ? " (claimed it)" : ""}.`,
+      "info"
+    );
+    this.publish(caller.room.id, "task", { task });
+    return task;
+  }
+
+  updateTask(
+    caller: Caller,
+    input: { taskId: string; status?: TaskStatus; note?: string; takeOwnership?: boolean }
+  ): RoomTask {
+    this.assertWritable(caller);
+    const row = this.taskRow(input.taskId);
+    if (!row || row.room_id !== caller.room.id) throw new BothreadError("no_task", "Task not found.");
+
+    const nextStatus = input.status ?? (row.status as TaskStatus);
+    const nextOwnerId = input.takeOwnership ? caller.participant.id : row.owner_id;
+    const nextOwnerName = input.takeOwnership ? caller.participant.name : row.owner_name;
+    const nextNote = input.note !== undefined ? input.note : row.note;
+
+    this.db
+      .prepare(`UPDATE tasks SET status = ?, owner_id = ?, owner_name = ?, note = ?, updated_at = ? WHERE id = ?`)
+      .run(nextStatus, nextOwnerId, nextOwnerName, nextNote, now(), input.taskId);
+
+    const task = this.mapTask(this.taskRow(input.taskId)!);
+    this.audit(caller.room.id, "task.update", { id: caller.participant.id, name: caller.participant.name }, {
+      taskId: input.taskId,
+      status: nextStatus,
+    });
+    if (input.status && input.status !== row.status) {
+      this.postSystemMessage(
+        caller.room.id,
+        `${caller.participant.name} marked "${row.title}" as ${nextStatus.replace("_", " ")}.`,
+        "info"
+      );
+    } else if (input.takeOwnership && row.owner_id !== caller.participant.id) {
+      this.postSystemMessage(caller.room.id, `${caller.participant.name} took "${row.title}".`, "info");
+    }
+    this.publish(caller.room.id, "task", { task });
+    return task;
+  }
+
   /* ===================== Leave ===================== */
 
   leaveSession(caller: Caller): void {
@@ -1180,6 +1321,9 @@ export class Engine {
   /* ===================== Guards + snapshot ===================== */
 
   private assertWritable(caller: Caller): void {
+    // The overseer is never blocked by their own pause/mute — same precedent as
+    // overseerMessage(), which bypasses these gates entirely.
+    if (caller.participant.kind === "human") return;
     if (caller.room.status === "paused") {
       throw new BothreadError("paused", "The room is paused by the overseer. Wait until it resumes before acting.");
     }
@@ -1189,6 +1333,25 @@ export class Engine {
     if (caller.participant.status === "muted") {
       throw new BothreadError("muted", "You are muted by the overseer and cannot post or claim right now.");
     }
+  }
+
+  /** Build a Caller representing the human overseer — for REST-driven actions (task board, etc.)
+   *  that reuse the same engine methods agents call over MCP. */
+  callerForOverseer(roomId: string): Caller {
+    const room = this.getRoom(roomId);
+    if (!room) throw new BothreadError("no_room", "Room not found.");
+    const overseer =
+      this.getOverseer(roomId) ??
+      ({
+        id: "overseer",
+        roomId,
+        name: "You",
+        kind: "human",
+        status: "active",
+        joinedAt: now(),
+        lastSeenAt: now(),
+      } as Participant);
+    return { room, participant: overseer };
   }
 
   buildSnapshot(room: Room, self: Participant, threadLimit: number = SNAPSHOT_THREAD_LIMIT): RoomSnapshot {
@@ -1213,6 +1376,7 @@ export class Engine {
         lastSeen: p.last_seen_at,
         listening: p.kind === "agent" && this.isListening(p.id),
       }));
+    const presenceById = new Map(participants.map((p) => [p.id, p]));
 
     return {
       room: { name: room.name, status: room.status, requireApprovalFor: room.settings.requireApprovalFor },
@@ -1232,9 +1396,14 @@ export class Engine {
         heldByName: l.participantName,
         exclusive: l.exclusive,
         expiresAt: l.expiresAt,
+        // Staleness signal: judge "dead lock vs. holder mid-edit" from real presence,
+        // not just the lease's own expiry.
+        heldByLastSeen: presenceById.get(l.participantId)?.lastSeen ?? l.createdAt,
+        heldByListening: presenceById.get(l.participantId)?.listening ?? false,
       })),
       pendingApprovals: this.pendingApprovalViews(room.id),
       handoffs: this.handoffViews(room.id),
+      tasks: this.listTasks(room.id),
       latestSeq: this.latestSeq(room.id),
       etiquette: ETIQUETTE,
     };
@@ -1363,6 +1532,20 @@ export class Engine {
           )
           .run(diff || null, commitSha ?? null, at, row.id);
 
+        // Cheap awareness signal for OTHER agents: a one-line diff stat, not a full-file
+        // dump. Lets them judge "did this touch something I care about?" for a few tokens
+        // instead of re-reading the whole file themselves.
+        if (diff) {
+          const stat = parseDiff(diff)
+            .map((f) => {
+              const add = f.hunks.reduce((s, h) => s + h.additions, 0);
+              const del = f.hunks.reduce((s, h) => s + h.deletions, 0);
+              return `${f.file} +${add} −${del}`;
+            })
+            .join(", ");
+          if (stat) this.postSystemMessage(room.id, `Δ ${participant.name}: ${stat}`, "info");
+        }
+
         const updated = this.db.prepare(`SELECT * FROM branches WHERE id = ?`).get(row.id) as BranchRow;
         this.publish(room.id, "branch", { branch: this.mapBranch(updated) });
       } catch {
@@ -1423,9 +1606,10 @@ export class Engine {
     this.postSystemMessage(
       roomId,
       committed
-        ? `${mergedBy} merged ${row.participant_name}'s changes (${paths.length} path${paths.length !== 1 ? "s" : ""}) to git history.`
-        : `${mergedBy} accepted ${row.participant_name}'s changes (no git commit needed — nothing new staged).`,
-      "steering"
+        ? `@${row.participant_name} — ${mergedBy} merged your changes (${paths.length} path${paths.length !== 1 ? "s" : ""}) to git history.`
+        : `@${row.participant_name} — ${mergedBy} accepted your changes (no git commit needed — nothing new staged).`,
+      "steering",
+      [row.participant_name]
     );
     this.publish(roomId, "branch", { branch: this.mapBranch(updated) });
     return this.mapBranch(updated);
@@ -1458,8 +1642,9 @@ export class Engine {
     this.audit(roomId, "branch.discard", { name: discardedBy }, { branchId });
     this.postSystemMessage(
       roomId,
-      `${discardedBy} discarded ${row.participant_name}'s changes — files restored to before their session.`,
-      "steering"
+      `@${row.participant_name} — ${discardedBy} discarded your changes — files restored to before your session.`,
+      "steering",
+      [row.participant_name]
     );
     this.publish(roomId, "branch", { branch: this.mapBranch(updated) });
     return this.mapBranch(updated);
@@ -1506,8 +1691,9 @@ export class Engine {
     this.audit(roomId, "branch.apply", { name: appliedBy }, { branchId, kept: keptCount, total: allHunks.length });
     this.postSystemMessage(
       roomId,
-      `${appliedBy} accepted ${keptCount} of ${allHunks.length} change${allHunks.length !== 1 ? "s" : ""} from ${row.participant_name} and discarded the rest.`,
-      "steering"
+      `@${row.participant_name} — ${appliedBy} accepted ${keptCount} of ${allHunks.length} change${allHunks.length !== 1 ? "s" : ""} from you and discarded the rest.`,
+      "steering",
+      [row.participant_name]
     );
     this.publish(roomId, "branch", { branch: this.mapBranch(updated) });
     return this.mapBranch(updated);

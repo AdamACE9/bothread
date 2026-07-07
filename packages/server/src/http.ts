@@ -281,6 +281,32 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
     })
   );
 
+  // Task board — the human can also add/update tasks from the room UI, same engine
+  // methods agents call over MCP (via a synthetic overseer Caller).
+  api.post(
+    "/rooms/:id/tasks",
+    wrap((req, res) => {
+      const { title, note, claim } = req.body ?? {};
+      if (!title || typeof title !== "string") throw new BothreadError("bad_input", "A task title is required.");
+      const task = engine.createTask(engine.callerForOverseer(param(req, "id")), { title, note, claim });
+      res.json({ task });
+    })
+  );
+
+  api.post(
+    "/rooms/:id/tasks/:tid",
+    wrap((req, res) => {
+      const { status, note, takeOwnership } = req.body ?? {};
+      const task = engine.updateTask(engine.callerForOverseer(param(req, "id")), {
+        taskId: param(req, "tid"),
+        status,
+        note,
+        takeOwnership,
+      });
+      res.json({ task });
+    })
+  );
+
   app.use("/api", api);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 

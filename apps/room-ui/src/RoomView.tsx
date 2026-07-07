@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentBranch, Approval, AuditEvent, DiffHunkView, RiskAction, ThreadEntry } from "@bothread/shared";
+import type { AgentBranch, Approval, AuditEvent, DiffHunkView, RiskAction, RoomTask, TaskStatus, ThreadEntry } from "@bothread/shared";
 import { OVERSEER_THREAD_LIMIT } from "@bothread/shared";
-import { applyHunks, decideApproval, discardBranch, getAudit, getMessagesBefore, listBranches, mergeBranch, nudgeParticipant, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings } from "./api";
+import { applyHunks, createTask, decideApproval, discardBranch, getAudit, getMessagesBefore, listBranches, mergeBranch, nudgeParticipant, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings, updateTask } from "./api";
 import ConnectPanel from "./ConnectPanel";
 import { useRoom } from "./useRoom";
 import { Avatar, brandClass, fmtTime, richText } from "./ui";
@@ -10,7 +10,7 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
   const { detail, connected, refresh } = useRoom(roomId);
   const [showConnect, setShowConnect] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [rightTab, setRightTab] = useState<"locks" | "changes" | "activity">("locks");
+  const [rightTab, setRightTab] = useState<"locks" | "tasks" | "changes" | "activity">("locks");
 
   if (!detail) {
     return (
@@ -27,7 +27,7 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
     );
   }
 
-  const { snapshot, sessionId, leases, pendingApprovals } = detail;
+  const { snapshot, sessionId, pendingApprovals } = detail;
   const brandByName = new Map(snapshot.participants.map((p) => [p.name, p.brand]));
   const pending = pendingApprovals[0];
 
@@ -120,6 +120,12 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
               Locks
             </button>
             <button
+              className={`rail-tab${rightTab === "tasks" ? " active" : ""}`}
+              onClick={() => setRightTab("tasks")}
+            >
+              Tasks
+            </button>
+            <button
               className={`rail-tab${rightTab === "changes" ? " active" : ""}`}
               onClick={() => setRightTab("changes")}
             >
@@ -146,25 +152,40 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
                   ))}
                 </div>
               )}
-              {leases.length === 0 ? (
+              {snapshot.locks.length === 0 ? (
                 <p className="empty">No files claimed.</p>
               ) : (
-                leases.map((l) => (
-                  <div className="lock" key={l.id}>
-                    <div className="path">{l.pathPattern}</div>
-                    <div className="holder">
-                      <span className={`av ${brandClass(brandByName.get(l.participantName) ?? "")}`} style={{ width: 18, height: 18, fontSize: ".55rem" }}>
-                        {l.participantName.slice(0, 1)}
-                      </span>
-                      {l.participantName}
-                      <span className="ex" style={{ marginLeft: "auto" }}>
-                        {l.exclusive ? "excl" : "shared"}
-                      </span>
+                snapshot.locks.map((l) => {
+                  const idleMs = Date.now() - l.heldByLastSeen;
+                  const stale = !l.heldByListening && idleMs > 120_000;
+                  return (
+                    <div className={`lock${stale ? " stale" : ""}`} key={`${l.path}:${l.heldBy}`}>
+                      <div className="path">{l.path}</div>
+                      <div className="holder">
+                        <span className={`av ${brandClass(brandByName.get(l.heldByName) ?? "")}`} style={{ width: 18, height: 18, fontSize: ".55rem" }}>
+                          {l.heldByName.slice(0, 1)}
+                        </span>
+                        {l.heldByName}
+                        <span className="ex" style={{ marginLeft: "auto" }}>
+                          {l.exclusive ? "excl" : "shared"}
+                        </span>
+                      </div>
+                      <div className="staleness">
+                        {l.heldByListening ? (
+                          <span className="fresh">● listening</span>
+                        ) : stale ? (
+                          <span className="warn">idle ~{Math.round(idleMs / 60000)}m — may be stale</span>
+                        ) : (
+                          <span>seen {Math.max(1, Math.round(idleMs / 1000))}s ago</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </>
+          ) : rightTab === "tasks" ? (
+            <TaskBoard roomId={roomId} tasks={snapshot.tasks} afterAction={refresh} />
           ) : rightTab === "changes" ? (
             <BranchPanel roomId={roomId} afterAction={refresh} />
           ) : (
@@ -576,6 +597,130 @@ function auditDetail(e: AuditEvent): string {
     return s.requireApprovalFor?.length ? `approve: ${s.requireApprovalFor.join(", ")}` : "no approval gates";
   }
   return "";
+}
+
+const TASK_STATUS_ORDER: TaskStatus[] = ["in_progress", "open", "done", "cancelled"];
+const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+  open: "Open",
+  in_progress: "In progress",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+
+function TaskBoard({
+  roomId,
+  tasks,
+  afterAction,
+}: {
+  roomId: string;
+  tasks: RoomTask[];
+  afterAction: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [note, setNote] = useState("");
+  const [claim, setClaim] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const add = async () => {
+    const t = title.trim();
+    if (!t) return;
+    setBusy("new");
+    try {
+      await createTask(roomId, t, note.trim() || undefined, claim);
+      setTitle("");
+      setNote("");
+      setClaim(false);
+      afterAction();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const setStatus = async (taskId: string, status: TaskStatus) => {
+    setBusy(taskId);
+    try {
+      await updateTask(roomId, taskId, { status });
+      afterAction();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const take = async (taskId: string) => {
+    setBusy(taskId);
+    try {
+      await updateTask(roomId, taskId, { takeOwnership: true, status: "in_progress" });
+      afterAction();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const sorted = [...tasks].sort(
+    (a, b) => TASK_STATUS_ORDER.indexOf(a.status) - TASK_STATUS_ORDER.indexOf(b.status)
+  );
+
+  return (
+    <div className="task-board">
+      <div className="task-new">
+        <input
+          className="field sm"
+          placeholder="New task…"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+        />
+        <input
+          className="field sm"
+          placeholder="Note (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+        />
+        <label className="task-claim">
+          <input type="checkbox" checked={claim} onChange={(e) => setClaim(e.target.checked)} />
+          claim it myself
+        </label>
+        <button className="btn sm primary" onClick={add} disabled={busy === "new" || !title.trim()}>
+          Add
+        </button>
+      </div>
+
+      {sorted.length === 0 ? (
+        <p className="empty">No tasks yet. Add one, or an agent will via create_task.</p>
+      ) : (
+        <div className="task-list">
+          {sorted.map((t) => (
+            <div className={`task-card ${t.status}`} key={t.id}>
+              <div className="task-head">
+                <span className={`task-status ${t.status}`}>{TASK_STATUS_LABEL[t.status]}</span>
+                <span className="task-owner">{t.ownerName ?? "unassigned"}</span>
+              </div>
+              <div className="task-title">{t.title}</div>
+              {t.note && <div className="task-note">{t.note}</div>}
+              <div className="task-acts">
+                {!t.ownerName && t.status !== "done" && t.status !== "cancelled" && (
+                  <button className="btn sm" disabled={busy === t.id} onClick={() => take(t.id)}>
+                    Take
+                  </button>
+                )}
+                {t.status !== "done" && (
+                  <button className="btn sm" disabled={busy === t.id} onClick={() => setStatus(t.id, "done")}>
+                    Done
+                  </button>
+                )}
+                {t.status !== "cancelled" && t.status !== "done" && (
+                  <button className="btn sm danger" disabled={busy === t.id} onClick={() => setStatus(t.id, "cancelled")}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function AuditPanel({ roomId, connected }: { roomId: string; connected: boolean }) {

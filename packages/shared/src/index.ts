@@ -161,6 +161,11 @@ export const LockView = z.object({
   heldByName: z.string(),
   exclusive: z.boolean(),
   expiresAt: z.number(),
+  /** When the holder was last seen active (ms epoch) — lets an agent judge staleness itself
+   *  instead of guessing "is this lock dead or is the holder mid-edit?" */
+  heldByLastSeen: z.number(),
+  /** True if the holder is currently parked in wait_for_update (actively listening). */
+  heldByListening: z.boolean().default(false),
 });
 export type LockView = z.infer<typeof LockView>;
 
@@ -227,6 +232,25 @@ export const HandoffView = z.object({
 });
 export type HandoffView = z.infer<typeof HandoffView>;
 
+/* ----- Task board: lightweight shared task→owner→status, instead of reconstructing
+ * "who owns what" by re-reading the whole chat thread. ----- */
+
+export const TaskStatus = z.enum(["open", "in_progress", "done", "cancelled"]);
+export type TaskStatus = z.infer<typeof TaskStatus>;
+
+export const RoomTask = z.object({
+  id: z.string(),
+  roomId: z.string(),
+  title: z.string(),
+  status: TaskStatus,
+  ownerId: z.string().optional(),
+  ownerName: z.string().optional(),
+  note: z.string().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+export type RoomTask = z.infer<typeof RoomTask>;
+
 export const RoomSnapshot = z.object({
   room: z.object({
     name: z.string(),
@@ -246,6 +270,9 @@ export const RoomSnapshot = z.object({
   pendingApprovals: z.array(PendingApprovalView),
   /** Open hand-off requests: who is waiting on a file someone else holds. */
   handoffs: z.array(HandoffView).default([]),
+  /** Shared task board: task → owner → status. Replaces re-deriving "who owns what"
+   *  from the chat thread; a non-locking way to signal "I'm on this" too. */
+  tasks: z.array(RoomTask).default([]),
   latestSeq: z.number(),
   etiquette: z.string(),
 });
@@ -333,6 +360,29 @@ export const RequestHandoffInput = z.object({
   sessionId: z.string().optional(),
 });
 export type RequestHandoffInput = z.infer<typeof RequestHandoffInput>;
+
+export const CancelHandoffInput = z.object({
+  handoffId: z.string().describe("The handoff id to retract — only the original requester can cancel it."),
+  sessionId: z.string().optional(),
+});
+export type CancelHandoffInput = z.infer<typeof CancelHandoffInput>;
+
+export const CreateTaskInput = z.object({
+  title: z.string().min(1).max(200).describe("A short task title, e.g. 'Wire boss into castle level'."),
+  note: z.string().max(500).optional(),
+  claim: z.boolean().optional().describe("If true, take ownership immediately (status becomes in_progress)."),
+  sessionId: z.string().optional(),
+});
+export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
+
+export const UpdateTaskInput = z.object({
+  taskId: z.string(),
+  status: TaskStatus.optional(),
+  note: z.string().max(500).optional(),
+  takeOwnership: z.boolean().optional().describe("Take ownership of this task (sets you as its owner)."),
+  sessionId: z.string().optional(),
+});
+export type UpdateTaskInput = z.infer<typeof UpdateTaskInput>;
 
 export const LeaveSessionInput = z.object({
   sessionId: z.string().optional(),
@@ -426,6 +476,7 @@ export const ServerEventType = z.enum([
   "collision",
   "branch",
   "handoff",
+  "task",
 ]);
 export type ServerEventType = z.infer<typeof ServerEventType>;
 
@@ -450,6 +501,9 @@ export const ETIQUETTE =
   "Your own app handles approvals for risky actions; only request_approval if the human asks. Pause = wait. leave_session when done.";
 
 export const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1000;
+/** Default wait_for_update long-poll length. Bumped from 25s->45s (schema max stays 60s) to
+ *  meaningfully cut the number of "no new activity" round-trips during quiet stretches. */
+export const DEFAULT_WAIT_MS = 45_000;
 /** Full thread page size for read_messages. */
 export const RECENT_THREAD_LIMIT = 40;
 /** Leaner thread length embedded in a RoomSnapshot/get_room_state — keeps agent context small;

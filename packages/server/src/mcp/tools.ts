@@ -1,6 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
+  CancelHandoffInput,
   ClaimFilesInput,
+  CreateTaskInput,
   GetRoomStateInput,
   JoinSessionInput,
   LeaveSessionInput,
@@ -10,6 +12,7 @@ import {
   RequestApprovalInput,
   RequestHandoffInput,
   SendMessageInput,
+  UpdateTaskInput,
   WaitForUpdateInput,
   type RoomSnapshot,
 } from "@bothread/shared";
@@ -60,8 +63,15 @@ export function renderSnapshot(s: RoomSnapshot): string {
 
   if (s.locks.length) {
     lines.push("Active file locks:");
+    const nowMs = Date.now();
     for (const l of s.locks) {
-      lines.push(`  • ${l.path} — ${l.heldByName}${l.exclusive ? " [exclusive]" : " [shared]"}`);
+      const idleMs = nowMs - l.heldByLastSeen;
+      const idleNote = l.heldByListening
+        ? " (listening)"
+        : idleMs > 120_000
+          ? ` (holder idle ~${Math.round(idleMs / 60000)}m — may be stale; consider request_handoff)`
+          : "";
+      lines.push(`  • ${l.path} — ${l.heldByName}${l.exclusive ? " [exclusive]" : " [shared]"}${idleNote}`);
     }
   } else {
     lines.push("No files are currently claimed.");
@@ -80,6 +90,14 @@ export function renderSnapshot(s: RoomSnapshot): string {
     }
   }
 
+  if (s.tasks.length) {
+    lines.push("Task board:");
+    for (const t of s.tasks) {
+      const owner = t.ownerName ? ` — ${t.ownerName}` : " — unassigned";
+      lines.push(`  • [${t.status}] ${t.title}${owner}`);
+    }
+  }
+
   if (s.thread.length) {
     lines.push("Recent thread:");
     for (const m of s.thread.slice(-8)) {
@@ -95,7 +113,7 @@ const readOnly = { readOnlyHint: true } as const;
 
 /**
  * Create a fresh McpServer for one agent connection and register the Bothread
- * tool surface (~10 tools). All room state lives in the shared Engine; this
+ * tool surface (14 tools). All room state lives in the shared Engine; this
  * server just wires the agent's calls to it, scoped by the connection's MCP
  * session id (set on initialize via `conn`).
  */
@@ -123,8 +141,11 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
     },
     async (args) => {
       try {
-        const { participant, snapshot } = engine.joinSession(conn.sessionId, args);
-        return ok(`Joined as ${participant.name}.\n\n${renderSnapshot(snapshot)}`, snapshot);
+        const { participant, snapshot, previousRoomName } = engine.joinSession(conn.sessionId, args);
+        const switchNote = previousRoomName
+          ? `⚠ Room switch: you were in "${previousRoomName}" — that connection has now moved to THIS room; you've left "${previousRoomName}". If you meant to stay there, re-join with its session ID.\n\n`
+          : "";
+        return ok(`${switchNote}Joined as ${participant.name}.\n\n${renderSnapshot(snapshot)}`, snapshot);
       } catch (e) {
         return fail(e);
       }
@@ -295,6 +316,63 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
             : res.reason ?? "Could not route the request.",
           res
         );
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    "cancel_handoff",
+    {
+      title: "Retract your own hand-off request",
+      description:
+        "Cancel a request_handoff you made yourself if you no longer need the file (e.g. you found another way, or the task changed). Only cancels YOUR pending requests.",
+      inputSchema: CancelHandoffInput.shape,
+    },
+    async (args) => {
+      try {
+        const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
+        const res = engine.cancelHandoff(caller, args.handoffId);
+        return ok(res.cancelled ? "Cancelled." : "That request was already resolved.", res);
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    "create_task",
+    {
+      title: "Add a task to the shared board",
+      description:
+        "Add a task to the room's shared task board (task → owner → status) so the team doesn't have to reconstruct 'who owns what' from chat. Set claim:true to take it yourself immediately. Everyone sees the board in get_room_state.",
+      inputSchema: CreateTaskInput.shape,
+    },
+    async (args) => {
+      try {
+        const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
+        const task = engine.createTask(caller, args);
+        return ok(`Task added${task.ownerName ? ` and claimed by ${task.ownerName}` : ""}.`, task);
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_task",
+    {
+      title: "Update or claim a task",
+      description:
+        "Update a task's status (open/in_progress/done/cancelled), add a note, or take ownership. Use this instead of narrating status in chat — it's a non-locking way to signal 'I'm on this' without claiming any files.",
+      inputSchema: UpdateTaskInput.shape,
+    },
+    async (args) => {
+      try {
+        const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
+        const task = engine.updateTask(caller, args);
+        return ok(`Task "${task.title}" updated.`, task);
       } catch (e) {
         return fail(e);
       }

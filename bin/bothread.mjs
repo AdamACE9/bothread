@@ -10,7 +10,7 @@
  * `npm install -g bothread` (or `npx bothread start` for zero-install).
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,6 +64,48 @@ function sh(command, cmdArgs) {
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
+/** Newest mtime under `dir` (recursive), skipping node_modules/dist. Best-effort. */
+function newestMtime(dir) {
+  let newest = 0;
+  const walk = (d) => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name === "node_modules" || e.name === "dist" || e.name === ".git") continue;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else {
+        try {
+          const m = statSync(p).mtimeMs;
+          if (m > newest) newest = m;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  };
+  walk(dir);
+  return newest;
+}
+
+/** True if the room UI's built dist/ is missing OR older than its source
+ *  (room-ui + the shared types it depends on) — so a `git pull` of UI or
+ *  shared-type changes doesn't silently serve a stale build. */
+function uiNeedsBuild() {
+  const distIndex = path.join(root, "apps", "room-ui", "dist", "index.html");
+  if (!existsSync(distIndex)) return true;
+  const builtAt = statSync(distIndex).mtimeMs;
+  const sourceAt = Math.max(
+    newestMtime(path.join(root, "apps", "room-ui", "src")),
+    newestMtime(path.join(root, "packages", "shared", "src"))
+  );
+  return sourceAt > builtAt;
+}
+
 // ── Production mode (npm install / npx): use the pre-built bundle. ──
 const prodBundle = path.join(root, "dist-server", "server.js");
 if (existsSync(prodBundle)) {
@@ -83,8 +125,8 @@ if (existsSync(prodBundle)) {
     console.log("• Installing dependencies (first run only)…\n");
     sh("npm", ["install"]);
   }
-  if (!existsSync(path.join(root, "apps", "room-ui", "dist", "index.html"))) {
-    console.log("• Building the room UI (first run only)…\n");
+  if (uiNeedsBuild()) {
+    console.log("• Building the room UI (new or changed since last build)…\n");
     sh("npm", ["run", "build:ui"]);
   }
 
