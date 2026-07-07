@@ -156,6 +156,20 @@ export interface CreateRoomOptions {
   overseerName?: string;
 }
 
+/**
+ * Compact "what happened while you were gone" summary, returned by
+ * `joinSession` only on a true rejoin (same MCP connection, same room) — never
+ * on a fresh join, where there's nothing to digest yet.
+ */
+export interface RejoinDigest {
+  /** Wall-clock time between last_seen_at (before this rejoin) and now. */
+  awayMs: number;
+  newMessages: number;
+  tasksChanged: number;
+  branchesResolved: number;
+  handoffEvents: number;
+}
+
 const now = (): number => Date.now();
 
 /**
@@ -461,7 +475,7 @@ export class Engine {
   joinSession(
     mcpSessionId: string | undefined,
     input: { sessionId: string; agentName: string; brand?: string; capabilities?: string[] }
-  ): { participant: Participant; snapshot: RoomSnapshot } {
+  ): { participant: Participant; snapshot: RoomSnapshot; rejoinDigest?: RejoinDigest } {
     const roomRow = this.roomRowBySession(input.sessionId);
     if (!roomRow) {
       throw new BothreadError("bad_session", "No room matches that session ID. Ask the human to re-share it.");
@@ -472,9 +486,15 @@ export class Engine {
 
     const ts = now();
     let part = mcpSessionId ? this.partRowByMcp(mcpSessionId) : undefined;
+    let rejoinDigest: RejoinDigest | undefined;
 
     if (part && part.room_id === roomRow.id) {
       // Re-join on the same connection: refresh identity, mark active.
+      // Capture the OLD last_seen_at (before we overwrite it) so we can summarize
+      // what happened in the room while this participant was away — sparing it
+      // from having to re-read the full scrollback on every rejoin.
+      const awaySinceMs = part.last_seen_at;
+      rejoinDigest = this.buildRejoinDigest(roomRow.id, awaySinceMs, ts);
       this.db
         .prepare(
           `UPDATE participants SET name = ?, brand = ?, capabilities = ?, status = 'active', last_seen_at = ?
@@ -510,8 +530,69 @@ export class Engine {
     this.audit(room.id, "participant.join", { id: participant.id, name: participant.name }, { brand: participant.brand });
     this.postSystemMessage(room.id, `${participant.name} joined the room.`, "info");
     this.publish(room.id, "participant", { participant });
-    return { participant, snapshot: this.buildSnapshot(room, participant) };
+    return { participant, snapshot: this.buildSnapshot(room, participant), rejoinDigest };
   }
+
+  /**
+   * Compact summary of room activity since `sinceTs` (exclusive) up to `uptoTs`
+   * (exclusive) — built for a rejoining participant so it doesn't have to
+   * re-read the full scrollback just to catch up. Deliberately lightweight:
+   * a handful of counts, not full records.
+   */
+  private buildRejoinDigest(roomId: string, sinceTs: number, uptoTs: number): RejoinDigest {
+    const newMessages = (
+      this.db
+        .prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND created_at > ? AND created_at <= ?`)
+        .get(roomId, sinceTs, uptoTs) as { n: number }
+    ).n;
+
+    const tasksChanged = this.hasTasksTable()
+      ? (
+          this.db
+            .prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND updated_at > ? AND updated_at <= ?`)
+            .get(roomId, sinceTs, uptoTs) as { n: number }
+        ).n
+      : 0;
+
+    const branchesResolved = (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM branches WHERE room_id = ? AND finalized_at IS NOT NULL AND finalized_at > ? AND finalized_at <= ? AND status IN ('merged','discarded')`
+        )
+        .get(roomId, sinceTs, uptoTs) as { n: number }
+    ).n;
+
+    const handoffEvents = (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM handoffs WHERE room_id = ? AND (
+             (created_at > ? AND created_at <= ?) OR
+             (resolved_at IS NOT NULL AND resolved_at > ? AND resolved_at <= ?)
+           )`
+        )
+        .get(roomId, sinceTs, uptoTs, sinceTs, uptoTs) as { n: number }
+    ).n;
+
+    return {
+      awayMs: Math.max(0, uptoTs - sinceTs),
+      newMessages,
+      tasksChanged,
+      branchesResolved,
+      handoffEvents,
+    };
+  }
+
+  /** Whether a `tasks` table exists in this DB (task board is an optional, separately-landed feature). */
+  private hasTasksTable(): boolean {
+    if (this._hasTasksTable === undefined) {
+      const row = this.db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`)
+        .get() as { name: string } | undefined;
+      this._hasTasksTable = !!row;
+    }
+    return this._hasTasksTable;
+  }
+  private _hasTasksTable: boolean | undefined;
 
   /** Resolve + validate the caller for a room-scoped tool. */
   resolveCaller(mcpSessionId: string | undefined, roomSessionArg?: string): Caller {
