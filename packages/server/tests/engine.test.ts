@@ -526,3 +526,51 @@ describe("Engine — idle participant detection", () => {
     expect(bView.idle).toBe(true);
   });
 });
+
+describe("Engine — checkFiles (quiet ownership peek, zero side effects)", () => {
+  it("reports the holder of a claimed path without broadcasting anything", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/x.ts"] }); // Claude Code holds it
+
+    const seqBefore = engine.latestSeq(room.id);
+    const handoffsBefore = engine.pendingHandoffs(room.id).length;
+
+    const res = engine.checkFiles(b, ["src/x.ts"]);
+
+    expect(res).toEqual([
+      { path: "src/x.ts", held: true, heldBy: a.participant.id, heldByName: "Claude Code", exclusive: true },
+    ]);
+    // Truly silent: no new message and no hand-off opened, unlike claimFiles's PREVENTED path.
+    expect(engine.latestSeq(room.id)).toBe(seqBefore);
+    expect(engine.pendingHandoffs(room.id).length).toBe(handoffsBefore);
+  });
+
+  it("reports free for an unclaimed path", () => {
+    const engine = makeEngine();
+    const { b } = twoAgentRoom(engine);
+    const res = engine.checkFiles(b, ["src/unclaimed.ts"]);
+    expect(res).toEqual([{ path: "src/unclaimed.ts", held: false }]);
+  });
+
+  it("checks multiple paths in one call, mixing held and free", () => {
+    const engine = makeEngine();
+    const { a, b } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/payments/*"], exclusive: true });
+    const res = engine.checkFiles(b, ["src/payments/webhook.ts", "src/checkout/index.ts"]);
+    expect(res.find((r) => r.path === "src/payments/webhook.ts")).toMatchObject({ held: true, heldByName: "Claude Code" });
+    expect(res.find((r) => r.path === "src/checkout/index.ts")).toEqual({ path: "src/checkout/index.ts", held: false });
+  });
+
+  it("does not conflict with the caller's own held lease (reports it as held by self, still silent)", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/mine.ts"] });
+    const seqBefore = engine.latestSeq(room.id);
+    const res = engine.checkFiles(a, ["src/mine.ts"]);
+    expect(res).toEqual([
+      { path: "src/mine.ts", held: true, heldBy: a.participant.id, heldByName: "Claude Code", exclusive: true },
+    ]);
+    expect(engine.latestSeq(room.id)).toBe(seqBefore);
+  });
+});

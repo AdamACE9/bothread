@@ -419,6 +419,12 @@ export const LeaveSessionInput = z.object({
 });
 export type LeaveSessionInput = z.infer<typeof LeaveSessionInput>;
 
+export const CheckFilesInput = z.object({
+  paths: z.array(z.string().min(1)).min(1).max(64).describe("Glob paths to check ownership of, e.g. ['src/payments/*']."),
+  sessionId: z.string().optional(),
+});
+export type CheckFilesInput = z.infer<typeof CheckFilesInput>;
+
 /* ----- Tool results ----- */
 
 export const LeaseConflict = z.object({
@@ -435,6 +441,16 @@ export const ClaimResult = z.object({
   conflicts: z.array(LeaseConflict),
 });
 export type ClaimResult = z.infer<typeof ClaimResult>;
+
+/** A single path's current ownership — the pure-read result of check_files. */
+export const CheckFileResult = z.object({
+  path: z.string(),
+  held: z.boolean(),
+  heldBy: z.string().optional(),
+  heldByName: z.string().optional(),
+  exclusive: z.boolean().optional(),
+});
+export type CheckFileResult = z.infer<typeof CheckFileResult>;
 
 export const ApprovalResult = z.object({
   status: ApprovalStatus,

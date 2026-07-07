@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   CancelHandoffInput,
+  CheckFilesInput,
   ClaimFilesInput,
   CreateTaskInput,
   GetRoomStateInput,
@@ -287,6 +288,29 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
         }
         const c = res.conflicts.map((x) => `${x.path} (held by ${x.heldByName})`).join(", ");
         return ok(`PREVENTED — do NOT edit these. Conflicts: ${c}. Coordinate with the holder before proceeding.`, res);
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    "check_files",
+    {
+      title: "Quietly check who holds a file",
+      description:
+        "Silently check current ownership of one or more glob paths — a read-only peek with NO side effects: it does not claim anything, posts no message, opens no hand-off, and is invisible to everyone else. Use this to test the water before claim_files, instead of risking a PREVENTED attempt that broadcasts to the room.",
+      inputSchema: CheckFilesInput.shape,
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
+        const res = engine.checkFiles(caller, args.paths);
+        const summary = res
+          .map((r) => (r.held ? `${r.path}: held by ${r.heldByName} (${r.exclusive ? "exclusive" : "shared"}).` : `${r.path}: free.`))
+          .join(" ");
+        return ok(summary, res);
       } catch (e) {
         return fail(e);
       }
