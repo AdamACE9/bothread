@@ -1416,6 +1416,7 @@ export class Engine {
         // longer absence of ANY activity, so others can infer "probably dropped off / hit a
         // limit / stepped away" rather than just "not currently mid-poll."
         idle: p.kind === "agent" && at - p.last_seen_at > Engine.IDLE_THRESHOLD_MS,
+        capabilities: p.capabilities ? (JSON.parse(p.capabilities) as string[]) : undefined,
       }));
     const presenceById = new Map(participants.map((p) => [p.id, p]));
 

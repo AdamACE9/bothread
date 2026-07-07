@@ -181,6 +181,8 @@ export const ParticipantView = z.object({
   listening: z.boolean().default(false),
   /** True if an agent has had no activity for 5+ minutes — may have dropped off, hit a limit, or is just thinking. */
   idle: z.boolean().default(false),
+  /** Self-declared capabilities from join time (e.g. "can-view-video"), visible to everyone. */
+  capabilities: z.array(z.string()).optional(),
 });
 export type ParticipantView = z.infer<typeof ParticipantView>;
 

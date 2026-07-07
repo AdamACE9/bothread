@@ -216,6 +216,21 @@ describe("Engine — snapshot", () => {
     expect(snap.participants.map((p) => p.name)).toContain("Cursor");
     expect(snap.etiquette).toMatch(/claim_files/);
   });
+
+  it("threads a joiner's self-declared capabilities into ParticipantView", () => {
+    const engine = makeEngine();
+    const { room, sessionId } = engine.createRoom({ name: "capability-room" });
+    engine.joinSession("mcp-A", {
+      sessionId,
+      agentName: "Claude Code",
+      brand: "claude",
+      capabilities: ["can-view-images"],
+    });
+    const a = engine.resolveCaller("mcp-A");
+    const snap = engine.buildSnapshot(room, a.participant);
+    const self = snap.participants.find((p) => p.id === a.participant.id);
+    expect(self?.capabilities).toContain("can-view-images");
+  });
 });
 
 describe("Engine — hand-offs (routed file requests)", () => {

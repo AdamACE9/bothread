@@ -57,11 +57,12 @@ export function renderSnapshot(s: RoomSnapshot): string {
     lines.push("Participants:");
     for (const p of others) {
       const files = p.claimedFiles.length ? ` holding [${p.claimedFiles.join(", ")}]` : "";
+      const caps = p.capabilities?.length ? ` [capabilities: ${p.capabilities.join(", ")}]` : "";
       if (p.idle) {
         const mins = Math.max(1, Math.round((Date.now() - p.lastSeen) / 60000));
-        lines.push(`  • ${p.name}${p.brand ? ` (${p.brand})` : ""} — idle (no activity in ${mins}m, may have dropped off)${files}`);
+        lines.push(`  • ${p.name}${p.brand ? ` (${p.brand})` : ""} — idle (no activity in ${mins}m, may have dropped off)${files}${caps}`);
       } else {
-        lines.push(`  • ${p.name}${p.brand ? ` (${p.brand})` : ""} — ${p.status}${files}`);
+        lines.push(`  • ${p.name}${p.brand ? ` (${p.brand})` : ""} — ${p.status}${files}${caps}`);
       }
     }
   }
