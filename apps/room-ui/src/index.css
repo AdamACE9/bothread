@@ -953,6 +953,56 @@ textarea.field {
 .hunk-stat .del { color: var(--clay-1); }
 .hunk .diff-view { border: none; border-radius: 0; max-height: 200px; }
 
+/* ── Notes (decisions / issues / verification) ── */
+.notes-panel { display: flex; flex-direction: column; gap: 0.7rem; }
+.notes-form { display: flex; flex-direction: column; gap: 0.4rem; padding-bottom: 0.7rem; border-bottom: 1px solid var(--line-soft); }
+.notes-form textarea.field { resize: vertical; font-size: 0.78rem; }
+.field.sm { padding: 0.35rem 0.5rem; font-size: 0.78rem; }
+.note-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted-1);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.7rem;
+  background: rgba(14,12,9,0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.note-card.decision { border-left-color: var(--copper); }
+.note-card.issue { border-left-color: var(--saffron); }
+.note-card.verification { border-left-color: var(--teal-1); }
+.note-card.resolved { opacity: 0.6; }
+.note-head { display: flex; align-items: baseline; gap: 0.5rem; }
+.note-kind {
+  font-size: 0.64rem;
+  font-weight: 640;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-1);
+  flex: none;
+}
+.note-kind.decision { color: var(--copper-1); }
+.note-kind.issue { color: var(--saffron); }
+.note-kind.verification { color: var(--teal-1); }
+.note-title { font-size: 0.83rem; font-weight: 560; color: var(--parchment-1); }
+.note-detail {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: pre-wrap;
+  margin: 0;
+  background: rgba(14,12,9,0.5);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.note-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.68rem; color: var(--muted-1); }
+.note-meta .btn { margin-left: auto; }
+.note-resolved-tag { margin-left: auto; color: var(--teal-1); }
+
 @media (max-width: 860px) {
   .rmain {
     grid-template-columns: 1fr;

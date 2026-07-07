@@ -377,3 +377,71 @@ describe("Engine — transcript persistence (overseer view vs agent snapshot)", 
     expect(page2.hasMore).toBe(false);
   });
 });
+
+describe("Engine — notes (durable decisions / issues / verification)", () => {
+  it("recordNote creates a note that appears in listNotes and the snapshot with the right kind", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+    const note = engine.recordNote(a, {
+      kind: "decision",
+      title: "physics.js owns collision",
+      detail: "level.js owns tiles; isSolid(col,row) is the contract.",
+    });
+    expect(note.kind).toBe("decision");
+    expect(note.status).toBe("open");
+    expect(note.authorName).toBe("Claude Code");
+
+    const listed = engine.listNotes(room.id);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]!.title).toBe("physics.js owns collision");
+
+    const snap = engine.buildSnapshot(room, a.participant);
+    expect(snap.notes).toHaveLength(1);
+    expect(snap.notes[0]!.kind).toBe("decision");
+  });
+
+  it("supports issue and verification kinds", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+    engine.recordNote(a, { kind: "issue", title: "leftover shadow artifact" });
+    engine.recordNote(b, {
+      kind: "verification",
+      title: "collision regression suite",
+      detail: "tested: 20 falling-block cases\nexpected: no clip-through\nactual: all passed",
+    });
+    const notes = engine.listNotes(room.id);
+    expect(notes.map((n) => n.kind).sort()).toEqual(["issue", "verification"]);
+  });
+
+  it("resolveNote marks a note resolved and is reflected in a fresh snapshot", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+    const note = engine.recordNote(a, { kind: "issue", title: "vine anchors ignore terrain height" });
+    expect(engine.buildSnapshot(room, a.participant).notes[0]!.status).toBe("open");
+
+    const resolved = engine.resolveNote(a, { noteId: note.id, resolution: "anchors now sample terrain height" });
+    expect(resolved.status).toBe("resolved");
+    expect(resolved.detail).toContain("anchors now sample terrain height");
+
+    // A fresh snapshot reflects the resolution.
+    const fresh = engine.buildSnapshot(engine.getRoom(room.id)!, a.participant);
+    const found = fresh.notes.find((n) => n.id === note.id)!;
+    expect(found.status).toBe("resolved");
+  });
+
+  it("resolveNote throws for an unknown note id", () => {
+    const engine = makeEngine();
+    const { a } = twoAgentRoom(engine);
+    expect(() => engine.resolveNote(a, { noteId: "nope" })).toThrow(BothreadError);
+  });
+
+  it("callerForOverseer builds a Caller the human overseer's REST actions can use", () => {
+    const engine = makeEngine();
+    const { room } = twoAgentRoom(engine);
+    const overseerCaller = engine.callerForOverseer(room.id);
+    expect(overseerCaller.participant.kind).toBe("human");
+    const note = engine.recordNote(overseerCaller, { kind: "decision", title: "ship the MVP without symbol-level locks" });
+    expect(note.authorName).toBe(overseerCaller.participant.name);
+    expect(engine.listNotes(room.id).some((n) => n.id === note.id)).toBe(true);
+  });
+});

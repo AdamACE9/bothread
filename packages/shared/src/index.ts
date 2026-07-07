@@ -227,6 +227,56 @@ export const HandoffView = z.object({
 });
 export type HandoffView = z.infer<typeof HandoffView>;
 
+/* ----- Notes: durable decisions / issues / verification reports ----- */
+
+export const NoteKind = z.enum(["decision", "issue", "verification"]);
+export type NoteKind = z.infer<typeof NoteKind>;
+
+export const NoteStatus = z.enum(["open", "resolved"]);
+export type NoteStatus = z.infer<typeof NoteStatus>;
+
+/**
+ * A durable record entry: an architectural decision, a flagged-but-not-blocking
+ * issue, or a verification report. One entity with a `kind` discriminator rather
+ * than three tables — keeps the model (and the tool surface) simple. For
+ * verification notes, `detail` may hold a tested/expected/actual breakdown as
+ * plain structured text.
+ */
+export const RoomNote = z.object({
+  id: z.string(),
+  roomId: z.string(),
+  kind: NoteKind,
+  title: z.string(),
+  detail: z.string().optional(),
+  authorId: z.string(),
+  authorName: z.string(),
+  status: NoteStatus,
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+export type RoomNote = z.infer<typeof RoomNote>;
+
+export const RecordNoteInput = z.object({
+  kind: NoteKind,
+  title: z.string().min(1).max(200).describe("A short, scannable summary, e.g. 'physics.js owns collision'."),
+  detail: z
+    .string()
+    .max(4000)
+    .optional()
+    .describe(
+      "Free text with the full context. For a verification note, structure it as tested / expected / actual so it's fast to trust."
+    ),
+  sessionId: z.string().optional(),
+});
+export type RecordNoteInput = z.infer<typeof RecordNoteInput>;
+
+export const ResolveNoteInput = z.object({
+  noteId: z.string(),
+  resolution: z.string().max(2000).optional().describe("What was done about it, appended to the note's detail."),
+  sessionId: z.string().optional(),
+});
+export type ResolveNoteInput = z.infer<typeof ResolveNoteInput>;
+
 export const RoomSnapshot = z.object({
   room: z.object({
     name: z.string(),
@@ -246,6 +296,8 @@ export const RoomSnapshot = z.object({
   pendingApprovals: z.array(PendingApprovalView),
   /** Open hand-off requests: who is waiting on a file someone else holds. */
   handoffs: z.array(HandoffView).default([]),
+  /** Durable decisions / issues / verification reports recorded in this room. */
+  notes: z.array(RoomNote).default([]),
   latestSeq: z.number(),
   etiquette: z.string(),
 });
@@ -426,6 +478,7 @@ export const ServerEventType = z.enum([
   "collision",
   "branch",
   "handoff",
+  "note",
 ]);
 export type ServerEventType = z.infer<typeof ServerEventType>;
 

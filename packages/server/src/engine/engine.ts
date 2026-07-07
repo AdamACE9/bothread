@@ -12,12 +12,17 @@ import type {
   Lease,
   LeaseConflict,
   Message,
+  NoteKind,
+  NoteStatus,
   Participant,
   ParticipantStatus,
   ParticipantView,
   ReadMessagesInput,
+  RecordNoteInput,
+  ResolveNoteInput,
   RiskAction,
   Room,
+  RoomNote,
   RoomSettings,
   RoomSnapshot,
   ThreadEntry,
@@ -142,6 +147,18 @@ interface AuditRow {
   actor_name: string | null;
   type: string;
   payload: string | null;
+}
+interface NoteRow {
+  id: string;
+  room_id: string;
+  kind: string;
+  title: string;
+  status: string;
+  owner_id: string;
+  owner_name: string;
+  note: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface Caller {
@@ -332,6 +349,20 @@ export class Engine {
       payload: a.payload ? (JSON.parse(a.payload) as Record<string, unknown>) : undefined,
     };
   }
+  private mapNote(n: NoteRow): RoomNote {
+    return {
+      id: n.id,
+      roomId: n.room_id,
+      kind: n.kind as NoteKind,
+      title: n.title,
+      detail: n.note ?? undefined,
+      authorId: n.owner_id,
+      authorName: n.owner_name,
+      status: n.status as NoteStatus,
+      createdAt: n.created_at,
+      updatedAt: n.updated_at,
+    };
+  }
 
   /** The append-only governance trail for a room, most-recent-first. */
   listAudit(roomId: string, limit = 150): AuditEvent[] {
@@ -511,6 +542,28 @@ export class Engine {
     this.postSystemMessage(room.id, `${participant.name} joined the room.`, "info");
     this.publish(room.id, "participant", { participant });
     return { participant, snapshot: this.buildSnapshot(room, participant) };
+  }
+
+  /**
+   * Build a Caller for the human overseer, so REST-driven actions (the room UI)
+   * can call the same engine methods agents use over MCP instead of duplicating
+   * their logic. Throws if the room doesn't exist.
+   */
+  callerForOverseer(roomId: string): Caller {
+    const room = this.getRoom(roomId);
+    if (!room) throw new BothreadError("no_room", "Room not found.");
+    const overseer =
+      this.getOverseer(roomId) ??
+      ({
+        id: "overseer",
+        roomId,
+        name: "You",
+        kind: "human" as const,
+        status: "active" as const,
+        joinedAt: now(),
+        lastSeenAt: now(),
+      } as Participant);
+    return { room, participant: overseer };
   }
 
   /** Resolve + validate the caller for a room-scoped tool. */
@@ -1151,6 +1204,72 @@ export class Engine {
     }));
   }
 
+  /* ===================== Notes (decisions / issues / verification) ===================== */
+
+  private noteRow(id: string): NoteRow | undefined {
+    return this.db.prepare(`SELECT * FROM notes WHERE id = ?`).get(id) as NoteRow | undefined;
+  }
+
+  /** All notes for a room, most-recent-first. */
+  listNotes(roomId: string): RoomNote[] {
+    return (
+      this.db.prepare(`SELECT * FROM notes WHERE room_id = ? ORDER BY created_at DESC`).all(roomId) as NoteRow[]
+    ).map((n) => this.mapNote(n));
+  }
+
+  /**
+   * Record a durable note: an architectural decision, a flagged-but-not-blocking
+   * issue, or a verification report. Always available (not gated by pause/mute) —
+   * this is record-keeping, not a risky write.
+   */
+  recordNote(caller: Caller, input: RecordNoteInput): RoomNote {
+    const roomId = caller.room.id;
+    const id = newId("note");
+    const at = now();
+    this.db
+      .prepare(
+        `INSERT INTO notes (id, room_id, kind, title, status, owner_id, owner_name, note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`
+      )
+      .run(id, roomId, input.kind, input.title, caller.participant.id, caller.participant.name, input.detail ?? null, at, at);
+    const note = this.mapNote(this.noteRow(id)!);
+
+    this.audit(roomId, "note.record", { id: caller.participant.id, name: caller.participant.name }, {
+      noteId: id,
+      kind: input.kind,
+      title: input.title,
+    });
+    this.postSystemMessage(
+      roomId,
+      `${caller.participant.name} recorded a ${input.kind}: ${input.title}`,
+      input.kind === "issue" ? "advisory" : "info"
+    );
+    this.publish(roomId, "note", { note });
+    return note;
+  }
+
+  /** Mark a note resolved. `resolution` (if given) is appended to its detail. */
+  resolveNote(caller: Caller, input: ResolveNoteInput): RoomNote {
+    const row = this.noteRow(input.noteId);
+    if (!row || row.room_id !== caller.room.id) throw new BothreadError("no_note", "Note not found.");
+    const at = now();
+    const mergedDetail = input.resolution
+      ? [row.note, `Resolution: ${input.resolution}`].filter(Boolean).join("\n\n")
+      : row.note;
+    this.db
+      .prepare(`UPDATE notes SET status = 'resolved', note = ?, updated_at = ? WHERE id = ?`)
+      .run(mergedDetail ?? null, at, input.noteId);
+    const note = this.mapNote(this.noteRow(input.noteId)!);
+
+    this.audit(caller.room.id, "note.resolve", { id: caller.participant.id, name: caller.participant.name }, {
+      noteId: note.id,
+      kind: note.kind,
+    });
+    this.postSystemMessage(caller.room.id, `${caller.participant.name} resolved ${note.kind}: ${note.title}`, "info");
+    this.publish(caller.room.id, "note", { note });
+    return note;
+  }
+
   /** When a participant leaves/revoked, cancel hand-offs that name them. */
   private cancelHandoffsFor(roomId: string, participantId: string): void {
     this.db
@@ -1235,6 +1354,7 @@ export class Engine {
       })),
       pendingApprovals: this.pendingApprovalViews(room.id),
       handoffs: this.handoffViews(room.id),
+      notes: this.listNotes(room.id),
       latestSeq: this.latestSeq(room.id),
       etiquette: ETIQUETTE,
     };

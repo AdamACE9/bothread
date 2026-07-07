@@ -5,10 +5,12 @@ import {
   JoinSessionInput,
   LeaveSessionInput,
   ReadMessagesInput,
+  RecordNoteInput,
   RenewFilesInput,
   ReleaseFilesInput,
   RequestApprovalInput,
   RequestHandoffInput,
+  ResolveNoteInput,
   SendMessageInput,
   WaitForUpdateInput,
   type RoomSnapshot,
@@ -77,6 +79,19 @@ export function renderSnapshot(s: RoomSnapshot): string {
     for (const h of s.handoffs) {
       const mine = h.heldBy === s.you.name ? " ← you hold this; release it or reply" : "";
       lines.push(`  • ${h.requestedBy} wants ${h.path} (held by ${h.heldBy})${mine}`);
+    }
+  }
+
+  if (s.notes.length) {
+    const open = s.notes.filter((n) => n.status === "open");
+    if (open.length) {
+      lines.push("Notes (decisions/issues/verification):");
+      for (const k of ["decision", "issue", "verification"] as const) {
+        const group = open.filter((n) => n.kind === k);
+        if (!group.length) continue;
+        lines.push(`  ${k}s:`);
+        for (const n of group) lines.push(`    • ${n.title}${n.authorName ? ` (${n.authorName})` : ""}`);
+      }
     }
   }
 
@@ -333,6 +348,44 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
         const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
         engine.leaveSession(caller);
         return ok("You left the room. Your file claims were released.");
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    "record_note",
+    {
+      title: "Record a durable decision, issue, or verification report",
+      description:
+        "Write a durable record so it isn't lost in chat: a 'decision' (an architectural/design call other participants — including one joining late — need to know), an 'issue' (something worth flagging but not blocking, e.g. a leftover artifact or a shortcut taken), or a 'verification' (a test you ran — put tested/expected/actual in detail). Shows up in every participant's room state and the overseer's UI.",
+      inputSchema: RecordNoteInput.shape,
+    },
+    async (args) => {
+      try {
+        const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
+        const note = engine.recordNote(caller, args);
+        return ok(`Recorded ${note.kind}: ${note.title} (id ${note.id}).`, note);
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    "resolve_note",
+    {
+      title: "Resolve a recorded note",
+      description:
+        "Mark a previously recorded decision/issue/verification note as resolved, optionally appending what was done about it.",
+      inputSchema: ResolveNoteInput.shape,
+    },
+    async (args) => {
+      try {
+        const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
+        const note = engine.resolveNote(caller, args);
+        return ok(`Resolved ${note.kind}: ${note.title}.`, note);
       } catch (e) {
         return fail(e);
       }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentBranch, Approval, AuditEvent, DiffHunkView, RiskAction, ThreadEntry } from "@bothread/shared";
+import type { AgentBranch, Approval, AuditEvent, DiffHunkView, NoteKind, RiskAction, RoomNote, ThreadEntry } from "@bothread/shared";
 import { OVERSEER_THREAD_LIMIT } from "@bothread/shared";
-import { applyHunks, decideApproval, discardBranch, getAudit, getMessagesBefore, listBranches, mergeBranch, nudgeParticipant, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings } from "./api";
+import { applyHunks, decideApproval, discardBranch, getAudit, getMessagesBefore, listBranches, mergeBranch, nudgeParticipant, recordNote, resolveNote, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings } from "./api";
 import ConnectPanel from "./ConnectPanel";
 import { useRoom } from "./useRoom";
 import { Avatar, brandClass, fmtTime, richText } from "./ui";
@@ -10,7 +10,7 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
   const { detail, connected, refresh } = useRoom(roomId);
   const [showConnect, setShowConnect] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [rightTab, setRightTab] = useState<"locks" | "changes" | "activity">("locks");
+  const [rightTab, setRightTab] = useState<"locks" | "changes" | "notes" | "activity">("locks");
 
   if (!detail) {
     return (
@@ -126,6 +126,12 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
               Changes
             </button>
             <button
+              className={`rail-tab${rightTab === "notes" ? " active" : ""}`}
+              onClick={() => setRightTab("notes")}
+            >
+              Notes
+            </button>
+            <button
               className={`rail-tab${rightTab === "activity" ? " active" : ""}`}
               onClick={() => setRightTab("activity")}
             >
@@ -167,6 +173,8 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
             </>
           ) : rightTab === "changes" ? (
             <BranchPanel roomId={roomId} afterAction={refresh} />
+          ) : rightTab === "notes" ? (
+            <NotesPanel roomId={roomId} notes={snapshot.notes} afterAction={refresh} />
           ) : (
             <AuditPanel roomId={roomId} connected={connected} />
           )}
@@ -532,6 +540,117 @@ function HunkBlock({ hunk, kept, onToggle }: { hunk: DiffHunkView; kept: boolean
   );
 }
 
+const NOTE_KIND_LABELS: Record<NoteKind, string> = {
+  decision: "Decision",
+  issue: "Issue",
+  verification: "Verification",
+};
+
+function NotesPanel({
+  roomId,
+  notes,
+  afterAction,
+}: {
+  roomId: string;
+  notes: RoomNote[];
+  afterAction: () => void;
+}) {
+  const [kind, setKind] = useState<NoteKind>("decision");
+  const [title, setTitle] = useState("");
+  const [detail, setDetail] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
+
+  const submit = async () => {
+    const t = title.trim();
+    if (!t) return;
+    setBusy("new");
+    try {
+      await recordNote(roomId, kind, t, detail.trim() || undefined);
+      setTitle("");
+      setDetail("");
+      afterAction();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const resolve = async (n: RoomNote) => {
+    setBusy(n.id);
+    try {
+      await resolveNote(roomId, n.id);
+      afterAction();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const open = notes.filter((n) => n.status === "open");
+  const resolved = notes.filter((n) => n.status === "resolved");
+  const visible = showResolved ? notes : open;
+
+  return (
+    <div className="notes-panel">
+      <div className="notes-form">
+        <select className="field sm" value={kind} onChange={(e) => setKind(e.target.value as NoteKind)}>
+          <option value="decision">Decision</option>
+          <option value="issue">Issue</option>
+          <option value="verification">Verification</option>
+        </select>
+        <input
+          className="field"
+          placeholder="Title, e.g. 'physics.js owns collision'"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submit()}
+        />
+        <textarea
+          className="field"
+          rows={2}
+          placeholder="Detail (optional) — for verification, try tested / expected / actual"
+          value={detail}
+          onChange={(e) => setDetail(e.target.value)}
+        />
+        <button className="btn sm primary" disabled={busy === "new" || !title.trim()} onClick={submit}>
+          {busy === "new" ? "…" : "Record"}
+        </button>
+      </div>
+
+      {!notes.length ? (
+        <p className="empty">No decisions, issues, or verification reports recorded yet.</p>
+      ) : (
+        <>
+          {visible.map((n) => (
+            <div className={`note-card ${n.kind}${n.status === "resolved" ? " resolved" : ""}`} key={n.id}>
+              <div className="note-head">
+                <span className={`note-kind ${n.kind}`}>{NOTE_KIND_LABELS[n.kind]}</span>
+                <span className="note-title">{n.title}</span>
+              </div>
+              {n.detail && <pre className="note-detail">{n.detail}</pre>}
+              <div className="note-meta">
+                <span>{n.authorName}</span>
+                <span>{fmtTime(n.createdAt)}</span>
+                {n.status === "open" ? (
+                  <button className="btn sm" disabled={busy === n.id} onClick={() => resolve(n)}>
+                    {busy === n.id ? "…" : "Resolve"}
+                  </button>
+                ) : (
+                  <span className="note-resolved-tag">resolved</span>
+                )}
+              </div>
+            </div>
+          ))}
+          {resolved.length > 0 && (
+            <button className="btn sm" style={{ marginTop: 8 }} onClick={() => setShowResolved((s) => !s)}>
+              {showResolved ? "Hide resolved" : `Show resolved (${resolved.length})`}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 const AUDIT_LABELS: Record<string, string> = {
   "room.create": "Room created",
   "room.active": "Room resumed",
@@ -558,6 +677,8 @@ const AUDIT_LABELS: Record<string, string> = {
   "branch.discard": "Changes discarded",
   "branch.apply": "Changes partly applied",
   "handoff.request": "Hand-off requested",
+  "note.record": "Note recorded",
+  "note.resolve": "Note resolved",
 };
 
 function auditDetail(e: AuditEvent): string {
