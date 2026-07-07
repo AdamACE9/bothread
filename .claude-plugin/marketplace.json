@@ -1,0 +1,14 @@
+{
+  "name": "bothread",
+  "owner": {
+    "name": "Adam Ahmed"
+  },
+  "plugins": [
+    {
+      "name": "bothread",
+      "source": ".",
+      "description": "Local, human-governed MCP hub for multi-agent coding — file-level locks, hand-offs, task board, and human oversight over one live room.",
+      "version": "0.2.0"
+    }
+  ]
+}

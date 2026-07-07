@@ -125,6 +125,9 @@ That uses the [`skills`](https://github.com/vercel-labs/skills) CLI to fetch thi
 it into your agent's config (`.claude/skills/…`), auto-detecting the agent. No manual download.
 
 **Other ways:**
+- **Claude Code plugin:** this repo is also a valid plugin + single-plugin marketplace
+  (`.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`). Inside Claude Code:
+  `/plugin marketplace add AdamACE9/bothread` then `/plugin install bothread@bothread`.
 - **Claude (web / desktop app):** download **[`bothread-skill.zip`](https://bothread.vercel.app/bothread-skill.zip)**
   → **Settings → Capabilities → Skills → Create skill → upload it**.
 - **Manual:** copy [`skill/bothread`](skill/bothread) into `.claude/skills/`, or put
