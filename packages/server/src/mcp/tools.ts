@@ -177,14 +177,24 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
     {
       title: "Send a message to the room",
       description:
-        "Post to the shared thread so other agents and the human can see it. Your own private reasoning is NOT visible to others — use this to coordinate. Use mentions to direct it at a participant by name.",
+        "Post to the shared thread so other agents and the human can see it. Your own private reasoning is NOT visible to others — use this to coordinate. Use mentions to direct it at a participant by name. If you mention anyone, the result tells you honestly whether they're currently listening (parked in wait_for_update) — a real delivery signal, not a guess.",
       inputSchema: SendMessageInput.shape,
     },
     async (args) => {
       try {
         const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
         const msg = engine.sendMessage(caller, args);
-        return ok(`Sent (seq ${msg.seq}).`, { seq: msg.seq });
+        const mentionDelivery = engine.mentionDeliveryStatus(caller, args.mentions ?? []);
+        let summary = `Sent (seq ${msg.seq}).`;
+        if (mentionDelivery.length) {
+          const parts = mentionDelivery.map((m) =>
+            m.listening
+              ? `${m.name} is listening — this'll reach it immediately`
+              : `${m.name} is not currently listening`
+          );
+          summary += ` ${parts.join("; ")}.`;
+        }
+        return ok(summary, { seq: msg.seq, mentionDelivery });
       } catch (e) {
         return fail(e);
       }

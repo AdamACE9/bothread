@@ -312,6 +312,47 @@ describe("Engine — liveness (listening, nudge, hand-off-aware wait)", () => {
   });
 });
 
+describe("Engine — mentions delivery confirmation", () => {
+  it("honestly reports a mentioned participant as not listening, then listening once parked in wait_for_update", async () => {
+    const engine = makeEngine();
+    const { a, b } = twoAgentRoom(engine);
+
+    // Cursor hasn't called wait_for_update yet — not listening.
+    const notYet = engine.mentionDeliveryStatus(a, ["Cursor"]);
+    expect(notYet).toEqual([{ name: "Cursor", listening: false }]);
+
+    // Cursor parks in wait_for_update (matches the existing "marks an agent as
+    // listening" test: maxWaitMs: 0 parks + returns immediately).
+    await engine.waitForUpdate(b, { maxWaitMs: 0 });
+
+    const now = engine.mentionDeliveryStatus(a, ["Cursor"]);
+    expect(now).toEqual([{ name: "Cursor", listening: true }]);
+  });
+
+  it("send_message surfaces mentionDelivery in its result, matching mentionDeliveryStatus", async () => {
+    const engine = makeEngine();
+    const { a, b } = twoAgentRoom(engine);
+    await engine.waitForUpdate(b, { maxWaitMs: 0 }); // Cursor now listening
+
+    const status = engine.mentionDeliveryStatus(a, ["Cursor"]);
+    expect(status).toEqual([{ name: "Cursor", listening: true }]);
+
+    // Sending doesn't change the persisted Message/ThreadEntry shape.
+    const msg = engine.sendMessage(a, { text: "hey @Cursor", mentions: ["Cursor"] });
+    expect((msg as Record<string, unknown>).mentionDelivery).toBeUndefined();
+  });
+
+  it("case-insensitively matches mentioned display names and reports unknown names as not listening", () => {
+    const engine = makeEngine();
+    const { a } = twoAgentRoom(engine);
+    const res = engine.mentionDeliveryStatus(a, ["cursor", "NoSuchAgent"]);
+    expect(res).toEqual([
+      { name: "cursor", listening: false },
+      { name: "NoSuchAgent", listening: false },
+    ]);
+  });
+});
+
 describe("Engine — governance (settings + audit log)", () => {
   it("updateRoomSettings surfaces requireApprovalFor to agents via the snapshot", () => {
     const engine = makeEngine();
