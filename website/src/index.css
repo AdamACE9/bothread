@@ -85,15 +85,7 @@ body {
   overflow-x: hidden;
 }
 
-/* Background canvas sits behind everything */
-.bg-canvas {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  display: block;
-}
-
-/* Vignette + a static warm gradient so the page looks intentional even without WebGL */
+/* Vignette + a static warm gradient — the page-wide backdrop, always on, never animates */
 .bg-fallback {
   position: fixed;
   inset: 0;
@@ -340,89 +332,150 @@ label {
   left: 0;
   right: 0;
   z-index: 50;
-  transition: background 0.4s var(--ease), border-color 0.4s var(--ease);
-  border-bottom: 1px solid transparent;
-}
-.nav.scrolled {
-  background: rgba(20, 17, 13, 0.72);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom-color: var(--line-soft);
+  padding-top: clamp(0.9rem, 0.7rem + 1vw, 1.4rem);
 }
 .nav-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 68px;
+  gap: 1rem;
 }
 .brand {
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
   font-family: var(--font-display);
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   letter-spacing: -0.02em;
+  flex: none;
 }
 .brand b {
   font-weight: 500;
 }
-.nav-links {
+
+/* the glass pill — floats free of the page chrome from the very first pixel,
+   so there's no "does it have a background yet" scroll-state to manage */
+.nav-pill {
   display: flex;
   align-items: center;
-  gap: 2rem;
+  gap: clamp(1.1rem, 0.9rem + 1vw, 1.8rem);
+  padding: 0.55rem clamp(1.1rem, 0.9rem + 1vw, 1.6rem);
+  border-radius: 100px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(12deg, rgba(255, 255, 255, 0.05) -30%, rgba(255, 255, 255, 0) 100%),
+    rgba(20, 17, 13, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.24);
+  transition: border-color 0.3s var(--ease), background 0.3s var(--ease);
 }
-.nav-links a {
-  font-size: 0.95rem;
-  color: var(--parchment-1);
+.nav.scrolled .nav-pill {
+  border-color: rgba(207, 122, 60, 0.22);
+}
+.nav-pill a {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--muted);
   transition: color 0.25s var(--ease);
+  white-space: nowrap;
 }
-.nav-links a:hover {
-  color: var(--copper-1);
+.nav-pill a:hover {
+  color: var(--parchment);
 }
 .nav-cta {
   display: inline-flex;
+  flex: none;
+  min-height: 42px;
+  padding: 0 1.2rem;
 }
-@media (max-width: 720px) {
-  .nav-links a:not(.nav-cta) {
+@media (max-width: 900px) {
+  .nav-pill a:not(:last-child) {
+    display: none;
+  }
+  .nav-pill {
+    gap: 0.5rem;
+  }
+}
+@media (max-width: 620px) {
+  .nav-pill {
     display: none;
   }
 }
 
 /* ============================ HERO ============================ */
+/* A big centered statement first, then a large tilted demo card breaking out
+   full-bleed below it — not a static two-column split. */
 .hero {
-  padding-top: clamp(7rem, 5rem + 8vw, 11rem);
-  padding-bottom: clamp(3rem, 2rem + 5vw, 6rem);
+  position: relative;
+  overflow: hidden;
+  padding-top: clamp(7.5rem, 6rem + 6vw, 10rem);
+  padding-bottom: clamp(4rem, 3rem + 4vw, 7rem);
 }
-.hero-grid {
-  display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: clamp(2rem, 1rem + 4vw, 5rem);
+.hero-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+.hero-stack {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  text-align: center;
+  max-width: 760px;
 }
-@media (max-width: 940px) {
-  .hero-grid {
-    grid-template-columns: 1fr;
+.hero h1,
+.hero-headline {
+  margin-top: 1.3rem;
+  max-width: 15ch;
+  display: block;
+  font-size: clamp(2.9rem, 2rem + 4.6vw, 5.6rem);
+  text-wrap: balance;
+}
+.split-reveal-word {
+  display: inline-block;
+  margin-right: 0.26em;
+}
+.split-reveal-inner {
+  display: inline-block;
+  opacity: 0;
+  filter: blur(10px);
+  transform: translateY(0.3em);
+  transition: opacity 0.7s var(--ease), filter 0.7s var(--ease), transform 0.7s var(--ease);
+}
+.split-reveal-inner.is-visible {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .split-reveal-inner {
+    opacity: 1;
+    filter: none;
+    transform: none;
+    transition: none;
   }
 }
-.hero h1 {
-  margin-top: 1.4rem;
-  max-width: 15ch;
-}
-.hero .lead {
-  margin-top: 1.6rem;
-  max-width: 42ch;
+.hero-lead {
+  margin-top: 1.5rem;
+  max-width: 56ch;
 }
 .hero-cta {
   margin-top: 2.2rem;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.8rem;
-  align-items: center;
+  justify-content: center;
+  width: 100%;
 }
 .hero-form {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
+  justify-content: center;
   width: 100%;
   max-width: 460px;
 }
@@ -437,9 +490,10 @@ label {
   letter-spacing: 0.02em;
 }
 .hero-clients {
-  margin-top: 2.2rem;
+  margin-top: 2rem;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.9rem;
   flex-wrap: wrap;
 }
@@ -453,6 +507,7 @@ label {
 .hero-clients ul {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.5rem 1.1rem;
   list-style: none;
   padding: 0;
@@ -484,6 +539,85 @@ label {
   flex-basis: 100%;
   width: 100%;
   margin-top: 0.5rem;
+}
+
+/* --- the big demo card, breaking out full-width below the statement --- */
+.hero-room-wrap {
+  position: relative;
+  z-index: 1;
+  margin-top: clamp(3rem, 2rem + 4vw, 5.5rem);
+}
+.hero-room-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.hero-room-inner .tilt-card {
+  width: 100%;
+  max-width: 980px;
+}
+.hero-setup {
+  display: inline-block;
+  margin-top: 1.6rem;
+  font-size: 0.92rem;
+  color: var(--copper-1);
+  border-bottom: 1px solid rgba(207, 122, 60, 0.4);
+  padding-bottom: 1px;
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+.hero-setup:hover {
+  color: var(--saffron);
+  border-color: var(--saffron);
+}
+@media (max-width: 720px) {
+  .hero-canvas {
+    opacity: 0.55;
+  }
+  .hero h1,
+  .hero-headline {
+    max-width: 100%;
+  }
+}
+
+/* ===================== TILT FRAME (wraps the live room demo) ===================== */
+.hero-room {
+  perspective: 1400px;
+}
+.tilt-card {
+  position: relative;
+}
+.tilt-card::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  z-index: -1;
+  border-radius: calc(var(--radius) + 3px);
+  background: radial-gradient(
+    circle at var(--glow-x, 50%) var(--glow-y, 50%),
+    rgba(226, 169, 76, 0.4),
+    transparent 62%
+  );
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+  pointer-events: none;
+}
+.tilt-card:hover::before {
+  opacity: 1;
+}
+.tilt-card-inner {
+  transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transition: transform 0.5s var(--ease);
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tilt-card-inner {
+    transform: none !important;
+  }
+}
+@media (max-width: 940px) {
+  .hero-room {
+    perspective: none;
+  }
 }
 
 /* ===================== LIVE ROOM (hero preview) ===================== */
@@ -1023,36 +1157,60 @@ label {
 
 /* ===================== PROBLEM ===================== */
 .prob-list {
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(1rem, 0.6rem + 1.6vw, 1.6rem);
+}
+@media (max-width: 860px) {
+  .prob-list {
+    grid-template-columns: 1fr;
+  }
 }
 .prob {
-  display: grid;
-  grid-template-columns: 4rem 1fr;
-  gap: clamp(1rem, 0.5rem + 2vw, 2.5rem);
-  padding: clamp(1.9rem, 1.3rem + 1.6vw, 2.9rem) clamp(0.8rem, 0.4rem + 1vw, 1.4rem);
-  border-bottom: 1px solid var(--line);
-  align-items: baseline;
+  position: relative;
+  overflow: hidden;
+  padding: clamp(1.8rem, 1.4rem + 1.4vw, 2.4rem) clamp(1.4rem, 1.1rem + 1vw, 1.9rem);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  transition: background 0.35s var(--ease);
+  background: linear-gradient(165deg, rgba(42, 36, 25, 0.4), rgba(20, 17, 13, 0.2));
+  transition: transform 0.4s var(--ease), border-color 0.4s var(--ease), box-shadow 0.4s var(--ease);
+}
+.prob::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--thread);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.5s var(--ease);
 }
 .prob:hover {
-  background: rgba(34, 29, 22, 0.34);
+  transform: translateY(-4px);
+  border-color: rgba(207, 122, 60, 0.35);
+  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.6);
+}
+.prob:hover::before {
+  transform: scaleX(1);
 }
 .prob .n {
-  font-family: var(--font-mono);
-  font-size: 1.05rem;
-  font-weight: 500;
-  color: var(--copper-1);
-  padding-top: 0.35rem;
+  display: block;
+  font-family: var(--font-display);
+  font-size: 3.4rem;
+  font-weight: 380;
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(226, 169, 76, 0.3);
+  margin-bottom: 1.2rem;
 }
 .prob h3 {
   margin-bottom: 0.7rem;
+  font-size: var(--fs-h3);
 }
 .prob p {
   color: var(--muted);
-  max-width: 62ch;
   line-height: 1.66;
 }
 
@@ -1062,6 +1220,24 @@ label {
   grid-template-columns: repeat(4, 1fr);
   gap: clamp(1rem, 0.5rem + 1.5vw, 2rem);
   position: relative;
+}
+/* a thread running behind the row, visible only in the gaps between cards —
+   ties the 4 steps together as one continuous path, not four islands */
+.steps::before {
+  content: "";
+  position: absolute;
+  top: calc(1.7rem + 24px);
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--thread);
+  opacity: 0.4;
+  z-index: 0;
+}
+@media (max-width: 860px) {
+  .steps::before {
+    display: none;
+  }
 }
 @media (max-width: 860px) {
   .steps {
@@ -1257,12 +1433,14 @@ footer {
 .reveal {
   opacity: 0;
   transform: translateY(20px);
-  transition: opacity 0.85s var(--ease), transform 0.85s var(--ease);
+  filter: blur(6px);
+  transition: opacity 0.85s var(--ease), transform 0.85s var(--ease), filter 0.85s var(--ease);
   transition-delay: calc(var(--i, 0) * 80ms);
 }
 .reveal.is-visible {
   opacity: 1;
   transform: none;
+  filter: blur(0);
 }
 @media (prefers-reduced-motion: reduce) {
   .reveal {
@@ -1273,21 +1451,6 @@ footer {
   .room-dot {
     animation: none;
   }
-}
-
-/* ===================== HERO SETUP LINK ===================== */
-.hero-setup {
-  display: inline-block;
-  margin-top: 1.4rem;
-  font-size: 0.92rem;
-  color: var(--copper-1);
-  border-bottom: 1px solid rgba(207, 122, 60, 0.4);
-  padding-bottom: 1px;
-  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
-}
-.hero-setup:hover {
-  color: var(--saffron);
-  border-color: var(--saffron);
 }
 
 /* ===================== FAQ ===================== */

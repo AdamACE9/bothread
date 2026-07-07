@@ -19,6 +19,12 @@
       "env": {
         "BOTHREAD_HUB": "http://127.0.0.1:4899"
       }
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "website", "run", "dev"],
+      "port": 5173
     }
   ]
 }

@@ -19,15 +19,15 @@ export default function Nav() {
             Bo<b>thread</b>
           </span>
         </a>
-        <nav className="nav-links" aria-label="Primary">
+        <nav className="nav-pill" aria-label="Primary">
           <a href="/#how">How it works</a>
           <a href="/#why">Why it’s different</a>
           <a href="/#faq">FAQ</a>
           <a href="/#waitlist">Request access</a>
-          <a className="btn btn-primary nav-cta" href="/start">
-            Get started
-          </a>
         </nav>
+        <a className="btn btn-primary nav-cta" href="/start">
+          Get started
+        </a>
       </div>
     </header>
   );
