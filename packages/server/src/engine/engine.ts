@@ -4,6 +4,7 @@ import type {
   ApprovalResult,
   ApprovalStatus,
   AuditEvent,
+  CheckFileResult,
   ClaimFilesInput,
   ClaimResult,
   Handoff,
@@ -866,6 +867,32 @@ export class Engine {
       this.openHandoffsForConflicts(caller, result.conflicts);
     }
     return result;
+  }
+
+  /**
+   * Silent, read-only ownership check — a "peek" with ZERO side effects: no
+   * lease is created, no system message is posted, no hand-off is opened, and
+   * no collision event is published. Reuses the same overlap detection as
+   * claimFiles (`activeLeaseRows` + `globsOverlap`) but never writes anything,
+   * so an agent can test the water on a path without broadcasting an attempt.
+   */
+  checkFiles(caller: Caller, paths: string[]): CheckFileResult[] {
+    const roomId = caller.room.id;
+    const active = this.activeLeaseRows(roomId);
+    return paths.map((path): CheckFileResult => {
+      for (const ex of active) {
+        if (globsOverlap(ex.path_pattern, path) || globsOverlap(path, ex.path_pattern)) {
+          return {
+            path,
+            held: true,
+            heldBy: ex.participant_id,
+            heldByName: ex.participant_name,
+            exclusive: !!ex.exclusive,
+          };
+        }
+      }
+      return { path, held: false };
+    });
   }
 
   releaseFiles(caller: Caller, input: { paths?: string[]; leaseIds?: string[] }): { released: number } {
