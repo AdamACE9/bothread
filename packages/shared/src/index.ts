@@ -179,6 +179,8 @@ export const ParticipantView = z.object({
   lastSeen: z.number(),
   /** True if the agent is currently parked in wait_for_update — actively listening. */
   listening: z.boolean().default(false),
+  /** True if an agent has had no activity for 5+ minutes — may have dropped off, hit a limit, or is just thinking. */
+  idle: z.boolean().default(false),
 });
 export type ParticipantView = z.infer<typeof ParticipantView>;
 
@@ -275,6 +277,20 @@ export const RoomSnapshot = z.object({
   tasks: z.array(RoomTask).default([]),
   latestSeq: z.number(),
   etiquette: z.string(),
+  /**
+   * Is the human overseer's room UI actively polling right now (within the last
+   * ~15s)? This is the honest signal Bothread can give: it reflects "a poll from
+   * the UI landed recently," not literal eyeball tracking. Absent/false means the
+   * tab is likely closed, backgrounded, or the human hasn't looked in a while.
+   */
+  overseerActive: z.boolean().optional(),
+  /**
+   * The message seq that was "latest" as of the PREVIOUS time the overseer's UI
+   * polled this room — i.e. what the human had seen as of their last look, before
+   * this poll updated the watermark. Compare to `latestSeq` to gauge how far
+   * behind the human is. Undefined if the overseer has never polled this room.
+   */
+  overseerLastSeenSeq: z.number().optional(),
 });
 export type RoomSnapshot = z.infer<typeof RoomSnapshot>;
 

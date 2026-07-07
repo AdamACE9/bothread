@@ -197,6 +197,22 @@ export class Engine {
   /** Last time each participant entered wait_for_update — smooths the "listening" flag across poll cycles. */
   private lastWaitAt = new Map<string, number>();
 
+  /**
+   * Overseer "last seen" watermark, per room. Every call to snapshotForOverseer
+   * (the room UI's poll / WS-connect hook) records the seq that was latest AT
+   * THAT MOMENT plus the wall-clock time — this is the real "the human's UI
+   * actually asked for state just now" signal, not a proxy. We expose the value
+   * from BEFORE this call updates it (see snapshotForOverseer), so a caller
+   * mid-session sees "as of your last poll," not a trivially-always-current echo.
+   */
+  private overseerLastSeenSeq = new Map<string, number>();
+  /** Wall-clock time of the last snapshotForOverseer call per room — drives `overseerActive`. */
+  private overseerLastPolledAt = new Map<string, number>();
+  /** How recent a poll must be to call the overseer "active" (UI tab open + refreshing). */
+  private static readonly OVERSEER_ACTIVE_WINDOW_MS = 15_000;
+  /** How long without activity before an agent participant is considered idle (may have dropped off). */
+  private static readonly IDLE_THRESHOLD_MS = 5 * 60 * 1000;
+
   constructor(db: DB, bus: RoomBus) {
     this.db = db;
     this.bus = bus;
@@ -1396,6 +1412,10 @@ export class Engine {
         claimedFiles: byParticipant.get(p.id) ?? [],
         lastSeen: p.last_seen_at,
         listening: p.kind === "agent" && this.isListening(p.id),
+        // Independent of `listening` (last ~45s wait_for_update window): idle reflects a much
+        // longer absence of ANY activity, so others can infer "probably dropped off / hit a
+        // limit / stepped away" rather than just "not currently mid-poll."
+        idle: p.kind === "agent" && at - p.last_seen_at > Engine.IDLE_THRESHOLD_MS,
       }));
     const presenceById = new Map(participants.map((p) => [p.id, p]));
 
@@ -1430,7 +1450,17 @@ export class Engine {
     };
   }
 
-  /** For the UI: a snapshot keyed by roomId from the overseer's vantage. */
+  /**
+   * For the UI: a snapshot keyed by roomId from the overseer's vantage.
+   *
+   * This is also the ONE place we record "the human's UI just asked for room
+   * state" — every call is a real poll (GET /api/rooms/:id or a fresh WS
+   * connection; see http.ts's attachWebSocket), so it's an honest proxy for
+   * "is a human actually looking right now." We read the PREVIOUS watermark
+   * before overwriting it, so the snapshot we return reflects "as of your last
+   * poll" rather than a value this same call just set (which would make
+   * `overseerLastSeenSeq` trivially equal to `latestSeq` on every call).
+   */
   snapshotForOverseer(roomId: string): RoomSnapshot | undefined {
     const room = this.getRoom(roomId);
     if (!room) return undefined;
@@ -1443,7 +1473,19 @@ export class Engine {
       joinedAt: now(),
       lastSeenAt: now(),
     };
-    return this.buildSnapshot(room, overseer, OVERSEER_THREAD_LIMIT);
+
+    // Read the watermark from BEFORE this poll, then advance it.
+    const previousSeenSeq = this.overseerLastSeenSeq.get(roomId);
+    const previousPolledAt = this.overseerLastPolledAt.get(roomId);
+    const at = now();
+    const overseerActive = previousPolledAt !== undefined && at - previousPolledAt < Engine.OVERSEER_ACTIVE_WINDOW_MS;
+
+    const snapshot = this.buildSnapshot(room, overseer, OVERSEER_THREAD_LIMIT);
+
+    this.overseerLastSeenSeq.set(roomId, this.latestSeq(roomId));
+    this.overseerLastPolledAt.set(roomId, at);
+
+    return { ...snapshot, overseerActive, overseerLastSeenSeq: previousSeenSeq };
   }
 
   /**
