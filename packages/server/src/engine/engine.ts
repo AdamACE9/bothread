@@ -93,6 +93,9 @@ interface MsgRow {
   text: string;
   mentions: string;
   thread_id: string | null;
+  reply_to_seq: number | null;
+  edited_at: number | null;
+  retracted_at: number | null;
   created_at: number;
 }
 interface LeaseRow {
@@ -321,9 +324,14 @@ export class Engine {
       authorName: m.author_name,
       kind: m.kind as Message["kind"],
       importance: m.importance as Importance,
-      text: m.text,
+      // Redacted here, once, so every reader (agents, the UI, pagination) sees the
+      // same thing — the raw text stays in the row rather than being destroyed.
+      text: m.retracted_at ? "[message retracted]" : m.text,
       mentions: JSON.parse(m.mentions) as string[],
       threadId: m.thread_id ?? undefined,
+      replyToSeq: m.reply_to_seq ?? undefined,
+      editedAt: m.edited_at ?? undefined,
+      retractedAt: m.retracted_at ?? undefined,
       createdAt: m.created_at,
     };
   }
@@ -635,7 +643,7 @@ export class Engine {
     this.audit(room.id, "participant.join", { id: participant.id, name: participant.name }, { brand: participant.brand });
     this.postSystemMessage(room.id, `${participant.name} joined the room.`, "info");
     this.publish(room.id, "participant", { participant });
-    return { participant, snapshot: this.buildSnapshot(room, participant), previousRoomName, rejoinDigest };
+    return { participant, snapshot: this.snapshotForAgent(room, participant), previousRoomName, rejoinDigest };
   }
 
   /**
@@ -797,17 +805,31 @@ export class Engine {
     importance: Importance,
     text: string,
     mentions: string[] = [],
-    threadId?: string
+    threadId?: string,
+    replyToSeq?: number
   ): Message {
     const seq = this.nextSeq(roomId, "msg");
     const id = newId("msg");
     const createdAt = now();
     this.db
       .prepare(
-        `INSERT INTO messages (id, room_id, seq, author_id, author_name, kind, importance, text, mentions, thread_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO messages (id, room_id, seq, author_id, author_name, kind, importance, text, mentions, thread_id, reply_to_seq, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, roomId, seq, author.id, author.name, kind, importance, text, JSON.stringify(mentions), threadId ?? null, createdAt);
+      .run(
+        id,
+        roomId,
+        seq,
+        author.id,
+        author.name,
+        kind,
+        importance,
+        text,
+        JSON.stringify(mentions),
+        threadId ?? null,
+        replyToSeq ?? null,
+        createdAt
+      );
     const msg: Message = {
       id,
       roomId,
@@ -819,6 +841,7 @@ export class Engine {
       text,
       mentions,
       threadId,
+      replyToSeq,
       createdAt,
     };
     this.publish(roomId, "message", { message: msg }, seq);
@@ -831,7 +854,7 @@ export class Engine {
 
   sendMessage(
     caller: Caller,
-    input: { text: string; mentions?: string[]; threadId?: string; importance?: Importance }
+    input: { text: string; mentions?: string[]; threadId?: string; importance?: Importance; replyToSeq?: number }
   ): Message {
     this.assertWritable(caller);
     const importance = input.importance ?? "info";
@@ -842,13 +865,77 @@ export class Engine {
       importance,
       input.text,
       input.mentions ?? [],
-      input.threadId
+      input.threadId,
+      input.replyToSeq
     );
     this.audit(caller.room.id, "message.send", { id: caller.participant.id, name: caller.participant.name }, {
       seq: msg.seq,
       mentions: msg.mentions,
     });
     return msg;
+  }
+
+  /** Edit your own message's text after sending. Author-only; can't edit a retracted message. */
+  editMessage(caller: Caller, input: { seq: number; text: string }): Message {
+    this.assertWritable(caller);
+    const row = this.db
+      .prepare(`SELECT * FROM messages WHERE room_id = ? AND seq = ?`)
+      .get(caller.room.id, input.seq) as MsgRow | undefined;
+    if (!row) throw new BothreadError("not_found", `No message with seq ${input.seq}.`);
+    if (row.author_id !== caller.participant.id) {
+      throw new BothreadError("forbidden", "You can only edit your own messages.");
+    }
+    if (row.retracted_at) throw new BothreadError("bad_input", "Can't edit a retracted message.");
+    const editedAt = now();
+    this.db.prepare(`UPDATE messages SET text = ?, edited_at = ? WHERE room_id = ? AND seq = ?`).run(
+      input.text,
+      editedAt,
+      caller.room.id,
+      input.seq
+    );
+    this.audit(caller.room.id, "message.edit", { id: caller.participant.id, name: caller.participant.name }, {
+      seq: input.seq,
+      previousText: row.text,
+      text: input.text,
+    });
+    const msg = this.mapMessage({ ...row, text: input.text, edited_at: editedAt });
+    this.publish(caller.room.id, "message", { message: msg }, input.seq);
+    return msg;
+  }
+
+  /** Retract your own message. Text is redacted everywhere it's read; the row is never deleted. */
+  retractMessage(caller: Caller, input: { seq: number }): Message {
+    this.assertWritable(caller);
+    const row = this.db
+      .prepare(`SELECT * FROM messages WHERE room_id = ? AND seq = ?`)
+      .get(caller.room.id, input.seq) as MsgRow | undefined;
+    if (!row) throw new BothreadError("not_found", `No message with seq ${input.seq}.`);
+    if (row.author_id !== caller.participant.id) {
+      throw new BothreadError("forbidden", "You can only retract your own messages.");
+    }
+    if (row.retracted_at) throw new BothreadError("bad_input", "Already retracted.");
+    const retractedAt = now();
+    this.db.prepare(`UPDATE messages SET retracted_at = ? WHERE room_id = ? AND seq = ?`).run(
+      retractedAt,
+      caller.room.id,
+      input.seq
+    );
+    this.audit(caller.room.id, "message.retract", { id: caller.participant.id, name: caller.participant.name }, {
+      seq: input.seq,
+    });
+    const msg = this.mapMessage({ ...row, retracted_at: retractedAt });
+    this.publish(caller.room.id, "message", { message: msg }, input.seq);
+    return msg;
+  }
+
+  /** Every distinct channel/topic tag ever used in this room's messages, oldest-first-seen order. */
+  listChannels(roomId: string): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT thread_id, MIN(seq) as first_seq FROM messages WHERE room_id = ? AND thread_id IS NOT NULL GROUP BY thread_id ORDER BY first_seq ASC`
+      )
+      .all(roomId) as { thread_id: string; first_seq: number }[];
+    return rows.map((r) => r.thread_id);
   }
 
   /** Privileged overseer message — bypasses pause/mute, high importance. */
@@ -970,6 +1057,9 @@ export class Engine {
       text: m.text,
       mentions: m.mentions,
       threadId: m.threadId,
+      replyToSeq: m.replyToSeq,
+      editedAt: m.editedAt,
+      retractedAt: m.retractedAt,
       at: m.createdAt,
     };
   }
@@ -1675,9 +1765,30 @@ export class Engine {
       handoffs: this.handoffViews(room.id),
       tasks: this.listTasks(room.id),
       notes: this.listNotes(room.id),
+      channels: this.listChannels(room.id),
       latestSeq: this.latestSeq(room.id),
       etiquette: ETIQUETTE,
     };
+  }
+
+  /** Read-only "is the human watching, and how far behind" — never mutates the
+   *  watermark. Only `snapshotForOverseer` (a real poll from the human's own UI)
+   *  is allowed to advance it. */
+  private overseerActivity(roomId: string, at: number): { overseerActive: boolean; overseerLastSeenSeq: number | undefined } {
+    const overseerLastSeenSeq = this.overseerLastSeenSeq.get(roomId);
+    const polledAt = this.overseerLastPolledAt.get(roomId);
+    const overseerActive = polledAt !== undefined && at - polledAt < Engine.OVERSEER_ACTIVE_WINDOW_MS;
+    return { overseerActive, overseerLastSeenSeq };
+  }
+
+  /**
+   * Agent-facing snapshot (join_session, get_room_state) — same base snapshot,
+   * plus a read-only view of whether the human is actively watching and how far
+   * behind their last look was, so an agent can judge "keep working" vs "wait."
+   */
+  snapshotForAgent(room: Room, participant: Participant, threadLimit?: number): RoomSnapshot {
+    const snapshot = this.buildSnapshot(room, participant, threadLimit);
+    return { ...snapshot, ...this.overseerActivity(room.id, now()) };
   }
 
   /**
@@ -1705,10 +1816,8 @@ export class Engine {
     };
 
     // Read the watermark from BEFORE this poll, then advance it.
-    const previousSeenSeq = this.overseerLastSeenSeq.get(roomId);
-    const previousPolledAt = this.overseerLastPolledAt.get(roomId);
     const at = now();
-    const overseerActive = previousPolledAt !== undefined && at - previousPolledAt < Engine.OVERSEER_ACTIVE_WINDOW_MS;
+    const { overseerActive, overseerLastSeenSeq: previousSeenSeq } = this.overseerActivity(roomId, at);
 
     const snapshot = this.buildSnapshot(room, overseer, OVERSEER_THREAD_LIMIT);
 

@@ -148,9 +148,9 @@ Full details: [`skill/README.md`](skill/README.md).
 
 ## The agent tool surface
 
-`join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` ·
-`claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` · `cancel_handoff` ·
-`request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` · `leave_session`
+`join_session` · `get_room_state` · `send_message` · `edit_message` · `retract_message` · `read_messages` ·
+`wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` ·
+`cancel_handoff` · `request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` · `leave_session`
 
 Every call returns a clean structured result plus a readable summary, so an agent instantly understands
 the room.

@@ -694,6 +694,49 @@ textarea.field {
   border-radius: 4px;
 }
 
+/* agent/human-authored urgency (importance set via send_message, not just system lines) */
+.msg.importance-steering {
+  border-left: 2px solid var(--saffron);
+  padding-left: 0.6rem;
+  margin-left: -0.6rem;
+}
+.msg.importance-interrupt {
+  border-left: 2px solid var(--clay);
+  padding-left: 0.6rem;
+  margin-left: -0.6rem;
+  background: rgba(207, 92, 65, 0.05);
+}
+.importance-tag {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.05rem 0.4rem;
+  border-radius: 100px;
+  border: 1px solid currentColor;
+}
+.importance-tag.steering { color: var(--saffron); }
+.importance-tag.interrupt { color: var(--clay-1); }
+
+.edited-tag {
+  font-size: 0.66rem;
+  color: var(--muted-1);
+  font-style: italic;
+}
+
+.reply-quote {
+  font-size: 0.76rem;
+  color: var(--muted);
+  border-left: 2px solid var(--line);
+  padding-left: 0.5rem;
+  margin: 0.15rem 0 0.3rem;
+}
+
+.msg.retracted .text {
+  color: var(--muted-1);
+  font-style: italic;
+}
+
 /* inline attachment preview (screenshots dropped in .bothread/attachments/) */
 .attachment-preview {
   display: block;

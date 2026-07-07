@@ -4,6 +4,7 @@ import {
   CheckFilesInput,
   ClaimFilesInput,
   CreateTaskInput,
+  EditMessageInput,
   GetRoomStateInput,
   JoinSessionInput,
   LeaveSessionInput,
@@ -14,6 +15,7 @@ import {
   RequestApprovalInput,
   RequestHandoffInput,
   ResolveNoteInput,
+  RetractMessageInput,
   SendMessageInput,
   UpdateTaskInput,
   WaitForUpdateInput,
@@ -135,10 +137,16 @@ export function renderSnapshot(s: RoomSnapshot): string {
     }
   }
 
+  if (s.channels.length) {
+    lines.push(`Channels in use (send_message's threadId): ${s.channels.join(", ")}`);
+  }
+
   if (s.thread.length) {
     lines.push("Recent thread:");
     for (const m of s.thread.slice(-8)) {
-      lines.push(`  [${m.seq}] ${m.author}${m.kind === "system" ? " (system)" : ""}: ${m.text}`);
+      const reply = m.replyToSeq !== undefined ? ` (↳ replying to #${m.replyToSeq})` : "";
+      const edited = m.editedAt ? " (edited)" : "";
+      lines.push(`  [${m.seq}] ${m.author}${m.kind === "system" ? " (system)" : ""}${reply}${edited}: ${m.text}`);
     }
   }
 
@@ -150,7 +158,7 @@ const readOnly = { readOnlyHint: true } as const;
 
 /**
  * Create a fresh McpServer for one agent connection and register the Bothread
- * tool surface (14 tools). All room state lives in the shared Engine; this
+ * tool surface (19 tools). All room state lives in the shared Engine; this
  * server just wires the agent's calls to it, scoped by the connection's MCP
  * session id (set on initialize via `conn`).
  */
@@ -215,7 +223,7 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
     async (args) => {
       try {
         const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
-        const snap = engine.buildSnapshot(caller.room, caller.participant);
+        const snap = engine.snapshotForAgent(caller.room, caller.participant);
         return ok(renderSnapshot(snap), snap);
       } catch (e) {
         return fail(e);
@@ -246,6 +254,44 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
           summary += ` ${parts.join("; ")}.`;
         }
         return ok(summary, { seq: msg.seq, mentionDelivery });
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    "edit_message",
+    {
+      title: "Edit one of your own messages",
+      description:
+        "Correct something you already sent. Only your own messages, and only if it hasn't been retracted. Everyone reading the thread sees the new text plus an 'edited' marker — this isn't a silent rewrite.",
+      inputSchema: EditMessageInput.shape,
+    },
+    async (args) => {
+      try {
+        const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
+        const msg = engine.editMessage(caller, args);
+        return ok(`Edited (seq ${msg.seq}).`, { seq: msg.seq });
+      } catch (e) {
+        return fail(e);
+      }
+    }
+  );
+
+  server.registerTool(
+    "retract_message",
+    {
+      title: "Retract one of your own messages",
+      description:
+        "Take back something you sent that turned out wrong or confusing. Only your own messages. The text is replaced with '[message retracted]' for everyone — the row stays (nothing is silently erased), it's just no longer shown.",
+      inputSchema: RetractMessageInput.shape,
+    },
+    async (args) => {
+      try {
+        const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
+        const msg = engine.retractMessage(caller, args);
+        return ok(`Retracted (seq ${msg.seq}).`, { seq: msg.seq });
       } catch (e) {
         return fail(e);
       }

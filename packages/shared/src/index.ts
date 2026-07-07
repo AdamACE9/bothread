@@ -102,6 +102,12 @@ export const Message = z.object({
   text: z.string(),
   mentions: z.array(z.string()).default([]),
   threadId: z.string().optional(),
+  /** Seq of a specific earlier message this one is directly replying to. */
+  replyToSeq: z.number().int().optional(),
+  /** Set once the author edits this message's text after sending. */
+  editedAt: z.number().optional(),
+  /** Set once the author retracts this message — text is redacted to a placeholder everywhere it's read. */
+  retractedAt: z.number().optional(),
   createdAt: z.number(),
 });
 export type Message = z.infer<typeof Message>;
@@ -195,6 +201,12 @@ export const ThreadEntry = z.object({
   mentions: z.array(z.string()),
   /** Lightweight topic tag (from send_message's threadId) — lets the UI group/filter a mixed thread. */
   threadId: z.string().optional(),
+  /** Seq of a specific earlier message this one is directly replying to. */
+  replyToSeq: z.number().int().optional(),
+  /** Set once the author edits this message's text after sending. */
+  editedAt: z.number().optional(),
+  /** Set once the author retracts this message — `text` is already redacted to a placeholder. */
+  retractedAt: z.number().optional(),
   at: z.number(),
 });
 export type ThreadEntry = z.infer<typeof ThreadEntry>;
@@ -331,6 +343,9 @@ export const RoomSnapshot = z.object({
   tasks: z.array(RoomTask).default([]),
   /** Durable decisions / issues / verification reports recorded in this room. */
   notes: z.array(RoomNote).default([]),
+  /** Every distinct channel/topic tag (send_message's `threadId`) ever used in this room, so an
+   *  agent can discover existing sub-conversations without reading the whole thread. */
+  channels: z.array(z.string()).default([]),
   latestSeq: z.number(),
   etiquette: z.string(),
   /**
@@ -338,13 +353,15 @@ export const RoomSnapshot = z.object({
    * ~15s)? This is the honest signal Bothread can give: it reflects "a poll from
    * the UI landed recently," not literal eyeball tracking. Absent/false means the
    * tab is likely closed, backgrounded, or the human hasn't looked in a while.
+   * Included on every agent-facing snapshot (join_session, get_room_state) as well
+   * as the overseer's own UI, so an agent can judge whether to keep working or wait.
    */
   overseerActive: z.boolean().optional(),
   /**
-   * The message seq that was "latest" as of the PREVIOUS time the overseer's UI
-   * polled this room — i.e. what the human had seen as of their last look, before
-   * this poll updated the watermark. Compare to `latestSeq` to gauge how far
-   * behind the human is. Undefined if the overseer has never polled this room.
+   * The message seq that was "latest" as of the last time the overseer's UI polled
+   * this room — i.e. what the human had seen as of their last look. Compare to
+   * `latestSeq` to gauge how far behind the human is. Undefined if the overseer
+   * has never opened the room UI this session.
    */
   overseerLastSeenSeq: z.number().optional(),
 });
@@ -372,11 +389,36 @@ export type GetRoomStateInput = z.infer<typeof GetRoomStateInput>;
 export const SendMessageInput = z.object({
   text: z.string().min(1).max(8000),
   mentions: z.array(z.string()).max(16).optional().describe("Participant names to direct this at."),
-  threadId: z.string().optional(),
-  importance: Importance.optional(),
+  threadId: z
+    .string()
+    .optional()
+    .describe(
+      "Channel/topic tag to group related messages, e.g. 'mario-game' vs 'tarzan-game' — lets everyone filter a mixed room to just their sub-conversation. Check the snapshot's `channels` list for ones already in use before inventing a new name."
+    ),
+  replyToSeq: z
+    .number()
+    .int()
+    .optional()
+    .describe("Seq of a specific earlier message you're directly responding to — renders as a reply, not just the next flat line."),
+  importance: Importance.optional().describe(
+    "Default 'info'. Use 'advisory' for a heads-up worth noting, 'steering' for something you want acted on, and 'interrupt' for 'I need a decision before I continue' — reserve 'interrupt' for genuine blockers so it doesn't lose meaning."
+  ),
   sessionId: z.string().optional(),
 });
 export type SendMessageInput = z.infer<typeof SendMessageInput>;
+
+export const EditMessageInput = z.object({
+  seq: z.number().int().describe("The seq of your own message to edit."),
+  text: z.string().min(1).max(8000),
+  sessionId: z.string().optional(),
+});
+export type EditMessageInput = z.infer<typeof EditMessageInput>;
+
+export const RetractMessageInput = z.object({
+  seq: z.number().int().describe("The seq of your own message to retract."),
+  sessionId: z.string().optional(),
+});
+export type RetractMessageInput = z.infer<typeof RetractMessageInput>;
 
 /**
  * Response-only delivery confirmation for a send_message call's `mentions`:

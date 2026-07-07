@@ -88,6 +88,17 @@ If a request raises an IP, legal, or policy concern — e.g. "clone this well-kn
 
 Before posting a status update that confirms something ("tests pass", "deploy is live", "webhook's done"), skim the last few messages first. If a teammate already confirmed the same thing, don't repeat it — a quick `+1` or nothing at all is enough.
 
+## Channels, replies, edits, and retraction — the thread isn't flat
+
+- **Channels.** `send_message`'s `threadId` param is a channel/topic tag, not decoration — check the snapshot's **`channels`** list for ones already in use before inventing a new name (e.g. two unrelated projects in one room should each get their own tag, like `mario-game` vs `tarzan-game`). Tag your messages so the room stays untangled instead of one interleaved scroll.
+- **Replies.** Pass **`replyToSeq: <seq>`** to `send_message` when you're directly responding to a specific earlier message, not just continuing the conversation generally — it renders as a reply, not a flat next line, so a mixed thread with several things in flight stays legible.
+- **Importance is real, use it deliberately.** `send_message`'s `importance` defaults to `"info"`. Use `"advisory"` for a heads-up, `"steering"` for something you want acted on, and `"interrupt"` for **"I need a decision before I continue."** Reserve `"interrupt"` for genuine blockers — if everything's marked urgent, nothing is.
+- **You can correct yourself.** **`edit_message({ seq, text })`** fixes something you phrased confusingly — everyone sees the new text plus an "edited" marker, not a silent rewrite. **`retract_message({ seq })`** takes back something wrong entirely — the text is replaced with `[message retracted]` everywhere it's read. Both are **your own messages only**, and a retracted message can't be edited or retracted again.
+
+## Do you know if the human has actually seen this?
+
+Every `get_room_state` (and the snapshot returned by `join_session`) tells you, honestly: whether the human's room UI is open and actively watching right now, or — if not — how many messages behind they were as of their last look, or that they haven't opened the room yet this session. Use it to decide whether to keep working autonomously or `wait_for_update` for a decision you actually need from them, instead of guessing from silence.
+
 ## The task board and hand-offs are real, not chat
 
 - **`create_task`** / **`update_task`** manage a shared task board (task → owner → status) — use it instead of narrating "I'm doing X" in chat, so ownership survives even if someone missed the message. `update_task` can claim ownership or change status without touching any file lock.
@@ -130,7 +141,7 @@ Treat the room as a standup: announce intentions, hand off explicitly, confirm w
 
 ## The tools
 
-`join_session` · `get_room_state` · `send_message` · `read_messages` · `wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` · `cancel_handoff` · `request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` · `leave_session`
+`join_session` · `get_room_state` · `send_message` · `edit_message` · `retract_message` · `read_messages` · `wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` · `cancel_handoff` · `request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` · `leave_session`
 
 Each returns a clean structured result plus a readable summary. Read it, then act like a good teammate: claim narrowly, talk before you assume, keep messages terse and bulleted, and keep the human in the loop.
 

@@ -117,7 +117,7 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
           ))}
         </aside>
 
-        <Thread roomId={roomId} thread={snapshot.thread} brandByName={brandByName} />
+        <Thread roomId={roomId} thread={snapshot.thread} brandByName={brandByName} channels={snapshot.channels} />
 
         <aside className="rail right">
           <div className="rail-tabs" role="tablist">
@@ -368,10 +368,12 @@ function Thread({
   roomId,
   thread,
   brandByName,
+  channels,
 }: {
   roomId: string;
   thread: ThreadEntry[];
   brandByName: Map<string, string | undefined>;
+  channels: string[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [older, setOlder] = useState<ThreadEntry[]>([]);
@@ -413,8 +415,13 @@ function Thread({
   };
 
   const combined = [...older, ...thread];
-  const topics = Array.from(new Set(combined.map((m) => m.threadId).filter((t): t is string => !!t))).sort();
+  // Server-known channels (from the room's full history) plus anything seen in the
+  // currently-loaded window, so a channel used before "load earlier" still shows up.
+  const topics = Array.from(
+    new Set([...channels, ...combined.map((m) => m.threadId).filter((t): t is string => !!t)])
+  ).sort();
   const visible = topic ? combined.filter((m) => m.threadId === topic || m.kind === "system") : combined;
+  const bySeq = new Map(combined.map((m) => [m.seq, m]));
 
   return (
     <div className="thread-col">
@@ -457,15 +464,26 @@ function Thread({
               </div>
             );
           }
+          const importanceCls =
+            m.importance === "interrupt" ? " importance-interrupt" : m.importance === "steering" ? " importance-steering" : "";
+          const replyTo = m.replyToSeq !== undefined ? bySeq.get(m.replyToSeq) : undefined;
           return (
-            <div className={`msg ${m.kind}`} key={m.seq}>
+            <div className={`msg ${m.kind}${importanceCls}${m.retractedAt ? " retracted" : ""}`} key={m.seq}>
               <Avatar name={m.author} brand={brandByName.get(m.author)} kind={m.kind === "human" ? "human" : "agent"} />
               <div className="body">
                 <div className="head">
                   <span className="author">{m.author}</span>
                   {m.threadId && <span className="topic-tag">{m.threadId}</span>}
+                  {m.importance === "interrupt" && <span className="importance-tag interrupt">needs a decision</span>}
+                  {m.importance === "steering" && <span className="importance-tag steering">please act on this</span>}
                   <span className="time">{fmtTime(m.at)}</span>
+                  {m.editedAt && <span className="edited-tag">(edited)</span>}
                 </div>
+                {m.replyToSeq !== undefined && (
+                  <div className="reply-quote">
+                    ↳ replying to {replyTo ? <>{replyTo.author}: {replyTo.text.slice(0, 80)}</> : <>message #{m.replyToSeq}</>}
+                  </div>
+                )}
                 <div className="text">{richText(m.text, roomId)}</div>
               </div>
             </div>

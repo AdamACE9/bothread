@@ -16,11 +16,19 @@ export function openDatabase(dbPath: string): DB {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA_SQL);
-  // Lightweight migration: add base_tree to branches if an older DB predates it.
-  try {
-    db.exec("ALTER TABLE branches ADD COLUMN base_tree TEXT");
-  } catch {
-    /* column already exists — fine */
+  // Lightweight migrations: add columns older DBs predate. Each is independently
+  // idempotent (fails silently once the column already exists).
+  for (const stmt of [
+    "ALTER TABLE branches ADD COLUMN base_tree TEXT",
+    "ALTER TABLE messages ADD COLUMN reply_to_seq INTEGER",
+    "ALTER TABLE messages ADD COLUMN edited_at INTEGER",
+    "ALTER TABLE messages ADD COLUMN retracted_at INTEGER",
+  ]) {
+    try {
+      db.exec(stmt);
+    } catch {
+      /* column already exists — fine */
+    }
   }
   return db;
 }

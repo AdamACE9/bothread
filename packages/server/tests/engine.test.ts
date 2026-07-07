@@ -784,3 +784,103 @@ describe("Engine — rejoin digest", () => {
     expect(freshJoin.rejoinDigest).toBeUndefined();
   });
 });
+
+describe("Engine — message replies, edits, and retraction", () => {
+  it("threads a reply via replyToSeq, visible on the ThreadEntry", () => {
+    const engine = makeEngine();
+    const { a, b } = twoAgentRoom(engine);
+    const original = engine.sendMessage(a, { text: "should we use REST or MCP for this?" });
+    const reply = engine.sendMessage(b, { text: "MCP, we're already wired for it", replyToSeq: original.seq });
+
+    const entry = engine.readMessages(a, {}).messages.find((m) => m.seq === reply.seq)!;
+    expect(entry.replyToSeq).toBe(original.seq);
+  });
+
+  it("lets the author edit their own message, marks editedAt, and rejects other authors", () => {
+    const engine = makeEngine();
+    const { a, b } = twoAgentRoom(engine);
+    const msg = engine.sendMessage(a, { text: "typo in this sentance" });
+
+    const edited = engine.editMessage(a, { seq: msg.seq, text: "typo in this sentence" });
+    expect(edited.text).toBe("typo in this sentence");
+    expect(edited.editedAt).toBeDefined();
+
+    const reread = engine.readMessages(a, {}).messages.find((m) => m.seq === msg.seq)!;
+    expect(reread.text).toBe("typo in this sentence");
+    expect(reread.editedAt).toBeDefined();
+
+    expect(() => engine.editMessage(b, { seq: msg.seq, text: "hijacked" })).toThrow(BothreadError);
+  });
+
+  it("lets the author retract their own message; text is redacted everywhere, row isn't deleted", () => {
+    const engine = makeEngine();
+    const { a, b } = twoAgentRoom(engine);
+    const msg = engine.sendMessage(a, { text: "wait, ignore that, wrong channel" });
+
+    const retracted = engine.retractMessage(a, { seq: msg.seq });
+    expect(retracted.text).toBe("[message retracted]");
+    expect(retracted.retractedAt).toBeDefined();
+
+    // Redacted for every reader, not just the author.
+    const asB = engine.readMessages(b, {}).messages.find((m) => m.seq === msg.seq)!;
+    expect(asB.text).toBe("[message retracted]");
+
+    // Can't edit or double-retract a retracted message.
+    expect(() => engine.editMessage(a, { seq: msg.seq, text: "nope" })).toThrow(BothreadError);
+    expect(() => engine.retractMessage(a, { seq: msg.seq })).toThrow(BothreadError);
+
+    // Not the author -> forbidden, independent of retraction.
+    const msg2 = engine.sendMessage(a, { text: "another one" });
+    expect(() => engine.retractMessage(b, { seq: msg2.seq })).toThrow(BothreadError);
+  });
+});
+
+describe("Engine — channels (threadId discovery)", () => {
+  it("lists distinct channels used, in first-seen order, and surfaces them on the snapshot", () => {
+    const engine = makeEngine();
+    const { a, b, room } = twoAgentRoom(engine);
+    engine.sendMessage(a, { text: "level 3 layout", threadId: "mario-game" });
+    engine.sendMessage(b, { text: "vine physics", threadId: "tarzan-game" });
+    engine.sendMessage(a, { text: "more mario stuff", threadId: "mario-game" });
+    engine.sendMessage(a, { text: "no channel here" });
+
+    expect(engine.listChannels(room.id)).toEqual(["mario-game", "tarzan-game"]);
+    const snap = engine.buildSnapshot(room, a.participant);
+    expect(snap.channels).toEqual(["mario-game", "tarzan-game"]);
+  });
+});
+
+describe("Engine — agent-visible read state (snapshotForAgent)", () => {
+  it("exposes overseerActive/overseerLastSeenSeq to agents via get_room_state's snapshot path, without the human ever polling", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+    engine.sendMessage(a, { text: "one" });
+
+    // Before this fix, buildSnapshot() (what get_room_state used) never set these —
+    // an agent had no way to know whether the human had seen anything.
+    const snap = engine.snapshotForAgent(room, a.participant);
+    expect(snap.overseerActive).toBe(false);
+    expect(snap.overseerLastSeenSeq).toBeUndefined();
+  });
+
+  it("reflects the human's real watermark to agents once the overseer has actually polled, without advancing it itself", () => {
+    const engine = makeEngine();
+    const { a, room } = twoAgentRoom(engine);
+    engine.sendMessage(a, { text: "one" });
+
+    const overseerPoll = engine.snapshotForOverseer(room.id)!;
+    const seenAsOfPoll = overseerPoll.latestSeq;
+
+    // More activity happens after the human's poll, before any agent checks in.
+    engine.sendMessage(a, { text: "two" });
+    engine.sendMessage(a, { text: "three" });
+
+    const agentView = engine.snapshotForAgent(room, a.participant);
+    expect(agentView.overseerLastSeenSeq).toBe(seenAsOfPoll);
+    expect(agentView.latestSeq - agentView.overseerLastSeenSeq!).toBe(2);
+
+    // Calling it again must NOT have moved the watermark (read-only for agents).
+    const agentViewAgain = engine.snapshotForAgent(room, a.participant);
+    expect(agentViewAgain.overseerLastSeenSeq).toBe(seenAsOfPoll);
+  });
+});

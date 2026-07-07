@@ -27,17 +27,20 @@ CREATE INDEX IF NOT EXISTS idx_part_room ON participants(room_id);
 CREATE INDEX IF NOT EXISTS idx_part_mcp  ON participants(mcp_session_id);
 
 CREATE TABLE IF NOT EXISTS messages (
-  id          TEXT PRIMARY KEY,
-  room_id     TEXT NOT NULL,
-  seq         INTEGER NOT NULL,
-  author_id   TEXT NOT NULL,
-  author_name TEXT NOT NULL,
-  kind        TEXT NOT NULL,
-  importance  TEXT NOT NULL,
-  text        TEXT NOT NULL,
-  mentions    TEXT NOT NULL DEFAULT '[]',
-  thread_id   TEXT,
-  created_at  INTEGER NOT NULL
+  id            TEXT PRIMARY KEY,
+  room_id       TEXT NOT NULL,
+  seq           INTEGER NOT NULL,
+  author_id     TEXT NOT NULL,
+  author_name   TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  importance    TEXT NOT NULL,
+  text          TEXT NOT NULL,
+  mentions      TEXT NOT NULL DEFAULT '[]',
+  thread_id     TEXT,
+  reply_to_seq  INTEGER,
+  edited_at     INTEGER,
+  retracted_at  INTEGER,
+  created_at    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_msg_room_seq ON messages(room_id, seq);
 
