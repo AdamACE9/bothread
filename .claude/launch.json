@@ -1,0 +1,24 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:hub"],
+      "port": 4899,
+      "env": {
+        "BOTHREAD_PORT": "4899",
+        "BOTHREAD_HOME": "C:\\Users\\ADAMAH~1\\AppData\\Local\\Temp\\claude\\C--Users-Adam-Ahmed-Danish-OneDrive-Adamcodingstuff-Bothread\\cd7d2385-2565-4b0f-9262-e263ae37c135\\scratchpad\\bothread-ui-preview"
+      }
+    },
+    {
+      "name": "ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:ui"],
+      "port": 5174,
+      "env": {
+        "BOTHREAD_HUB": "http://127.0.0.1:4899"
+      }
+    }
+  ]
+}

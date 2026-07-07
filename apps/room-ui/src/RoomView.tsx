@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { AgentBranch, Approval, AuditEvent, DiffHunkView, NoteKind, RiskAction, RoomNote, RoomTask, TaskStatus, ThreadEntry } from "@bothread/shared";
 import { OVERSEER_THREAD_LIMIT } from "@bothread/shared";
 import { applyHunks, createTask, decideApproval, discardBranch, getAudit, getMessagesBefore, listBranches, mergeBranch, nudgeParticipant, recordNote, renameRoom, resolveNote, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings, updateTask } from "./api";
@@ -119,36 +120,46 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
         <Thread roomId={roomId} thread={snapshot.thread} brandByName={brandByName} />
 
         <aside className="rail right">
-          <div className="rail-tabs">
+          <div className="rail-tabs" role="tablist">
             <button
               className={`rail-tab${rightTab === "locks" ? " active" : ""}`}
               onClick={() => setRightTab("locks")}
+              title="Locks"
+              aria-label="Locks"
             >
-              Locks
+              <span className="tab-icon">◆</span>
             </button>
             <button
               className={`rail-tab${rightTab === "tasks" ? " active" : ""}`}
               onClick={() => setRightTab("tasks")}
+              title="Tasks"
+              aria-label="Tasks"
             >
-              Tasks
+              <span className="tab-icon">☰</span>
             </button>
             <button
               className={`rail-tab${rightTab === "changes" ? " active" : ""}`}
               onClick={() => setRightTab("changes")}
+              title="Changes"
+              aria-label="Changes"
             >
-              Changes
+              <span className="tab-icon">⇄</span>
             </button>
             <button
               className={`rail-tab${rightTab === "notes" ? " active" : ""}`}
               onClick={() => setRightTab("notes")}
+              title="Notes"
+              aria-label="Notes"
             >
-              Notes
+              <span className="tab-icon">✎</span>
             </button>
             <button
               className={`rail-tab${rightTab === "activity" ? " active" : ""}`}
               onClick={() => setRightTab("activity")}
+              title="Activity"
+              aria-label="Activity"
             >
-              Activity
+              <span className="tab-icon">◷</span>
             </button>
           </div>
 
@@ -166,7 +177,7 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
                 </div>
               )}
               {snapshot.locks.length === 0 ? (
-                <p className="empty">No files claimed.</p>
+                <Empty icon="◆">No files claimed.</Empty>
               ) : (
                 snapshot.locks.map((l) => {
                   const idleMs = Date.now() - l.heldByLastSeen;
@@ -227,6 +238,15 @@ export default function RoomView({ roomId, onBack }: { roomId: string; onBack: (
   );
 }
 
+function Empty({ icon = "·", children }: { icon?: string; children: ReactNode }) {
+  return (
+    <div className="empty-state">
+      <span className="empty-icon">{icon}</span>
+      <p>{children}</p>
+    </div>
+  );
+}
+
 function Header(props: {
   roomId: string;
   name: string;
@@ -269,67 +289,77 @@ function Header(props: {
 
   return (
     <header className="rhead">
-      <button className="back" onClick={props.onBack} aria-label="Back to rooms">
-        ‹
-      </button>
-      {editingName ? (
-        <input
-          className="field room-name-edit"
-          autoFocus
-          value={nameDraft}
-          onChange={(e) => setNameDraft(e.target.value)}
-          onBlur={saveName}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              saveName();
-            } else if (e.key === "Escape") {
-              setEditingName(false);
-            }
-          }}
-        />
-      ) : (
-        <h1 className="room-name" title="Click to rename" onClick={startEditingName}>
-          {props.name}
-        </h1>
-      )}
-      <span className={`pill ${props.status}`}>
-        <span className="dot" />
-        {props.status}
-      </span>
-      <span className="conn" title={props.connected ? "Live" : "Reconnecting…"} aria-live="polite">
-        <span className={props.connected ? "dot on" : "dot"} style={{ width: 7, height: 7, borderRadius: "50%" }} />
-      </span>
-      <span className="meta mono" style={{ fontSize: ".72rem", color: "var(--muted-1)" }}>
-        {props.agents} agent{props.agents === 1 ? "" : "s"}
-      </span>
+      <div className="rhead-left">
+        <button className="back" onClick={props.onBack} aria-label="Back to rooms">
+          ‹
+        </button>
+        {editingName ? (
+          <input
+            className="field room-name-edit"
+            autoFocus
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={saveName}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                saveName();
+              } else if (e.key === "Escape") {
+                setEditingName(false);
+              }
+            }}
+          />
+        ) : (
+          <h1 className="room-name" title="Click to rename" onClick={startEditingName}>
+            {props.name}
+          </h1>
+        )}
+        <span className={`pill ${props.status}`}>
+          <span className="dot" />
+          {props.status}
+        </span>
+      </div>
+
+      <div className="rhead-divider" />
+
+      <div className="rhead-mid">
+        <span className="conn" title={props.connected ? "Live" : "Reconnecting…"} aria-live="polite">
+          <span className={props.connected ? "dot on" : "dot"} style={{ width: 7, height: 7, borderRadius: "50%" }} />
+          {props.connected ? "live" : "reconnecting"}
+        </span>
+        <span className="rhead-meta">
+          {props.agents} agent{props.agents === 1 ? "" : "s"}
+        </span>
+      </div>
 
       <span className="spacer" />
 
-      <button className="btn primary" onClick={props.onConnect}>
-        + Connect an agent
-      </button>
-
-      <span className="sid">
-        session
-        <code>{reveal ? props.sessionId : "•".repeat(16)}</code>
-        <button className="btn sm" onClick={() => setReveal((r) => !r)}>
-          {reveal ? "Hide" : "Reveal"}
+      <div className="rhead-right">
+        <button className="btn primary" onClick={props.onConnect}>
+          + Connect an agent
         </button>
-        <button className="btn sm" onClick={copy}>
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </span>
 
-      <button
-        className="btn"
-        onClick={() => setRoomStatus(props.roomId, paused ? "active" : "paused").then(props.afterAction)}
-      >
-        {paused ? "Resume" : "Pause"}
-      </button>
-      <button className="btn icon" title="Room settings" aria-label="Room settings" onClick={props.onSettings}>
-        ⚙
-      </button>
+        <span className="sid">
+          session
+          <code>{reveal ? props.sessionId : "•".repeat(16)}</code>
+          <button className="btn sm" onClick={() => setReveal((r) => !r)}>
+            {reveal ? "Hide" : "Reveal"}
+          </button>
+          <button className="btn sm" onClick={copy}>
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </span>
+
+        <button
+          className="btn"
+          onClick={() => setRoomStatus(props.roomId, paused ? "active" : "paused").then(props.afterAction)}
+        >
+          {paused ? "Resume" : "Pause"}
+        </button>
+        <button className="btn icon" title="Room settings" aria-label="Room settings" onClick={props.onSettings}>
+          ⚙
+        </button>
+      </div>
     </header>
   );
 }
@@ -499,9 +529,9 @@ function BranchPanel({ roomId, afterAction }: { roomId: string; afterAction: () 
   return (
     <div className="branch-panel">
       {!branches.length && (
-        <p className="empty">
+        <Empty icon="⇄">
           No agent changes tracked yet. Changes appear here when an agent claims files in a git repo and releases them.
-        </p>
+        </Empty>
       )}
 
       {trackingBranches.length > 0 && (
@@ -711,7 +741,7 @@ function NotesPanel({
       </div>
 
       {!notes.length ? (
-        <p className="empty">No decisions, issues, or verification reports recorded yet.</p>
+        <Empty icon="✎">No decisions, issues, or verification reports recorded yet.</Empty>
       ) : (
         <>
           {visible.map((n) => (
@@ -881,7 +911,7 @@ function TaskBoard({
       </div>
 
       {sorted.length === 0 ? (
-        <p className="empty">No tasks yet. Add one, or an agent will via create_task.</p>
+        <Empty icon="☰">No tasks yet. Add one, or an agent will via create_task.</Empty>
       ) : (
         <div className="task-list">
           {sorted.map((t) => (
@@ -926,7 +956,7 @@ function AuditPanel({ roomId, connected }: { roomId: string; connected: boolean 
     return () => clearInterval(iv);
   }, [roomId, connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!events.length) return <p className="empty">No activity recorded yet.</p>;
+  if (!events.length) return <Empty icon="◷">No activity recorded yet.</Empty>;
 
   return (
     <div className="audit">
