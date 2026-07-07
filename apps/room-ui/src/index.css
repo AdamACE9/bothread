@@ -477,6 +477,20 @@ textarea.field {
   color: var(--saffron);
 }
 
+/* inline attachment preview (screenshots dropped in .bothread/attachments/) */
+.attachment-preview {
+  display: block;
+  max-width: min(360px, 100%);
+  max-height: 260px;
+  width: auto;
+  height: auto;
+  margin-top: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+  background: var(--line-soft);
+}
+
 /* system event line */
 .sysline {
   display: flex;

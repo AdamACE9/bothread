@@ -323,7 +323,7 @@ function Thread({
           return (
             <div className={`sysline ${cls}`} key={m.seq} role={m.importance === "interrupt" ? "alert" : undefined}>
               <span className="bar" />
-              <span>{richText(m.text)}</span>
+              <span>{richText(m.text, roomId)}</span>
             </div>
           );
         }
@@ -335,7 +335,7 @@ function Thread({
                 <span className="author">{m.author}</span>
                 <span className="time">{fmtTime(m.at)}</span>
               </div>
-              <div className="text">{richText(m.text)}</div>
+              <div className="text">{richText(m.text, roomId)}</div>
             </div>
           </div>
         );
@@ -705,7 +705,7 @@ function ApprovalDock({ roomId, approval, afterDecide }: { roomId: string; appro
       <div className="label">Approval needed</div>
       <p className="what">
         <span className="who">{approval.requestedByName}</span> wants to{" "}
-        <strong>{approval.action}</strong>: {richText(approval.details)}
+        <strong>{approval.action}</strong>: {richText(approval.details, roomId)}
       </p>
       {editing ? (
         <div className="acts">

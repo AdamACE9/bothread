@@ -240,3 +240,24 @@ export function sanitizeBranchSegment(name: string): string {
     .replace(/^-|-$/g, "")
     .slice(0, 40) || "agent";
 }
+
+/**
+ * Best-effort bootstrap of the shared attachments drop folder for a room's
+ * project. Ensures `<projectPath>/.bothread/attachments/` exists and that
+ * `<projectPath>/.bothread/.gitignore` excludes it, so screenshots/artifacts
+ * agents drop there stay ephemeral and never pollute the real project repo.
+ * Never throws — a missing/unwritable projectPath must not block room creation.
+ */
+export function ensureAttachmentsFolder(projectPath: string): void {
+  try {
+    const bothreadDir = path.join(projectPath, ".bothread");
+    const attachmentsDir = path.join(bothreadDir, "attachments");
+    fs.mkdirSync(attachmentsDir, { recursive: true });
+    const gitignorePath = path.join(bothreadDir, ".gitignore");
+    if (!fs.existsSync(gitignorePath)) {
+      fs.writeFileSync(gitignorePath, "attachments/\n");
+    }
+  } catch {
+    /* best-effort — no projectPath, not writable, etc. */
+  }
+}

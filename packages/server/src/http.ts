@@ -281,6 +281,61 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
     })
   );
 
+  // Serve files agents drop in `<projectPath>/.bothread/attachments/` — the
+  // shared evidence folder (screenshots, structured results). Never part of the
+  // git-diff review pipeline; this is a plain static read scoped to that folder.
+  const ATTACHMENT_MIME: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".txt": "text/plain; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".log": "text/plain; charset=utf-8",
+    ".pdf": "application/pdf",
+  };
+
+  api.get(
+    "/rooms/:id/attachments/:filename",
+    wrap((req, res) => {
+      const filename = param(req, "filename");
+      // Reject any path-traversal or directory-separator attempt outright —
+      // this must be a bare filename, nothing else.
+      if (!filename || filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+        throw new BothreadError("bad_input", "Invalid attachment filename.");
+      }
+      const room = engine.getRoom(param(req, "id"));
+      if (!room) throw new BothreadError("no_room", "Room not found.");
+      if (!room.projectPath) throw new BothreadError("no_project", "Room has no project path.");
+
+      const attachmentsDir = path.resolve(room.projectPath, ".bothread", "attachments");
+      const resolved = path.resolve(attachmentsDir, filename);
+      // Belt-and-braces: confirm the resolved path is still inside the attachments dir.
+      const rel = path.relative(attachmentsDir, resolved);
+      if (rel.startsWith("..") || path.isAbsolute(rel)) {
+        throw new BothreadError("bad_input", "Invalid attachment filename.");
+      }
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+        res.status(404).json({ error: "Attachment not found." });
+        return;
+      }
+      const ext = path.extname(resolved).toLowerCase();
+      const stat = fs.statSync(resolved);
+      res.setHeader("Content-Type", ATTACHMENT_MIME[ext] ?? "application/octet-stream");
+      res.setHeader("Content-Length", String(stat.size));
+      // Manual stream (not res.sendFile): the path always contains a dotfile
+      // segment (`.bothread/`), which `send`'s default `dotfiles: "ignore"`
+      // would otherwise silently 404.
+      const stream = fs.createReadStream(resolved);
+      stream.on("error", () => {
+        if (!res.headersSent) res.status(500).json({ error: "Failed to read attachment." });
+      });
+      stream.pipe(res);
+    })
+  );
+
   app.use("/api", api);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 
