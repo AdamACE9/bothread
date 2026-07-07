@@ -1,4 +1,4 @@
-import type { AgentBranch, Approval, AuditEvent, Lease, Participant, Room, RoomSnapshot, RoomTask, TaskStatus, ThreadEntry } from "@bothread/shared";
+import type { AgentBranch, Approval, AuditEvent, Lease, NoteKind, Participant, Room, RoomNote, RoomSnapshot, RoomTask, TaskStatus, ThreadEntry } from "@bothread/shared";
 
 const J = { "content-type": "application/json" };
 
@@ -65,3 +65,8 @@ export const updateTask = (
   taskId: string,
   patch: { status?: TaskStatus; note?: string; takeOwnership?: boolean }
 ) => jpost<{ task: RoomTask }>(`/api/rooms/${id}/tasks/${taskId}`, patch);
+
+export const recordNote = (id: string, kind: NoteKind, title: string, detail?: string) =>
+  jpost<{ note: RoomNote }>(`/api/rooms/${id}/notes`, { kind, title, detail });
+export const resolveNote = (id: string, nid: string, resolution?: string) =>
+  jpost<{ note: RoomNote }>(`/api/rooms/${id}/notes/${nid}/resolve`, { resolution });

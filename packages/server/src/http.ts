@@ -318,6 +318,28 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
     })
   );
 
+  // Notes: durable decisions / issues / verification reports.
+  api.post(
+    "/rooms/:id/notes",
+    wrap((req, res) => {
+      const { kind, title, detail } = req.body ?? {};
+      if (!kind || !title) throw new BothreadError("bad_input", "kind and title are required.");
+      const caller = engine.callerForOverseer(param(req, "id"));
+      const note = engine.recordNote(caller, { kind, title, detail });
+      res.json({ note });
+    })
+  );
+
+  api.post(
+    "/rooms/:id/notes/:nid/resolve",
+    wrap((req, res) => {
+      const { resolution } = req.body ?? {};
+      const caller = engine.callerForOverseer(param(req, "id"));
+      const note = engine.resolveNote(caller, { noteId: param(req, "nid"), resolution });
+      res.json({ note });
+    })
+  );
+
   app.use("/api", api);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 

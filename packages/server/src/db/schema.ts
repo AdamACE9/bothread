@@ -140,4 +140,20 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_task_room_status ON tasks(room_id, status);
+
+-- Durable record-keeping: decisions, flagged-but-not-blocking issues, and
+-- verification reports. One table with a kind discriminator column.
+CREATE TABLE IF NOT EXISTS notes (
+  id           TEXT PRIMARY KEY,
+  room_id      TEXT NOT NULL,
+  kind         TEXT NOT NULL,  -- decision|issue|verification
+  title        TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'open',  -- open|resolved
+  owner_id     TEXT NOT NULL,
+  owner_name   TEXT NOT NULL,
+  note         TEXT,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_room_status ON notes(room_id, status);
 `;
