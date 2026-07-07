@@ -19,6 +19,51 @@ const isWin = process.platform === "win32";
 const args = process.argv.slice(2);
 const cmd = (args[0] ?? "start").toLowerCase();
 
+// ── Startup banner: a chunky pixel-block "BOTH / READ" wordmark (same spirit as
+// the big ASCII logo Claude Code shows at launch), in the copper→saffron gradient
+// from the website's "Loom" theme. Skipped entirely on a non-TTY (piped/CI) run.
+const BANNER_FONT = {
+  B: ["####.", "#..#.", "####.", "#..#.", "####."],
+  O: [".###.", "#...#", "#...#", "#...#", ".###."],
+  T: ["#####", "..#..", "..#..", "..#..", "..#.."],
+  H: ["#...#", "#...#", "#####", "#...#", "#...#"],
+  R: ["####.", "#...#", "####.", "#..#.", "#...#"],
+  E: ["#####", "#....", "####.", "#....", "#####"],
+  A: [".###.", "#...#", "#####", "#...#", "#...#"],
+  D: ["####.", "#...#", "#...#", "#...#", "####."],
+};
+
+function printBanner() {
+  if (!process.stdout.isTTY) return;
+  const lerp = (a, b, t) => Math.round(a + (b - a) * t);
+  const rgb = (r, g, b) => `\x1b[38;2;${r};${g};${b}m`;
+  const RESET = "\x1b[0m";
+  const renderWord = (word) => {
+    const letters = word.split("").map((ch) => BANNER_FONT[ch]);
+    const lines = [];
+    for (let row = 0; row < 5; row++) {
+      let line = "";
+      letters.forEach((letter, i) => {
+        const t = letters.length <= 1 ? 0 : i / (letters.length - 1);
+        // copper #cf7a3c -> saffron #e2a94c
+        const color = rgb(lerp(0xcf, 0xe2, t), lerp(0x7a, 0xa9, t), lerp(0x3c, 0x4c, t));
+        const glyph = letter[row].replace(/#/g, "██").replace(/\./g, "  ");
+        line += color + glyph + RESET + (i < letters.length - 1 ? "  " : "");
+      });
+      lines.push(line);
+    }
+    return lines.join("\n");
+  };
+
+  const boxLine = "★ Welcome to Bothread";
+  const pad = "─".repeat(boxLine.length + 2);
+  console.log(`\n┌${pad}┐\n│ ${boxLine} │\n└${pad}┘\n`);
+  console.log(renderWord("BOTH"));
+  console.log("");
+  console.log(renderWord("READ"));
+  console.log("\n  A local, human-governed room where your AI agents work together.\n");
+}
+
 function help() {
   console.log(`
   bothread — a local, human-governed room where your AI agents work together.
@@ -58,6 +103,8 @@ if (nodeMajor < 20) {
   );
   process.exit(1);
 }
+
+printBanner();
 
 function sh(command, cmdArgs) {
   const r = spawnSync(command, cmdArgs, { stdio: "inherit", shell: isWin, cwd: root });
