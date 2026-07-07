@@ -279,6 +279,18 @@ export const SendMessageInput = z.object({
 });
 export type SendMessageInput = z.infer<typeof SendMessageInput>;
 
+/**
+ * Response-only delivery confirmation for a send_message call's `mentions`:
+ * whether each mentioned participant was actively listening (parked in
+ * wait_for_update) at the moment of sending. Never persisted on Message/ThreadEntry —
+ * this is transient signal for the sender only.
+ */
+export const MentionDelivery = z.object({
+  name: z.string(),
+  listening: z.boolean(),
+});
+export type MentionDelivery = z.infer<typeof MentionDelivery>;
+
 export const ReadMessagesInput = z.object({
   since: z.number().int().optional().describe("Return messages after this seq (your cursor)."),
   unreadOnly: z.boolean().optional(),

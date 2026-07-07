@@ -11,6 +11,7 @@ import type {
   Importance,
   Lease,
   LeaseConflict,
+  MentionDelivery,
   Message,
   Participant,
   ParticipantStatus,
@@ -731,6 +732,26 @@ export class Engine {
     if (this.parkedWaiters.has(participantId)) return true;
     const last = this.lastWaitAt.get(participantId);
     return last !== undefined && now() - last < 35_000;
+  }
+
+  /**
+   * Honest delivery confirmation for @mentions: for each mentioned display name
+   * (case-insensitive match against current room participants), report whether
+   * that participant is CURRENTLY listening (parked in wait_for_update) at the
+   * moment of sending. This is transient, response-only metadata for the sender —
+   * it is never persisted on the Message/ThreadEntry itself, matching how
+   * requestHandoff returns {routed, holder, reason} without those being stored fields.
+   */
+  mentionDeliveryStatus(caller: Caller, mentions: string[]): MentionDelivery[] {
+    if (!mentions.length) return [];
+    const roster = this.partRows(caller.room.id);
+    return mentions.map((name) => {
+      const match = roster.find((p) => p.name.toLowerCase() === name.toLowerCase());
+      return {
+        name,
+        listening: match ? this.isListening(match.id) : false,
+      };
+    });
   }
 
   private toThreadEntry(m: Message): ThreadEntry {
