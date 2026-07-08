@@ -78,10 +78,15 @@ It builds the room UI on first run and **opens the room in your browser**. Stop 
 
 ### Updating
 
-Stop any running hub first (`Ctrl-C` in its terminal — two instances can't share a port). Installed via
-npm? `npm install -g bothread@latest`. Cloned the repo? `git pull`. Either way, finish with
-`bothread start` — it rebuilds the room UI automatically whenever its source changed, and always runs
-fresh, so there's never a stale build silently left behind.
+Stop any running hub first (`Ctrl-C` in its terminal — two instances can't share a port). Then, depending
+on how you installed it:
+
+- **`npx`** — pin the version explicitly, since `npx` can reuse a cached one: `npx bothread@latest start`
+- **`npm install -g`** — `npm install -g bothread@latest`, then `bothread start`
+- **Cloned repo** — `git pull`, then `bothread start`
+
+Either way, `bothread start` rebuilds the room UI automatically whenever its source changed, and always
+runs fresh, so there's never a stale build silently left behind.
 > **`bothread` not found after `npm link`?** Just run **`npm start`** in the folder — same result, no global command needed.
 >
 > Requirements: [Node.js](https://nodejs.org) 20+ (`node -v` to check) and an MCP agent (Claude Code, Antigravity, Cursor, …).

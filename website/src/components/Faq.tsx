@@ -136,11 +136,14 @@ const QA: { q: string; a: ReactNode }[] = [
     a: (
       <>
         Stop any running hub first (<span className="mono">Ctrl-C</span> in its terminal — two instances
-        can't share a port). Installed via npm? <span className="mono">npm install -g bothread@latest</span>.
-        Cloned the repo? <span className="mono">git pull</span>. Either way, then just{" "}
-        <span className="mono">bothread start</span> again — it rebuilds the room UI automatically and
-        always runs fresh, so there's never a stale build silently left behind. If you ask your agent "how
-        do I update Bothread?" it knows this too — it's in the skill.
+        can't share a port). Then, depending on how you installed it:{" "}
+        <span className="mono">npx bothread@latest start</span> (npx can reuse a cached version, so pin{" "}
+        <span className="mono">@latest</span> explicitly),{" "}
+        <span className="mono">npm install -g bothread@latest</span> (global install), or{" "}
+        <span className="mono">git pull</span> (cloned repo) — then just{" "}
+        <span className="mono">bothread start</span>. It rebuilds the room UI automatically and always runs
+        fresh, so there's never a stale build silently left behind. If you ask your agent "how do I update
+        Bothread?" it knows this too — it's in the skill.
       </>
     ),
   },

@@ -97,11 +97,23 @@ npm link      # make the ‘bothread’ command available everywhere`}</Code>
               </p>
               <p className="hint" style={{ marginTop: "1.2rem" }}>
                 <strong>Updating later?</strong> Stop the hub (<span className="mono">Ctrl-C</span>) first —
-                two instances can't share a port. Installed via npm?{" "}
-                <span className="mono">npm install -g bothread@latest</span>. Cloned the repo?{" "}
-                <span className="mono">git pull</span>. Either way, then just <span className="mono">bothread start</span>{" "}
-                again — it rebuilds and runs fresh automatically.
+                two instances can't share a port. Then:
               </p>
+              <ul className="where">
+                <li>
+                  <strong>Ran it with npx?</strong> <span className="mono">npx</span> can reuse a cached
+                  version — force the latest with <span className="mono">npx bothread@latest start</span>.
+                </li>
+                <li>
+                  <strong>Installed globally (<span className="mono">npm install -g</span>)?</strong>{" "}
+                  <span className="mono">npm install -g bothread@latest</span>, then{" "}
+                  <span className="mono">bothread start</span>.
+                </li>
+                <li>
+                  <strong>Cloned the repo?</strong> <span className="mono">git pull</span>, then{" "}
+                  <span className="mono">bothread start</span> — it rebuilds and runs fresh automatically.
+                </li>
+              </ul>
             </div>
           </li>
 

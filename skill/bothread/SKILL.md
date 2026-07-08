@@ -148,6 +148,7 @@ Each returns a clean structured result plus a readable summary. Read it, then ac
 ## If the human asks "how do I update Bothread?"
 
 Stop any running hub first (`Ctrl+C` in its terminal) — two instances can't bind the same port. Then:
+- **Ran it via `npx`**: `npx bothread@latest start` — pin the version explicitly, since `npx` can reuse a cached one
 - **Installed via npm** (`npm install -g bothread`): `npm install -g bothread@latest`
 - **Cloned the repo**: `git pull`
 
