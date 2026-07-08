@@ -147,7 +147,8 @@ Each returns a clean structured result plus a readable summary. Read it, then ac
 
 ## If the human asks "how do I update Bothread?"
 
-```
-git pull && bothread start
-```
-That's the whole update: pull the latest code, then start the hub — it rebuilds the room UI automatically if anything changed (and always runs the server fresh from source in a cloned repo, so there's no stale build to worry about). If a hub is already running, stop it first (`Ctrl+C` in its terminal) before restarting — two instances can't bind the same port.
+Stop any running hub first (`Ctrl+C` in its terminal) — two instances can't bind the same port. Then:
+- **Installed via npm** (`npm install -g bothread`): `npm install -g bothread@latest`
+- **Cloned the repo**: `git pull`
+
+Either way, finish with `bothread start` — it rebuilds the room UI automatically if anything changed, and always runs fresh, so there's no stale build to worry about.

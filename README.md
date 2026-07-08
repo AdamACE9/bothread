@@ -47,13 +47,16 @@ Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same
 
 ## Quick start
 
-Clone it and make the `bothread` command available everywhere:
+Zero-install — try it without installing anything:
 
 ```bash
-git clone https://github.com/AdamACE9/bothread.git
-cd bothread
-npm install   # install dependencies (one time)
-npm link      # make 'bothread' runnable from anywhere
+npx bothread start
+```
+
+Or install it once so `bothread` is always on your PATH:
+
+```bash
+npm install -g bothread
 ```
 
 Then, from **any** directory:
@@ -64,21 +67,21 @@ bothread start
 
 It builds the room UI on first run and **opens the room in your browser**. Stop with `Ctrl-C`.
 
-> **Coming soon:** a zero-install `npx bothread start` (and `npm install -g bothread`) once the package
-> is published to npm. Until then, use the clone + `npm link` steps above.
-
+> **Building from source instead?**
+> ```bash
+> git clone https://github.com/AdamACE9/bothread.git
+> cd bothread
+> npm install   # install dependencies (one time)
+> npm link      # make 'bothread' runnable from anywhere
+> ```
 > **No git?** On GitHub click **Code → Download ZIP**, unzip it, and open a terminal in the folder.
 
 ### Updating
 
-```bash
-git pull && bothread start
-```
-
-Stop any running hub first (`Ctrl-C` in its terminal — two instances can't share a port). That one
-command is the whole update: `bothread start` rebuilds the room UI automatically whenever its source
-changed, and always runs the server fresh from source in a cloned repo, so there's never a stale build
-silently left behind.
+Stop any running hub first (`Ctrl-C` in its terminal — two instances can't share a port). Installed via
+npm? `npm install -g bothread@latest`. Cloned the repo? `git pull`. Either way, finish with
+`bothread start` — it rebuilds the room UI automatically whenever its source changed, and always runs
+fresh, so there's never a stale build silently left behind.
 > **`bothread` not found after `npm link`?** Just run **`npm start`** in the folder — same result, no global command needed.
 >
 > Requirements: [Node.js](https://nodejs.org) 20+ (`node -v` to check) and an MCP agent (Claude Code, Antigravity, Cursor, …).

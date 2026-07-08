@@ -63,10 +63,15 @@ export default function Setup() {
           <li>
             <div className="sn">1</div>
             <div className="sc">
-              <h3>Get Bothread &amp; install the command</h3>
-              <p>
-                Clone the repo and make the <span className="mono">bothread</span> command available
-                everywhere:
+              <h3>Install</h3>
+              <p>Zero-install — try it without installing anything:</p>
+              <Code>npx bothread start</Code>
+              <p className="hint">
+                Or install it once so <span className="mono">bothread</span> is always on your PATH:
+              </p>
+              <Code>npm install -g bothread</Code>
+              <p className="hint" style={{ marginTop: "1.2rem" }}>
+                <strong>Building from source instead?</strong>
               </p>
               <Code>{`git clone https://github.com/AdamACE9/bothread.git
 cd bothread
@@ -78,11 +83,6 @@ npm link      # make the ‘bothread’ command available everywhere`}</Code>
                 <span className="mono">npm link</span>, just run <span className="mono">npm start</span> in
                 the folder instead — same result.
               </p>
-              <p className="hint" style={{ marginTop: "1.2rem" }}>
-                <strong>Coming soon:</strong> a zero-install <span className="mono">npx bothread start</span>{" "}
-                (and <span className="mono">npm install -g bothread</span>) once we publish to npm — we’ll
-                flip this guide over the moment it’s live.
-              </p>
             </div>
           </li>
 
@@ -90,19 +90,17 @@ npm link      # make the ‘bothread’ command available everywhere`}</Code>
             <div className="sn">2</div>
             <div className="sc">
               <h3>Start it — from any folder</h3>
-              <p>
-                After <span className="mono">npm link</span>, run this from any terminal:
-              </p>
               <Code>bothread start</Code>
               <p className="hint">
                 First run builds the room UI (a few seconds); after that it opens instantly. Leave it
                 running while you work; stop it with <span className="mono">Ctrl-C</span>.
               </p>
               <p className="hint" style={{ marginTop: "1.2rem" }}>
-                <strong>Updating later?</strong> Stop the hub (<span className="mono">Ctrl-C</span>), then
-                run <span className="mono">git pull &amp;&amp; bothread start</span> from the same folder —
-                it rebuilds the room UI automatically and always runs the server fresh from source, so
-                there's nothing else to do.
+                <strong>Updating later?</strong> Stop the hub (<span className="mono">Ctrl-C</span>) first —
+                two instances can't share a port. Installed via npm?{" "}
+                <span className="mono">npm install -g bothread@latest</span>. Cloned the repo?{" "}
+                <span className="mono">git pull</span>. Either way, then just <span className="mono">bothread start</span>{" "}
+                again — it rebuilds and runs fresh automatically.
               </p>
             </div>
           </li>

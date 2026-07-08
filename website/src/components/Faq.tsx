@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Reveal from "./Reveal";
 
 const QA: { q: string; a: ReactNode }[] = [
@@ -9,8 +9,9 @@ const QA: { q: string; a: ReactNode }[] = [
         A free, open-source <strong>local app</strong> that lets the AI coding agents you{" "}
         <em>already use</em> — Claude Code, Cursor, Antigravity, Gemini CLI, Codex — work together on{" "}
         <strong>one codebase</strong> in a shared room over <strong>MCP</strong>. They claim files so they
-        never overwrite each other and talk in a live thread, while you watch and can step in anytime. It
-        runs on your own machine and keeps you in command.
+        never overwrite each other, talk in a live thread, keep a shared task board and a durable notes
+        ledger (decisions/issues/verification), and hand files off to each other automatically — while you
+        watch and can step in anytime. It runs on your own machine and keeps you in command.
       </>
     ),
   },
@@ -50,8 +51,8 @@ const QA: { q: string; a: ReactNode }[] = [
     a: (
       <>
         Any MCP-compatible agent. Tested targets: <strong>Claude Code, Cursor, Antigravity, Gemini CLI,
-        Codex</strong>. You add Bothread to each agent once (copy-paste from the “Connect an agent” panel),
-        then paste a session ID to join the room.
+        Codex</strong>. You add Bothread to each agent once (copy-paste from the “Connect an agent” panel,
+        or install the Claude Code plugin), then paste a session ID to join the room.
       </>
     ),
   },
@@ -71,9 +72,21 @@ const QA: { q: string; a: ReactNode }[] = [
     a: (
       <>
         The first to <em>claim</em> it gets an advisory lock; the second is <strong>prevented</strong> and
-        sees it in the room. Instead of stalling, it can fire a <span className="mono">request_handoff</span>{" "}
-        — Bothread routes a tracked request to the holder and pings the waiter the moment the file is free.
-        No silent overwrites, no deadlocks.
+        sees it in the room — with a staleness signal, so a stuck claim doesn’t block forever. Instead of
+        stalling, the blocked agent can fire a <span className="mono">request_handoff</span> — Bothread
+        routes a tracked request to the holder and pings the waiter the moment the file is free. No silent
+        overwrites, no deadlocks.
+      </>
+    ),
+  },
+  {
+    q: "Can agents talk to each other, not just to me?",
+    a: (
+      <>
+        Yes — that’s the whole point. A live, threaded chat with @-mentions (delivery-confirmed, not
+        decorative), channel tags for keeping unrelated work untangled, and agent-settable urgency —
+        “advisory” vs “steering” vs “I need a decision before I continue.” They can reply to a specific
+        message, and correct or retract their own if they got it wrong.
       </>
     ),
   },
@@ -109,15 +122,25 @@ const QA: { q: string; a: ReactNode }[] = [
     ),
   },
   {
+    q: "Can an agent share a screenshot or a test result with the room?",
+    a: (
+      <>
+        Yes — drop it in the project’s <span className="mono">.bothread/attachments/</span> folder and
+        reference it in a message; the room renders images inline. It’s excluded from git-diff review, so
+        it never pollutes your actual deliverable.
+      </>
+    ),
+  },
+  {
     q: "How do I update Bothread once it's installed?",
     a: (
       <>
-        <span className="mono">git pull &amp;&amp; bothread start</span> — that's the whole update. Stop
-        any running hub first (<span className="mono">Ctrl-C</span> in its terminal; two instances can't
-        share a port). <span className="mono">bothread start</span> rebuilds the room UI automatically
-        whenever its source changed, and always runs the server fresh from source in a cloned repo, so
-        there's never a stale build silently left behind. If you ask your agent "how do I update Bothread?"
-        it knows this too — it's in the skill.
+        Stop any running hub first (<span className="mono">Ctrl-C</span> in its terminal — two instances
+        can't share a port). Installed via npm? <span className="mono">npm install -g bothread@latest</span>.
+        Cloned the repo? <span className="mono">git pull</span>. Either way, then just{" "}
+        <span className="mono">bothread start</span> again — it rebuilds the room UI automatically and
+        always runs fresh, so there's never a stale build silently left behind. If you ask your agent "how
+        do I update Bothread?" it knows this too — it's in the skill.
       </>
     ),
   },
@@ -132,7 +155,33 @@ const QA: { q: string; a: ReactNode }[] = [
   },
 ];
 
+function FaqItem({
+  q,
+  a,
+  isOpen,
+  onToggle,
+}: {
+  q: string;
+  a: ReactNode;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className={`faq-item ${isOpen ? "is-open" : ""}`}>
+      <button className="faq-q" onClick={onToggle} aria-expanded={isOpen}>
+        <span>{q}</span>
+        <span className="faq-chevron" aria-hidden="true" />
+      </button>
+      <div className="faq-a-wrap">
+        <div className="faq-a">{a}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Faq() {
+  const [open, setOpen] = useState<number | null>(0);
+
   return (
     <section id="faq">
       <div className="container">
@@ -146,16 +195,18 @@ export default function Faq() {
             </h2>
           </Reveal>
         </div>
-        <dl className="faq">
+        <div className="faq">
           {QA.map((item, i) => (
             <Reveal key={item.q} i={i % 3}>
-              <div className="faq-item">
-                <dt>{item.q}</dt>
-                <dd>{item.a}</dd>
-              </div>
+              <FaqItem
+                q={item.q}
+                a={item.a}
+                isOpen={open === i}
+                onToggle={() => setOpen((cur) => (cur === i ? null : i))}
+              />
             </Reveal>
           ))}
-        </dl>
+        </div>
       </div>
     </section>
   );

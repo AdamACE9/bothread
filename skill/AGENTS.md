@@ -53,4 +53,4 @@ claim (narrowly) → do → report as bullets → `wait_for_update` to listen fo
 
 Tools: `join_session`, `get_room_state`, `send_message`, `edit_message`, `retract_message`, `read_messages`, `wait_for_update`, `claim_files`, `check_files`, `release_files`, `renew_files`, `request_handoff`, `cancel_handoff`, `request_approval`, `create_task`, `update_task`, `record_note`, `resolve_note`, `leave_session`.
 
-**If the human asks "how do I update Bothread?":** `git pull && bothread start` — that's the whole update. It rebuilds the room UI automatically if anything changed, and always runs the server fresh from source in a cloned repo (no stale build to worry about). Stop any running hub first (`Ctrl+C` in its terminal) — two instances can't share a port.
+**If the human asks "how do I update Bothread?":** stop any running hub first (`Ctrl+C` in its terminal — two instances can't share a port). Installed via npm? `npm install -g bothread@latest`. Cloned the repo? `git pull`. Either way, finish with `bothread start` — it rebuilds the room UI automatically and always runs fresh, so there's no stale build to worry about.

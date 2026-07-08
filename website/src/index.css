@@ -1295,7 +1295,7 @@ label {
 /* ===================== WHY DIFFERENT ===================== */
 .why {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 0.8fr 1.2fr;
   gap: clamp(2rem, 1rem + 4vw, 5rem);
   align-items: start;
 }
@@ -1306,15 +1306,21 @@ label {
 }
 .controls {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.6rem;
+}
+@media (max-width: 640px) {
+  .controls {
+    grid-template-columns: 1fr;
+  }
 }
 .control {
   position: relative;
   overflow: hidden;
-  display: grid;
-  grid-template-columns: 92px 1fr;
-  gap: 1.1rem;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
   padding: 1.1rem 1.3rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -1453,41 +1459,102 @@ footer {
   }
 }
 
-/* ===================== FAQ ===================== */
+/* ===================== FAQ (accordion) ===================== */
 .faq {
   margin: 0;
   border-top: 1px solid var(--line);
 }
 .faq-item {
-  padding-block: clamp(1.3rem, 1rem + 1vw, 1.9rem);
   border-bottom: 1px solid var(--line);
 }
-.faq dt {
+.faq-q {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding-block: clamp(1.2rem, 0.95rem + 0.9vw, 1.7rem);
+  text-align: left;
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(1.1rem, 1rem + 0.5vw, 1.45rem);
+  font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.4rem);
   color: var(--parchment);
-  margin-bottom: 0.5rem;
   letter-spacing: -0.01em;
-  line-height: 1.2;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: color 0.25s var(--ease);
 }
-.faq dd {
-  margin: 0;
+.faq-q:hover {
+  color: var(--copper-1);
+}
+.faq-chevron {
+  position: relative;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+.faq-chevron::before,
+.faq-chevron::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 11px;
+  height: 1.5px;
+  background: currentColor;
+  border-radius: 2px;
+  transition: transform 0.35s var(--ease);
+}
+.faq-chevron::before {
+  transform: translate(-100%, -50%) rotate(45deg);
+  transform-origin: right center;
+}
+.faq-chevron::after {
+  transform: translate(0, -50%) rotate(-45deg);
+  transform-origin: left center;
+}
+.faq-item.is-open .faq-chevron::before {
+  transform: translate(-100%, -50%) rotate(-45deg);
+}
+.faq-item.is-open .faq-chevron::after {
+  transform: translate(0, -50%) rotate(45deg);
+}
+.faq-a-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.4s var(--ease);
+}
+.faq-item.is-open .faq-a-wrap {
+  grid-template-rows: 1fr;
+}
+.faq-a {
+  overflow: hidden;
+  min-height: 0;
+}
+.faq-a > * {
+  margin: 0 0 clamp(1.1rem, 0.9rem + 0.7vw, 1.6rem);
   color: var(--muted);
   max-width: 70ch;
   line-height: 1.62;
 }
-.faq dd strong {
+.faq-a strong {
   color: var(--parchment-1);
 }
-.faq dd em {
+.faq-a em {
   color: var(--copper-1);
   font-style: italic;
 }
-.faq dd .mono {
+.faq-a .mono {
   font-family: var(--font-mono);
   font-size: 0.88em;
   color: var(--saffron);
+}
+@media (prefers-reduced-motion: reduce) {
+  .faq-a-wrap,
+  .faq-chevron::before,
+  .faq-chevron::after {
+    transition: none;
+  }
 }
 
 /* ===================== GET STARTED PAGE ===================== */
@@ -1768,9 +1835,6 @@ footer {
 }
 .faq-item:hover {
   background: rgba(34, 29, 22, 0.3);
-}
-.faq dd {
-  line-height: 1.7;
 }
 
 /* Hero "works with" chips — give them presence */
