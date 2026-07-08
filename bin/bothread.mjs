@@ -19,9 +19,9 @@ const isWin = process.platform === "win32";
 const args = process.argv.slice(2);
 const cmd = (args[0] ?? "start").toLowerCase();
 
-// ── Startup banner: a chunky pixel-block "BOTH / READ" wordmark (same spirit as
-// the big ASCII logo Claude Code shows at launch), in the copper→saffron gradient
-// from the website's "Loom" theme. Skipped entirely on a non-TTY (piped/CI) run.
+// ── Startup banner: a chunky pixel-block "BOTHREAD" wordmark (same spirit as
+// the big ASCII logo Claude Code shows at launch), in the copper→saffron→teal
+// "Loom" thread gradient. Skipped entirely on a non-TTY (piped/CI) run.
 const BANNER_FONT = {
   B: ["####.", "#..#.", "####.", "#..#.", "####."],
   O: [".###.", "#...#", "#...#", "#...#", ".###."],
@@ -33,36 +33,66 @@ const BANNER_FONT = {
   D: ["####.", "#...#", "#...#", "#...#", "####."],
 };
 
+// The Loom palette's thread accent: copper -> saffron -> teal.
+const GRADIENT_STOPS = [
+  [0xcf, 0x7a, 0x3c],
+  [0xe2, 0xa9, 0x4c],
+  [0x63, 0xad, 0x8f],
+];
+
 function printBanner() {
   if (!process.stdout.isTTY) return;
   const lerp = (a, b, t) => Math.round(a + (b - a) * t);
-  const rgb = (r, g, b) => `\x1b[38;2;${r};${g};${b}m`;
   const RESET = "\x1b[0m";
+  const colorAt = (t) => {
+    const seg = t * (GRADIENT_STOPS.length - 1);
+    const i = Math.min(GRADIENT_STOPS.length - 2, Math.floor(seg));
+    const localT = seg - i;
+    const [ar, ag, ab] = GRADIENT_STOPS[i];
+    const [br, bg, bb] = GRADIENT_STOPS[i + 1];
+    return [lerp(ar, br, localT), lerp(ag, bg, localT), lerp(ab, bb, localT)];
+  };
+  const fg = (r, g, b) => `\x1b[38;2;${r};${g};${b}m`;
+  const bold = (r, g, b) => `\x1b[1m${fg(r, g, b)}`;
+
   // Single-width blocks, one line, one continuous word — "BOTHREAD" is one
   // word, not two, so it must never render as two visually separate stacked
   // words (that reads as "BOTH READ").
-  const renderWord = (word) => {
-    const letters = word.split("").map((ch) => BANNER_FONT[ch]);
-    const lines = [];
-    for (let row = 0; row < 5; row++) {
-      let line = "";
-      letters.forEach((letter, i) => {
-        const t = letters.length <= 1 ? 0 : i / (letters.length - 1);
-        // copper #cf7a3c -> saffron #e2a94c
-        const color = rgb(lerp(0xcf, 0xe2, t), lerp(0x7a, 0xa9, t), lerp(0x3c, 0x4c, t));
-        const glyph = letter[row].replace(/#/g, "█").replace(/\./g, " ");
-        line += color + glyph + RESET + (i < letters.length - 1 ? " " : "");
-      });
-      lines.push(line);
-    }
-    return lines.join("\n");
-  };
+  const letters = "BOTHREAD".split("").map((ch) => BANNER_FONT[ch]);
+  const wordLines = [];
+  for (let row = 0; row < 5; row++) {
+    let line = "";
+    letters.forEach((letter, i) => {
+      const t = i / (letters.length - 1);
+      const [r, g, b] = colorAt(t);
+      const glyph = letter[row].replace(/#/g, "█").replace(/\./g, " ");
+      line += bold(r, g, b) + glyph + RESET + (i < letters.length - 1 ? " " : "");
+    });
+    wordLines.push(line);
+  }
+  const width = letters.length * 5 + (letters.length - 1); // 47, visible cols
 
-  const boxLine = "★ Welcome to Bothread";
-  const pad = "─".repeat(boxLine.length + 2);
-  console.log(`\n┌${pad}┐\n│ ${boxLine} │\n└${pad}┘\n`);
-  console.log(renderWord("BOTHREAD"));
-  console.log("\n  A local, human-governed room where your AI agents work together.\n");
+  // A gradient thread running the same width as the wordmark, tying it back
+  // to the woven-thread motif on the website.
+  let threadBar = "";
+  for (let i = 0; i < width; i++) {
+    const [r, g, b] = colorAt(i / (width - 1));
+    threadBar += fg(r, g, b) + "─";
+  }
+  threadBar += RESET;
+
+  const boxLabel = "Welcome to Bothread";
+  const boxPad = "─".repeat(boxLabel.length + 4);
+  const [starR, starG, starB] = colorAt(0.5);
+  const border = fg(0xcf, 0x7a, 0x3c);
+  console.log(
+    `\n${border}┌${boxPad}┐${RESET}\n` +
+      `${border}│${RESET} ${fg(starR, starG, starB)}★${RESET} ${bold(0xec, 0xe4, 0xd3)}${boxLabel}${RESET} ${border}│${RESET}\n` +
+      `${border}└${boxPad}┘${RESET}\n`
+  );
+  console.log(wordLines.join("\n"));
+  console.log(threadBar);
+  console.log(`\n  A local, human-governed room where your AI agents work together.\n`);
 }
 
 function help() {
