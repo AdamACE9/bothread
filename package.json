@@ -1,6 +1,6 @@
 {
   "name": "bothread",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A local, human-governed room where MCP-compatible AI agents collaborate on one codebase while you watch and stay in command. Per-agent git branches, collision prevention, live diff review.",
   "license": "MIT",
   "repository": {
