@@ -27,6 +27,7 @@
   --cursor: #8fb6d6;
   --gemini: #9ec07e;
   --codex: #c79bd6;
+  --opencode: #6fc9b8;
 
   --thread: linear-gradient(90deg, var(--copper) 0%, var(--saffron) 100%);
 
@@ -247,6 +248,7 @@ textarea.field {
 .av.b-cursor { color: var(--cursor); background: rgba(143, 182, 214, 0.13); border-color: rgba(143, 182, 214, 0.4); }
 .av.b-gemini { color: var(--gemini); background: rgba(158, 192, 126, 0.13); border-color: rgba(158, 192, 126, 0.4); }
 .av.b-codex  { color: var(--codex);  background: rgba(199, 155, 214, 0.13); border-color: rgba(199, 155, 214, 0.4); }
+.av.b-opencode { color: var(--opencode); background: rgba(111, 201, 184, 0.13); border-color: rgba(111, 201, 184, 0.4); }
 
 /* ── shared empty-state pattern (replaces plain italic <p>) ── */
 .empty-state {
@@ -349,6 +351,7 @@ textarea.field {
   text-align: left;
   color: inherit;
   width: 100%;
+  cursor: pointer;
   box-shadow: var(--shadow-1);
   transition: border-color 0.2s var(--ease), transform 0.2s var(--ease), background 0.2s var(--ease), box-shadow 0.2s var(--ease);
 }
@@ -357,6 +360,30 @@ textarea.field {
   background: var(--card-bg-hover);
   transform: translateX(3px);
   box-shadow: var(--shadow-2);
+}
+.room-delete {
+  flex-shrink: 0;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-1);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.room-delete:hover {
+  border-color: var(--clay);
+  background: rgba(207, 92, 65, 0.13);
+  color: var(--clay);
+}
+.room-delete:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .room-card .nm {
   font-family: var(--font-display);

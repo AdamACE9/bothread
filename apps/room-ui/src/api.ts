@@ -20,6 +20,10 @@ async function jpost<T>(url: string, body?: unknown): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${url}`);
   return r.json() as Promise<T>;
 }
+async function jdelete(url: string): Promise<void> {
+  const r = await fetch(url, { method: "DELETE" });
+  if (!r.ok) throw new Error(`${r.status} ${url}`);
+}
 
 export interface ConnectInfo {
   mcpUrl: string;
@@ -32,6 +36,7 @@ export const listRooms = () => jget<{ rooms: Room[] }>("/api/rooms").then((r) =>
 export const createRoom = (name: string, projectPath?: string) =>
   jpost<{ room: Room; sessionId: string }>("/api/rooms", { name, projectPath });
 export const getRoom = (id: string) => jget<RoomDetail>(`/api/rooms/${id}`);
+export const deleteRoom = (id: string) => jdelete(`/api/rooms/${id}`);
 export const getMessagesBefore = (id: string, beforeSeq: number, limit = 40) =>
   jget<{ messages: ThreadEntry[]; hasMore: boolean }>(`/api/rooms/${id}/messages?before=${beforeSeq}&limit=${limit}`);
 export const sendOverseer = (id: string, text: string, importance = "steering") =>

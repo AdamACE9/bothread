@@ -549,6 +549,61 @@ export class Engine {
     return room;
   }
 
+  /**
+   * Permanently delete a room and everything scoped to it — participants,
+   * messages, leases, approvals, audit, counters, git-branch-tracking rows,
+   * hand-offs, tasks, and notes — then the room row itself. Unlike every other
+   * room mutation this is real deletion, not an append-only status change:
+   * there is no undo. The `.bothread/attachments/` folder is left alone since
+   * it's keyed by project path, not room id, and may be shared by other rooms.
+   */
+  deleteRoom(roomId: string, by = "You"): void {
+    const r = this.roomRow(roomId);
+    if (!r) throw new BothreadError("no_room", "Room not found.");
+
+    // Reject any request_approval calls still parked on this room so the
+    // caller's promise resolves instead of hanging forever once the row is gone.
+    for (const a of this.pendingApprovals(roomId)) {
+      const waiter = this.approvalWaiters.get(a.id);
+      if (waiter) {
+        this.approvalWaiters.delete(a.id);
+        waiter({ status: "rejected", decidedBy: "system" });
+      }
+    }
+
+    // Best-effort: drop any still-open git tracking branches before the DB
+    // rows that reference them disappear.
+    if (r.project_path) {
+      const openBranches = this.db
+        .prepare(`SELECT * FROM branches WHERE room_id = ? AND status IN ('tracking', 'ready')`)
+        .all(roomId) as BranchRow[];
+      for (const b of openBranches) deleteTrackingBranch(r.project_path, b.branch_name);
+    }
+
+    this.audit(roomId, "room.delete", { name: by }, { name: r.name });
+
+    const tx = this.db.transaction(() => {
+      for (const table of [
+        "participants",
+        "messages",
+        "leases",
+        "approvals",
+        "audit",
+        "counters",
+        "branches",
+        "handoffs",
+        "tasks",
+        "notes",
+      ]) {
+        this.db.prepare(`DELETE FROM ${table} WHERE room_id = ?`).run(roomId);
+      }
+      this.db.prepare(`DELETE FROM rooms WHERE id = ?`).run(roomId);
+    });
+    tx();
+
+    this.publish(roomId, "room", { deleted: true, roomId });
+  }
+
   /* ===================== Participants ===================== */
 
   private partRow(id: string): PartRow | undefined {
@@ -1200,12 +1255,15 @@ export class Engine {
     return paths.map((path): CheckFileResult => {
       for (const ex of active) {
         if (globsOverlap(ex.path_pattern, path) || globsOverlap(path, ex.path_pattern)) {
+          const holder = this.partRow(ex.participant_id);
           return {
             path,
             held: true,
             heldBy: ex.participant_id,
             heldByName: ex.participant_name,
             exclusive: !!ex.exclusive,
+            heldByLastSeen: holder?.last_seen_at ?? ex.created_at,
+            heldByListening: this.isListening(ex.participant_id),
           };
         }
       }

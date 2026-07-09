@@ -47,6 +47,13 @@ function fail(err: unknown): ToolResult {
   return { content: [{ type: "text", text: `Error: ${msg}` }], isError: true };
 }
 
+/** Shared staleness phrasing for a lock/claim holder, used by both renderSnapshot and check_files. */
+function staleNote(heldByLastSeen: number, heldByListening: boolean): string {
+  if (heldByListening) return " (listening)";
+  const idleMs = Date.now() - heldByLastSeen;
+  return idleMs > 120_000 ? ` (holder idle ~${Math.round(idleMs / 60000)}m — may be stale; consider request_handoff)` : "";
+}
+
 /** A compact, legible rendering of the room so the agent instantly orients. */
 export function renderSnapshot(s: RoomSnapshot): string {
   const lines: string[] = [];
@@ -89,14 +96,8 @@ export function renderSnapshot(s: RoomSnapshot): string {
 
   if (s.locks.length) {
     lines.push("Active file locks:");
-    const nowMs = Date.now();
     for (const l of s.locks) {
-      const idleMs = nowMs - l.heldByLastSeen;
-      const idleNote = l.heldByListening
-        ? " (listening)"
-        : idleMs > 120_000
-          ? ` (holder idle ~${Math.round(idleMs / 60000)}m — may be stale; consider request_handoff)`
-          : "";
+      const idleNote = staleNote(l.heldByLastSeen, l.heldByListening);
       lines.push(`  • ${l.path} — ${l.heldByName}${l.exclusive ? " [exclusive]" : " [shared]"}${idleNote}`);
     }
   } else {
@@ -374,7 +375,7 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
     {
       title: "Quietly check who holds a file",
       description:
-        "Silently check current ownership of one or more glob paths — a read-only peek with NO side effects: it does not claim anything, posts no message, opens no hand-off, and is invisible to everyone else. Use this to test the water before claim_files, instead of risking a PREVENTED attempt that broadcasts to the room.",
+        "Silently check current ownership of one or more glob paths — a read-only peek with NO side effects: it does not claim anything, posts no message, opens no hand-off, and is invisible to everyone else. Reports whether the current holder's claim looks stale (idle, may have dropped off). Use this to test the water before claim_files, instead of risking a PREVENTED attempt that broadcasts to the room.",
       inputSchema: CheckFilesInput.shape,
       annotations: readOnly,
     },
@@ -383,7 +384,11 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
         const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
         const res = engine.checkFiles(caller, args.paths);
         const summary = res
-          .map((r) => (r.held ? `${r.path}: held by ${r.heldByName} (${r.exclusive ? "exclusive" : "shared"}).` : `${r.path}: free.`))
+          .map((r) =>
+            r.held
+              ? `${r.path}: held by ${r.heldByName} (${r.exclusive ? "exclusive" : "shared"})${staleNote(r.heldByLastSeen ?? 0, r.heldByListening ?? false)}.`
+              : `${r.path}: free.`
+          )
           .join(" ");
         return ok(summary, res);
       } catch (e) {

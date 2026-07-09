@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { ParticipantView } from "@bothread/shared";
 
-const KNOWN = ["claude", "cursor", "gemini", "codex"];
+const KNOWN = ["claude", "cursor", "gemini", "codex", "opencode"];
 
 export function brandClass(brand?: string): string {
   if (!brand) return "";

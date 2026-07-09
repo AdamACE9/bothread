@@ -204,6 +204,16 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
     })
   );
 
+  // Permanent — deletes the room row plus everything scoped to it (messages, leases,
+  // approvals, audit, tasks, notes, git-branch-tracking). No undo.
+  api.delete(
+    "/rooms/:id",
+    wrap((req, res) => {
+      engine.deleteRoom(param(req, "id"));
+      res.status(204).end();
+    })
+  );
+
   api.get(
     "/rooms/:id/audit",
     wrap((req, res) => {

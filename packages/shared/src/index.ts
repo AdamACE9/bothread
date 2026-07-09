@@ -545,6 +545,10 @@ export const CheckFileResult = z.object({
   heldBy: z.string().optional(),
   heldByName: z.string().optional(),
   exclusive: z.boolean().optional(),
+  /** Same staleness signal as LockView: when the holder was last seen active (ms epoch). */
+  heldByLastSeen: z.number().optional(),
+  /** True if the holder is currently parked in wait_for_update (actively listening). */
+  heldByListening: z.boolean().optional(),
 });
 export type CheckFileResult = z.infer<typeof CheckFileResult>;
 

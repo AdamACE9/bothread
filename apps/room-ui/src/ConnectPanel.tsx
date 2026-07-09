@@ -8,6 +8,7 @@ const AGENTS = [
   { id: "cursor", label: "Cursor", where: "Add to .cursor/mcp.json:" },
   { id: "gemini", label: "Gemini CLI", where: "Add to ~/.gemini/settings.json:" },
   { id: "codex", label: "Codex", where: "Add to ~/.codex/config.toml:" },
+  { id: "opencode", label: "OpenCode", where: "Run once in your terminal:" },
   { id: "other", label: "Other", where: "Bridge any MCP client via mcp-remote:" },
 ] as const;
 type AgentId = (typeof AGENTS)[number]["id"];
@@ -46,6 +47,10 @@ function snippet(agent: AgentId, info: ConnectInfo): string {
       );
     case "codex":
       return `[mcp_servers.bothread]\nurl = "${url}"` + (bearer ? `\nhttp_headers = { Authorization = "${bearer}" }` : "");
+    case "opencode":
+      return bearer
+        ? `opencode mcp add bothread --url ${url} \\\n  --header "Authorization=${bearer}"`
+        : `opencode mcp add bothread --url ${url}`;
     case "other":
       return JSON.stringify(
         {
@@ -69,6 +74,7 @@ const SELF_SETUP: Partial<Record<AgentId, { name: string; brand: string }>> = {
   antigravity: { name: "Antigravity", brand: "antigravity" },
   gemini: { name: "Gemini", brand: "gemini" },
   codex: { name: "Codex", brand: "codex" },
+  opencode: { name: "OpenCode", brand: "opencode" },
 };
 
 /** The exact "add the MCP server" instruction the agent should perform, per agent. */
@@ -87,6 +93,8 @@ function configInstruction(agent: AgentId, info: ConnectInfo): string {
       return `edit ~/.gemini/settings.json to add {"mcpServers":{"bothread":{"httpUrl":"${url}"${hdrJson}}}}`;
     case "codex":
       return `add to ~/.codex/config.toml a [mcp_servers.bothread] section with url = "${url}"${info.token ? ` and http_headers = { Authorization = "Bearer ${info.token}" }` : ""}`;
+    case "opencode":
+      return `run this in the terminal: opencode mcp add bothread --url ${url}${info.token ? ` --header "Authorization=Bearer ${info.token}"` : ""}`;
     default:
       return "";
   }

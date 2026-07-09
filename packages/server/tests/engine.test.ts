@@ -543,11 +543,32 @@ describe("Engine — checkFiles (quiet ownership peek, zero side effects)", () =
     const res = engine.checkFiles(b, ["src/x.ts"]);
 
     expect(res).toEqual([
-      { path: "src/x.ts", held: true, heldBy: a.participant.id, heldByName: "Claude Code", exclusive: true },
+      {
+        path: "src/x.ts",
+        held: true,
+        heldBy: a.participant.id,
+        heldByName: "Claude Code",
+        exclusive: true,
+        heldByLastSeen: expect.any(Number),
+        heldByListening: false,
+      },
     ]);
     // Truly silent: no new message and no hand-off opened, unlike claimFiles's PREVENTED path.
     expect(engine.latestSeq(room.id)).toBe(seqBefore);
     expect(engine.pendingHandoffs(room.id).length).toBe(handoffsBefore);
+  });
+
+  it("surfaces the holder's staleness (last-seen + listening) so an agent can judge a stale claim itself", () => {
+    const engine = makeEngine();
+    const { a, b } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/stale.ts"] });
+
+    const longAgo = Date.now() - 10 * 60 * 1000;
+    (engine as any).db.prepare(`UPDATE participants SET last_seen_at = ? WHERE id = ?`).run(longAgo, a.participant.id);
+
+    const [res] = engine.checkFiles(b, ["src/stale.ts"]);
+    expect(res!.heldByLastSeen).toBe(longAgo);
+    expect(res!.heldByListening).toBe(false);
   });
 
   it("reports free for an unclaimed path", () => {
@@ -573,7 +594,15 @@ describe("Engine — checkFiles (quiet ownership peek, zero side effects)", () =
     const seqBefore = engine.latestSeq(room.id);
     const res = engine.checkFiles(a, ["src/mine.ts"]);
     expect(res).toEqual([
-      { path: "src/mine.ts", held: true, heldBy: a.participant.id, heldByName: "Claude Code", exclusive: true },
+      {
+        path: "src/mine.ts",
+        held: true,
+        heldBy: a.participant.id,
+        heldByName: "Claude Code",
+        exclusive: true,
+        heldByLastSeen: expect.any(Number),
+        heldByListening: false,
+      },
     ]);
     expect(engine.latestSeq(room.id)).toBe(seqBefore);
   });
@@ -625,6 +654,45 @@ describe("Engine — room identity (rename + topic tagging)", () => {
     expect(marioMsg?.threadId).toBe("mario-game");
     expect(tarzanMsg?.threadId).toBe("tarzan-game");
     expect(untagged?.threadId).toBeUndefined();
+  });
+});
+
+describe("Engine — deleteRoom (permanent, cascades to every child table)", () => {
+  it("removes the room and all of its scoped data, leaving other rooms untouched", () => {
+    const engine = makeEngine();
+    const { room, a } = twoAgentRoom(engine);
+    engine.claimFiles(a, { paths: ["src/x.ts"] });
+    engine.sendMessage(a, { text: "hello room" });
+    engine.createTask(a, { title: "ship it" });
+    engine.recordNote(a, { kind: "decision", title: "use postgres" });
+
+    const other = twoAgentRoom(engine); // a second, untouched room
+    engine.sendMessage(other.a, { text: "unrelated room's message" });
+
+    engine.deleteRoom(room.id);
+
+    expect(engine.getRoom(room.id)).toBeUndefined();
+    expect(engine.listRooms().map((r) => r.id)).not.toContain(room.id);
+    expect(engine.listRooms().map((r) => r.id)).toContain(other.room.id);
+    // The second room's own data is untouched by the first room's deletion.
+    expect(engine.readMessages(other.a, {}).messages.some((m) => m.text.includes("unrelated room's message"))).toBe(
+      true
+    );
+  });
+
+  it("throws BothreadError when deleting a nonexistent room", () => {
+    const engine = makeEngine();
+    expect(() => engine.deleteRoom("no-such-room")).toThrow(BothreadError);
+  });
+
+  it("resolves any still-pending approval as rejected instead of leaving the caller's promise hanging", async () => {
+    const engine = makeEngine();
+    const { room, a } = twoAgentRoom(engine);
+    const pending = engine.requestApproval(a, { action: "migration", details: "drops a column" });
+
+    engine.deleteRoom(room.id);
+
+    await expect(pending).resolves.toEqual({ status: "rejected", decidedBy: "system" });
   });
 });
 

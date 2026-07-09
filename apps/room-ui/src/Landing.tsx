@@ -1,17 +1,35 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import type { Room } from "@bothread/shared";
-import { createRoom, listRooms } from "./api";
+import { createRoom, deleteRoom, listRooms } from "./api";
 
 export default function Landing({ onOpen }: { onOpen: (id: string) => void }) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [name, setName] = useState("");
   const [projectPath, setProjectPath] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const refresh = () => listRooms().then(setRooms).catch(() => {});
   useEffect(() => {
     refresh();
   }, []);
+
+  const remove = async (r: Room, e: MouseEvent) => {
+    e.stopPropagation();
+    if (deletingId) return;
+    if (!window.confirm(`Delete "${r.name}" permanently? This removes its messages, tasks, notes, and history — there's no undo.`)) {
+      return;
+    }
+    setDeletingId(r.id);
+    try {
+      await deleteRoom(r.id);
+      setRooms((prev) => prev.filter((x) => x.id !== r.id));
+    } catch {
+      /* leave the card in place — user can retry */
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const create = async () => {
     const n = name.trim();
@@ -69,7 +87,14 @@ export default function Landing({ onOpen }: { onOpen: (id: string) => void }) {
       ) : (
         <div className="rooms-list">
           {rooms.map((r) => (
-            <button key={r.id} className="room-card" onClick={() => onOpen(r.id)}>
+            <div
+              key={r.id}
+              className="room-card"
+              role="button"
+              tabIndex={0}
+              onClick={() => onOpen(r.id)}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onOpen(r.id)}
+            >
               <div>
                 <div className="nm">{r.name}</div>
                 <div className="meta mono" style={{ fontSize: ".7rem", color: "var(--muted-1)" }}>
@@ -80,7 +105,16 @@ export default function Landing({ onOpen }: { onOpen: (id: string) => void }) {
                 <span className="dot" />
                 {r.status}
               </span>
-            </button>
+              <button
+                className="room-delete"
+                title="Delete room"
+                aria-label={`Delete room ${r.name}`}
+                disabled={deletingId === r.id}
+                onClick={(e) => remove(r, e)}
+              >
+                {deletingId === r.id ? "…" : "✕"}
+              </button>
+            </div>
           ))}
         </div>
       )}
