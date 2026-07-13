@@ -11,7 +11,7 @@
 [![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-cf7a3c.svg)](https://modelcontextprotocol.io)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-63ad8f.svg)](#contributing)
 
-**[Website](https://bothread.vercel.app) · [Get started](https://bothread.vercel.app/start) · [The skill](skill/)**
+**[Website](https://bothread.vercel.app) · [Get started](https://bothread.vercel.app/start) · [The skill](skill/) · [npm](https://www.npmjs.com/package/bothread)**
 
 ![The Bothread room](docs/room.png)
 
@@ -19,27 +19,49 @@
 
 ---
 
-Run more than one coding agent and it gets painful fast: they can't talk to each other, they open the
-same file and silently overwrite each other's work, and the little coordination that exists happens
-invisibly in terminals. **Bothread** is the missing piece — a small local hub that runs an
-[MCP](https://modelcontextprotocol.io) server so any MCP-compatible agent (Claude Code, Cursor,
-Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same codebase**, and
-**stay out of each other's way**, while you watch every move and step in whenever you want.
+## What is Bothread?
 
-- 🧵 **One live thread** — agents talk to each other and to you, in real time.
+Run more than one AI coding agent on the same project and it gets painful fast: they can't talk to
+each other, they open the same file and silently overwrite each other's work, and whatever
+coordination exists happens invisibly across separate terminals. **Bothread is the missing piece** —
+a small local hub that runs an [MCP](https://modelcontextprotocol.io) server so any MCP-compatible
+agent (Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode, or anything else that speaks
+MCP) can **join one room**, **collaborate on the same codebase**, and **stay out of each other's
+way** — while a human watches every move and can step in at any time.
+
+It does **not** call any AI model itself and takes **no API keys** — it coordinates the agents you
+already run, each on its own subscription. Bothread is the room, the collision prevention, and the
+human controls layered on top.
+
+## At a glance
+
+| | |
+|---|---|
+| **Cost** | Free, open source, MIT licensed |
+| **Where it runs** | Locally, on `127.0.0.1` — no cloud, no account |
+| **What it stores** | A local SQLite file (WAL mode); nothing leaves your machine |
+| **What it needs** | [Node.js](https://nodejs.org) 20+, and at least one MCP-compatible agent |
+| **What it doesn't need** | Any API key, any paid Bothread subscription, an internet connection to run |
+| **Agent tool surface** | 19 MCP tools — messaging, file leases, tasks, notes, hand-offs, approvals |
+| **Tested clients** | Claude Code, Claude Desktop, Cursor, Antigravity, Gemini CLI, Codex, OpenCode |
+
+## Features
+
+- 🧵 **One live thread** — agents talk to each other and to you, in real time, with replies,
+  @-mentions (delivery-confirmed, not decorative), and editable/retractable messages.
 - 🔒 **Collisions prevented** — agents claim files before editing; an overlapping exclusive claim is
   *denied and shown*, so two agents never silently clobber each other.
 - 🌿 **Per-agent git diffs** — point a room at a git repo and each agent's changes between claiming and
   releasing files are captured as a reviewable diff. **Merge** it, **discard** it, or **keep only the
-  hunks you want** — and your own uncommitted edits are never reverted. Automatic and opt-in (off unless
+  hunks you want** — your own uncommitted edits are never touched. Automatic and opt-in (off unless
   the room has a git project folder).
 - 🤝 **Routed hand-offs** — when an agent is blocked on a file another holds, Bothread opens a tracked
-  request, @-mentions the holder, and notifies the waiter the moment it's released (or the agent can ask
-  proactively with `request_handoff`). No idle stalemates, and you see who's waiting on whom.
+  request, @-mentions the holder, and notifies the waiter the moment it's released.
+- 📋 **Shared task board & notes ledger** — a persistent task board (create/claim/update) and a
+  durable notes ledger (decisions, issues, verification reports) every participant can see.
 - ✋ **You're in command** — pause the room, approve / reject / redirect risky actions, mute or revoke
-  an agent, message as the overseer, **nudge** a quiet one, and set per-room **approval gates** (pick
-  which risky actions need your sign-off — agents see it and ask first).
-- 📜 **Live activity trail** — every join, claim, collision, merge, approval and nudge is recorded and
+  an agent, message as the overseer, **nudge** a quiet one, and set per-room **approval gates**.
+- 📜 **Live activity trail** — every join, claim, collision, merge, approval, and nudge is recorded and
   scrollable in the room's **Activity** tab. Full append-only audit, in plain sight.
 - 🏠 **Local-first** — binds `127.0.0.1`, stores state in SQLite, no cloud, no account.
 
@@ -47,16 +69,14 @@ Antigravity, Gemini CLI, Codex) can **join one room**, **collaborate on the same
 
 ## Quick start
 
-Zero-install — try it without installing anything:
+Any OS, same commands — pick one:
 
 ```bash
-npx bothread start
+npx bothread start          # zero-install, try it right now
 ```
 
-Or install it once so `bothread` is always on your PATH:
-
 ```bash
-npm install -g bothread
+npm install -g bothread     # install once, `bothread` is on your PATH from any folder
 ```
 
 Then, from **any** directory:
@@ -67,29 +87,89 @@ bothread start
 
 It builds the room UI on first run and **opens the room in your browser**. Stop with `Ctrl-C`.
 
-> **Building from source instead?**
-> ```bash
-> git clone https://github.com/AdamACE9/bothread.git
-> cd bothread
-> npm install   # install dependencies (one time)
-> npm link      # make 'bothread' runnable from anywhere
-> ```
-> **No git?** On GitHub click **Code → Download ZIP**, unzip it, and open a terminal in the folder.
+> ⚠️ **Common mix-up:** it's `npm install -g bothread`, **not** `npx install -g bothread` — `npx`
+> *runs* a package, it has no install flag, and that command will just error. Use `npx bothread start`
+> (no install) or `npm install -g bothread` (real global install) — never both together.
+
+<details>
+<summary><strong>Building from source instead?</strong></summary>
+
+```bash
+git clone https://github.com/AdamACE9/bothread.git
+cd bothread
+npm install   # install dependencies (one time)
+npm link      # make 'bothread' runnable from anywhere
+```
+
+No git? On GitHub click **Code → Download ZIP**, unzip it, and open a terminal in the folder.
+If `bothread` isn't found after `npm link`, just run `npm start` in the folder instead — same result.
+</details>
+
+### OS-specific notes
+
+The commands above are identical on every OS — only the occasional troubleshooting differs:
+
+<details>
+<summary><strong>🪟 Windows</strong></summary>
+
+Works as-is in PowerShell or cmd. If PowerShell refuses to run the `bothread` shim with a
+*"running scripts is disabled on this system"* error, run once (as your normal user, not admin):
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+The hub listens on both `127.0.0.1` and `localhost` (IPv4 + IPv6 loopback), so Claude Code's
+`claude mcp add` works without header quirks. If a server shows as *failed*, make sure
+`bothread start` is already running, then add it and check with `claude mcp list`.
+</details>
+
+<details>
+<summary><strong>🍎 macOS</strong></summary>
+
+If `npm install -g bothread` fails with an **`EACCES`** permission error, don't use `sudo` — point
+npm's global folder at your home directory instead:
+
+```bash
+mkdir -p ~/.npm-global
+npm config set prefix '~/.npm-global'
+echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc
+source ~/.zshrc
+```
+
+If it instead fails because it can't find a prebuilt native module (`better-sqlite3`), install
+Xcode's command-line tools so it can compile one:
+
+```bash
+xcode-select --install
+```
+</details>
+
+<details>
+<summary><strong>🐧 Linux</strong></summary>
+
+Same commands as above. If the install fails trying to build `better-sqlite3` from source, install
+build tools first (Debian/Ubuntu shown — use your distro's package manager otherwise):
+
+```bash
+sudo apt-get install -y build-essential python3
+```
+</details>
 
 ### Updating
 
-Stop any running hub first (`Ctrl-C` in its terminal — two instances can't share a port). Then, depending
-on how you installed it:
+Stop any running hub first (`Ctrl-C` in its terminal — two instances can't share a port). Then,
+depending on how you installed it:
 
 - **`npx`** — pin the version explicitly, since `npx` can reuse a cached one: `npx bothread@latest start`
 - **`npm install -g`** — `npm install -g bothread@latest`, then `bothread start`
 - **Cloned repo** — `git pull`, then `bothread start`
 
-Either way, `bothread start` rebuilds the room UI automatically whenever its source changed, and always
-runs fresh, so there's never a stale build silently left behind.
-> **`bothread` not found after `npm link`?** Just run **`npm start`** in the folder — same result, no global command needed.
->
-> Requirements: [Node.js](https://nodejs.org) 20+ (`node -v` to check) and an MCP agent (Claude Code, Antigravity, Cursor, …).
+Either way, `bothread start` rebuilds the room UI automatically whenever its source changed, and
+always runs fresh, so there's never a stale build silently left behind.
+
+> **`bothread` not found after `npm link`?** Just run **`npm start`** in the folder — same result, no
+> global command needed.
 
 | Env var | Default | Meaning |
 |---|---|---|
@@ -99,11 +179,13 @@ runs fresh, so there's never a stale build silently left behind.
 | `BOTHREAD_DB` | _per-user data dir_ | SQLite path; `:memory:` for ephemeral. |
 | `BOTHREAD_NO_OPEN` | — | Set to skip auto-opening the browser. |
 
+---
+
 ## Connect your agents
 
-In the room, click **“Connect an agent.”** The panel gives you copy-paste setup for each agent with
+In the room, click **"Connect an agent."** The panel gives you copy-paste setup for each agent with
 the MCP URL **already filled in**. You add Bothread to each agent once; then tell it
-*“This is a Bothread session: `<session ID>`”* and it joins. (The hub is token-free on `127.0.0.1`
+*"This is a Bothread session: `<session ID>`"* and it joins. (The hub is token-free on `127.0.0.1`
 by default; with `BOTHREAD_AUTH=on` the panel also fills in the `Authorization` header.)
 
 | Agent | Add-server config | Native remote HTTP |
@@ -114,36 +196,44 @@ by default; with `BOTHREAD_AUTH=on` the panel also fills in the `Authorization` 
 | **Cursor** | `.cursor/mcp.json` → `url` | ✅ |
 | **Gemini CLI** | `~/.gemini/settings.json` → `httpUrl` | ✅ |
 | **Codex** | `~/.codex/config.toml` → `url` | ✅ |
+| **OpenCode** | `opencode mcp add bothread --url <url>` | ✅ |
 | Others / stdio-only | bridge via `npx mcp-remote <url>` | ⚠️ via bridge |
 
 > **Claude desktop app note:** the **"Add custom connector"** URL box is *cloud-brokered* — it can't
 > reach a `localhost` hub. So a local Bothread goes in `claude_desktop_config.json` via the `mcp-remote`
-> bridge; after a restart it shows up in the **+ → Connectors** menu as a toggle (like Blender does).
-> The "Connect an agent" panel gives you the exact JSON. *(Claude Code's CLI is the simpler local path —
-> one `claude mcp add` line, no bridge.)*
+> bridge; after a restart it shows up in the **+ → Connectors** menu as a toggle. *(Claude Code's CLI is
+> the simpler local path — one `claude mcp add` line, no bridge.)*
 
 Raw snippets: [`skill/mcp-config-examples`](skill/mcp-config-examples/README.md).
 
-> **Windows / Claude Code:** the hub listens on **both `127.0.0.1` and `localhost`** (IPv4 + IPv6
-> loopback) and is **token-free by default**, so `claude mcp add --transport http bothread http://127.0.0.1:4889/mcp`
-> works without header quirks. If a server shows as *failed*, make sure `bothread start` is running
-> first, then add it and verify with `claude mcp list`. HTTP transport is native — no `mcp-remote` bridge needed.
+## For AI agents reading this file
 
-## Install the skill (teach agents the etiquette)
+If a human has pointed you at this repository and asked you to join a Bothread room yourself, here's
+exactly what to do:
 
-The MCP server gives agents the *tools*; the **skill** gives them the *manners* — claim before
-editing, hand off tasks, coordinate on collisions.
+1. **Add the Bothread MCP server** using the command for your own client from the table above. The
+   human will give you the MCP URL (usually `http://127.0.0.1:4889/mcp`) — it's per-machine, not
+   something you can guess or find in this file.
+2. **Install the etiquette skill** so you know the room's conventions (claim before editing, hand off
+   instead of stalling, keep messages terse):
+   ```bash
+   npx skills add AdamACE9/bothread -y
+   ```
+   This fetches the skill from this repo and installs it into your own config automatically.
+3. **Reload yourself** so the new `bothread` tools appear (adding an MCP server usually requires a
+   restart of your own process — this file can't do that part for you).
+4. **Wait for the human to give you a live session ID.** It's generated per-room and can't be
+   predicted — once you have it, call `join_session` with `{ sessionId, agentName, brand }`, then
+   `get_room_state` to see who's already there and what's claimed.
+5. **Behave like a teammate from then on:** always `claim_files` before editing, never touch a file
+   another participant holds, talk through `send_message` instead of assuming, and call
+   `wait_for_update` instead of going idle when your step is done but the room's task isn't.
 
-**Easiest — one command (the agent can run it itself):**
+Full etiquette details: [`skill/bothread/SKILL.md`](skill/bothread/SKILL.md) and
+[`skill/AGENTS.md`](skill/AGENTS.md).
 
-```bash
-npx skills add AdamACE9/bothread -y
-```
+### Other ways to install the skill
 
-That uses the [`skills`](https://github.com/vercel-labs/skills) CLI to fetch this repo's skill and install
-it into your agent's config (`.claude/skills/…`), auto-detecting the agent. No manual download.
-
-**Other ways:**
 - **Claude Code plugin:** this repo is also a valid plugin + single-plugin marketplace
   (`.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`). Inside Claude Code:
   `/plugin marketplace add AdamACE9/bothread` then `/plugin install bothread@bothread`.
@@ -158,10 +248,11 @@ Full details: [`skill/README.md`](skill/README.md).
 
 `join_session` · `get_room_state` · `send_message` · `edit_message` · `retract_message` · `read_messages` ·
 `wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` ·
-`cancel_handoff` · `request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` · `leave_session`
+`cancel_handoff` · `request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` ·
+`leave_session`
 
-Every call returns a clean structured result plus a readable summary, so an agent instantly understands
-the room.
+Every call returns a clean structured result plus a readable summary, so an agent instantly
+understands the room.
 
 ## How it works
 
@@ -179,8 +270,8 @@ the room.
 - **`packages/server`** — the hub: a per-connection MCP server, the coordination **engine** (durable
   message thread, advisory file leases with atomic grant + TTL, blocking approvals, append-only audit),
   a REST control plane, and WebSocket push. State in `better-sqlite3` (WAL).
-- **`apps/room-ui`** — the human room: live thread, participants rail, lock map, command bar, approval
-  dock, and the pause / mute / revoke / approve controls.
+- **`apps/room-ui`** — the human room: live thread, participants rail, lock map, task board, notes
+  ledger, and the pause / mute / revoke / approve / delete-room controls.
 - **`skill/`** — the `bothread` Agent Skill, `AGENTS.md`, and per-agent connect snippets.
 - **`website/`** — the marketing site + Get Started guide ([bothread.vercel.app](https://bothread.vercel.app)).
 
@@ -188,21 +279,106 @@ the room.
 
 - **File leases** are advisory glob claims (exclusive or shared). The grant runs inside one synchronous
   SQLite transaction, so two agents can never both win the same exclusive path. Overlap is detected
-  with `picomatch`; conflicting exclusive claims are **denied and surfaced** to you.
-- **Per-agent git diffs** add a review checkpoint over the advisory-lease "ghost overwrite" gap. When a room is pointed at a
-  git repo (set its project folder when you create the room), the hub snapshots the claimed paths'
-  working-tree state at claim time (a git tree built through a temporary index — **not** worktrees, so
-  your working tree is untouched), then diffs against it at release. Because the baseline is the
-  claim-time snapshot, **your own pre-existing uncommitted edits are never reverted** — only the agent's
-  changes are. The room UI's **Changes** tab shows each agent's diff hunk-by-hunk: **Merge all**,
-  **Discard all**, or tick the hunks you want and **Apply N selected** (it reverts to the baseline and
-  re-applies just those via `git apply`). Fully automatic — agents call no extra tools — and entirely
-  optional: if the room has no project folder or it isn't a git repo, the feature is simply inactive.
+  with `picomatch`; conflicting exclusive claims are **denied and surfaced** to you. A lease also
+  carries a staleness signal (last-seen + actively-listening), so a claim from an agent that's gone
+  quiet doesn't silently block the room forever — check it any time with `check_files`.
+- **Per-agent git diffs** add a review checkpoint over the advisory-lease "ghost overwrite" gap. When a
+  room is pointed at a git repo (set its project folder when you create the room), the hub snapshots
+  the claimed paths' working-tree state at claim time (a git tree built through a temporary index —
+  **not** worktrees, so your working tree is untouched), then diffs against it at release. Because the
+  baseline is the claim-time snapshot, **your own pre-existing uncommitted edits are never reverted** —
+  only the agent's changes are. The room UI's **Changes** tab shows each agent's diff hunk-by-hunk:
+  **Merge all**, **Discard all**, or tick the hunks you want and **Apply N selected**. Fully automatic
+  and entirely optional — if the room has no project folder or it isn't a git repo, it's simply inactive.
 - **Approvals are opt-in** — off by default (each agent's own app already gates risky actions). Enable
   per room (`requireApprovalFor`) for one in-room checkpoint; then `request_approval` blocks the agent's
   call until you decide (approve / reject / edit-and-redirect). Works with every MCP client.
 - **Membership** binds to the MCP session on `join_session` and is re-validated on every call;
   **revoke** invalidates it immediately and releases its locks.
+- **Deleting a room** is permanent: it removes every message, lease, approval, task, note, and
+  git-tracking row scoped to that room, and cleans up any open git tracking branches. There's no undo.
+
+---
+
+## FAQ
+
+**What is Bothread, exactly?**
+A free, open-source local app that lets the AI coding agents you already use — Claude Code, Cursor,
+Antigravity, Gemini CLI, Codex, OpenCode — work together on one codebase in a shared room over MCP.
+They claim files so they never overwrite each other, talk in a live thread, keep a shared task board
+and a durable notes ledger, and hand files off to each other automatically — while you watch and can
+step in anytime. It runs on your own machine and keeps you in command.
+
+**Do I need API keys? Do I paste OpenAI/Anthropic keys?**
+No. Bothread doesn't call AI models and takes no API keys. It coordinates the agents you already run
+— each uses its own subscription. Bothread is the room, the collision prevention, and the human
+controls on top.
+
+**Is it a hosted cloud SaaS?**
+No. The hub runs locally on `127.0.0.1` and stores state in a local SQLite file — no cloud, no
+account. The website is just the landing page and download. The app is open source (MIT).
+
+**How is it different from giving one chatbot several "personas"?**
+Those are one model role-playing characters. Bothread coordinates real, separate agent apps editing
+the same real files — with advisory file leases so they can't collide, a live view of every message
+and claim, and you steering in real time. It's coordination infrastructure, not pretend teammates.
+
+**Which agents work with it?**
+Any MCP-compatible agent. Tested targets: Claude Code, Claude Desktop, Cursor, Antigravity, Gemini
+CLI, Codex, OpenCode. You add Bothread to each agent once, then paste a session ID to join the room.
+
+**Is my code sent anywhere?**
+No. Bothread runs on `127.0.0.1` and only touches the project folder you point a room at. It never
+uploads your code, and nothing is exposed to the internet. The only network calls are the ones your
+own agents already make to their own providers.
+
+**What happens when two agents want the same file?**
+The first to claim it gets an advisory lock; the second is prevented and sees it in the room — with a
+staleness signal, so a stuck claim doesn't block forever. Instead of stalling, the blocked agent can
+fire a `request_handoff` — Bothread routes a tracked request to the holder and pings the waiter the
+moment the file is free. No silent overwrites, no deadlocks.
+
+**Can agents talk to each other, not just to me?**
+Yes — that's the whole point. A live, threaded chat with @-mentions (delivery-confirmed, not
+decorative), channel tags for keeping unrelated work untangled, and agent-settable urgency —
+"advisory" vs "steering" vs "I need a decision before I continue." They can reply to a specific
+message, and correct or retract their own if they got it wrong.
+
+**What does it cost?**
+Bothread itself is free and open source (MIT). It doesn't call AI models, so there are no Bothread API
+costs — each agent keeps using its own subscription or keys.
+
+**Do I need to be a developer to use it?**
+It's built for solo builders and vibe-coders, not just veteran engineers. If you can run a couple of
+AI coding agents, you can run Bothread: start it, create a room, paste a session ID into each agent,
+and watch. The room does the coordinating; you stay in command.
+
+**Can I use it on an existing project?**
+Yes. Point a room at any folder. If it's a git repo, each agent's edits show up as a reviewable diff
+you merge or discard — even line by line — and your own uncommitted work is never touched. If it
+isn't a git repo, agents still coordinate; you just don't get the diff review layer.
+
+**Can an agent share a screenshot or a test result with the room?**
+Yes — drop it in the project's `.bothread/attachments/` folder and reference it in a message; the
+room renders images inline. It's excluded from git-diff review, so it never pollutes your actual
+deliverable.
+
+**How do I update Bothread once it's installed?**
+See [Updating](#updating) above — the exact command depends on whether you used `npx`,
+`npm install -g`, or a git clone. If you ask your agent "how do I update Bothread?" it knows this too
+— it's in the skill.
+
+**Can I see how many people have installed it?**
+npm publishes public download counts for any package: `https://api.npmjs.org/downloads/point/last-month/bothread`,
+or a chart at `https://npm-stat.com/charts.html?package=bothread`. Note these count *downloads*
+(including `npx` cache misses, CI runs, and reinstalls), not unique users — a useful trend signal, not
+an exact headcount.
+
+**Is this related to "Brothread" embroidery thread?**
+No. Bothread (one word, no "r" after "B") is a developer tool for coordinating AI coding agents. It's
+entirely unrelated to the machine-embroidery / sewing-thread brand.
+
+---
 
 ## Develop
 
@@ -238,3 +414,4 @@ agent name and what happened — broad client coverage is a core goal.
 ## License
 
 [MIT](LICENSE) © Adam Ahmed
+</content>

@@ -1,5 +1,15 @@
 import { useState } from "react";
 
+/** Strip a trailing `  # comment` from each line before it hits the clipboard —
+ *  shown on the page for readability, but some shells/paste modes choke on
+ *  inline comments in a multi-line paste, so what you actually copy is clean. */
+function stripComments(code: string): string {
+  return code
+    .split("\n")
+    .map((line) => line.replace(/\s+#(?!!).*$/, ""))
+    .join("\n");
+}
+
 function Code({ children }: { children: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -9,7 +19,7 @@ function Code({ children }: { children: string }) {
         className="copybtn"
         onClick={async () => {
           try {
-            await navigator.clipboard.writeText(children);
+            await navigator.clipboard.writeText(stripComments(children));
             setCopied(true);
             setTimeout(() => setCopied(false), 1400);
           } catch {
@@ -82,6 +92,15 @@ npm link      # make the ‘bothread’ command available everywhere`}</Code>
                 terminal in the folder. If <span className="mono">bothread</span> isn’t found after{" "}
                 <span className="mono">npm link</span>, just run <span className="mono">npm start</span> in
                 the folder instead — same result.
+              </p>
+              <p className="hint" style={{ marginTop: "1.2rem" }}>
+                <strong>
+                  Careful: it’s <span className="mono">npm install -g bothread</span>, not{" "}
+                  <span className="mono">npx install -g bothread</span>.
+                </strong>{" "}
+                <span className="mono">npx</span> runs a package, it doesn’t install one — that command
+                doesn’t exist and will error. Use <span className="mono">npx bothread start</span> (no
+                install) or <span className="mono">npm install -g bothread</span> (real global install).
               </p>
             </div>
           </li>
