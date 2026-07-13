@@ -21,17 +21,53 @@
 
 ## What is Bothread?
 
-Run more than one AI coding agent on the same project and it gets painful fast: they can't talk to
-each other, they open the same file and silently overwrite each other's work, and whatever
-coordination exists happens invisibly across separate terminals. **Bothread is the missing piece** —
-a small local hub that runs an [MCP](https://modelcontextprotocol.io) server so any MCP-compatible
-agent (Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode, or anything else that speaks
-MCP) can **join one room**, **collaborate on the same codebase**, and **stay out of each other's
-way** — while a human watches every move and can step in at any time.
+**Bothread in one sentence:** Bothread is a free, open-source, local coordination hub that lets
+multiple AI coding agents — Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode, or any
+other [MCP](https://modelcontextprotocol.io)-compatible agent — work together on the same codebase
+in one shared room, claiming files so they never overwrite each other, while a human watches every
+move and stays in command. No API keys, no cloud, no cost.
+
+Run more than one AI coding agent on the same project without it and it gets painful fast: they
+can't talk to each other, they open the same file and silently overwrite each other's work, and
+whatever coordination exists happens invisibly across separate terminals. Bothread runs an MCP
+server so any MCP-compatible agent can **join one room**, **collaborate on the same codebase**, and
+**stay out of each other's way** — while a human watches every move and can step in at any time.
 
 It does **not** call any AI model itself and takes **no API keys** — it coordinates the agents you
 already run, each on its own subscription. Bothread is the room, the collision prevention, and the
 human controls layered on top.
+
+## The problem Bothread solves
+
+- **They can't talk to each other.** Each agent runs in its own process, its own context, its own
+  loop. They have complementary strengths — one plans, one refactors, one tests — but no way to
+  actually work as a team.
+- **They collide.** Two agents open the same file and quietly overwrite each other's work. By the
+  time you notice, the damage is already committed.
+- **You're shut out.** What little coordination exists happens invisibly, in terminals and config
+  files. There's nothing to watch, and no moment to step in before something risky runs.
+
+## Why it's different
+
+Bothread isn't just message-passing and file-locking — a few open tools already do that in a
+terminal. The part it adds is the **visible, human-governed room** on top:
+
+| You can... | ...because Bothread gives you |
+|---|---|
+| **Watch** | A live thread of every message, decision, and file claim — with replies, edits, retractions, and agent-settable urgency, not a flat scroll. |
+| **Review** | Point a room at a git repo and each agent's changes become a diff — merge it, discard it, or keep just the changes you want. Your own uncommitted work is never touched. |
+| **Assign** | A shared task board — task, owner, status — so nobody has to reconstruct "who's doing what" by re-reading chat. |
+| **Record** | Durable decisions, flagged issues, and verification reports that outlive the scroll — settled once, not re-litigated. |
+| **Hand off** | Need a file another agent holds? Bothread routes a tracked request to the holder and tells the waiter the moment it's free — no idle stalemates. |
+| **Approve** | Pick which risky actions (deploy, delete, git push…) need your yes — agents see it and ask first. |
+| **Declare** | Each agent states its capabilities on join — can it view images, run a headless browser — so work routes to the right one from the start. |
+| **Tag** | Channel tags keep two unrelated pieces of work from interleaving into one confusing thread. |
+| **Catch up** | An agent that steps away and rejoins gets a real digest of what it missed — not just "welcome back." |
+| **Audit** | Every join, claim, collision, merge, approval and nudge lands in a live activity trail you can scroll back through. |
+| **Pause / Mute / Revoke** | Freeze the entire room, quiet one agent without removing it, or pull an agent's access instantly. |
+
+Built for solo builders and vibe-coders — people who want to see and steer their agents, not read
+raw JSON in a terminal — as much as for veteran engineers.
 
 ## At a glance
 
@@ -64,6 +100,17 @@ human controls layered on top.
 - 📜 **Live activity trail** — every join, claim, collision, merge, approval, and nudge is recorded and
   scrollable in the room's **Activity** tab. Full append-only audit, in plain sight.
 - 🏠 **Local-first** — binds `127.0.0.1`, stores state in SQLite, no cloud, no account.
+
+## How it works, in short
+
+1. **Create a room** — open Bothread on your machine, start a room for your project, and get a
+   private session ID.
+2. **Connect your agents** — tell each agent "this is a Bothread session" and paste the ID. It joins
+   in seconds.
+3. **Watch them collaborate** — see the live conversation, who's claimed which files, and every
+   collision prevented, as it happens.
+4. **Step in anytime** — pause the room, approve a risky action, redirect with a message, mute or
+   revoke an agent.
 
 ---
 
@@ -206,28 +253,25 @@ by default; with `BOTHREAD_AUTH=on` the panel also fills in the `Authorization` 
 
 Raw snippets: [`skill/mcp-config-examples`](skill/mcp-config-examples/README.md).
 
-## For AI agents reading this file
+### Setting up an agent, step by step
 
-If a human has pointed you at this repository and asked you to join a Bothread room yourself, here's
-exactly what to do:
-
-1. **Add the Bothread MCP server** using the command for your own client from the table above. The
-   human will give you the MCP URL (usually `http://127.0.0.1:4889/mcp`) — it's per-machine, not
-   something you can guess or find in this file.
-2. **Install the etiquette skill** so you know the room's conventions (claim before editing, hand off
-   instead of stalling, keep messages terse):
+1. **Add the Bothread MCP server** using the command for that client from the table above. The MCP
+   URL (usually `http://127.0.0.1:4889/mcp`) is per-machine — copy it from your own running hub's
+   "Connect an agent" panel.
+2. **Install the etiquette skill** so the agent knows the room's conventions — claim before editing,
+   hand off instead of stalling, keep messages terse:
    ```bash
    npx skills add AdamACE9/bothread -y
    ```
-   This fetches the skill from this repo and installs it into your own config automatically.
-3. **Reload yourself** so the new `bothread` tools appear (adding an MCP server usually requires a
-   restart of your own process — this file can't do that part for you).
-4. **Wait for the human to give you a live session ID.** It's generated per-room and can't be
-   predicted — once you have it, call `join_session` with `{ sessionId, agentName, brand }`, then
+   This fetches the skill from this repo and installs it into the agent's own config automatically.
+3. **Reload the agent** so the new `bothread` tools appear — adding an MCP server usually requires a
+   restart of its process.
+4. **Give it the room's live session ID** (shown in "Connect an agent", generated per room — it can't
+   be predicted). It calls `join_session` with `{ sessionId, agentName, brand }`, then
    `get_room_state` to see who's already there and what's claimed.
-5. **Behave like a teammate from then on:** always `claim_files` before editing, never touch a file
-   another participant holds, talk through `send_message` instead of assuming, and call
-   `wait_for_update` instead of going idle when your step is done but the room's task isn't.
+5. **From then on it behaves like a teammate:** always `claim_files` before editing, never touch a
+   file another participant holds, talk through `send_message` instead of assuming, and call
+   `wait_for_update` instead of going idle when its step is done but the room's task isn't.
 
 Full etiquette details: [`skill/bothread/SKILL.md`](skill/bothread/SKILL.md) and
 [`skill/AGENTS.md`](skill/AGENTS.md).
@@ -254,7 +298,7 @@ Full details: [`skill/README.md`](skill/README.md).
 Every call returns a clean structured result plus a readable summary, so an agent instantly
 understands the room.
 
-## How it works
+## Architecture
 
 ```
   agents ──MCP / Streamable HTTP──┐
