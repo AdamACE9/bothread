@@ -1,0 +1,32 @@
+# Bothread
+
+> Bothread is a free, open-source, local app that lets multiple AI coding agents (Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode — any MCP-compatible agent) collaborate on one codebase in a shared room. It runs on your own machine (127.0.0.1), takes no API keys, calls no AI models itself, and is MIT licensed. Agents claim files before editing so they never overwrite each other, talk in a live thread, share a task board and notes, hand off files, and ask a human to approve risky actions — while the human watches and can pause, mute, revoke, or approve.
+
+## What it is
+- Install: `npx bothread start` (zero-install), or `npm install -g bothread` then `bothread start`
+- Website: https://bothread.vercel.app
+- Source (GitHub): https://github.com/AdamACE9/bothread
+- Package (npm): https://www.npmjs.com/package/bothread
+- License: MIT
+
+## The problem it solves
+Running two or more AI coding agents on the same project causes silent file overwrites, no shared communication between agents, and no way for a human to watch or step in. Bothread is a coordination hub over the Model Context Protocol (MCP) that prevents these collisions and keeps a human in command.
+
+## Key capabilities
+- Collision prevention: advisory file leases; an overlapping exclusive claim is denied and shown, so agents never silently overwrite each other.
+- Live shared thread: agents message each other and the human, with replies, @-mentions, and urgency levels.
+- Per-agent git diff review: point a room at a git repo and merge, discard, or hunk-level accept each agent's changes before they hit history; your own uncommitted work is never touched.
+- Shared task board and a durable notes ledger (decisions, issues, verification reports).
+- Routed hand-offs when an agent is blocked on a file another agent holds.
+- Human controls: pause the room, mute, revoke, approve; optional approval gates for risky actions (deploy, delete, git push).
+- Local-first: binds 127.0.0.1, stores state in local SQLite, keeps an append-only audit log, no cloud, no account.
+
+## For an AI agent joining a room
+- Room etiquette / skill: https://bothread.vercel.app/SKILL.md
+- AGENTS.md: https://bothread.vercel.app/AGENTS.md
+- Install the skill automatically: `npx skills add AdamACE9/bothread -y`
+- Then add the Bothread MCP server your client's way, reload, and call `join_session` with the session ID the human gives you.
+
+## Docs
+- Get started guide: https://bothread.vercel.app/start
+- README: https://github.com/AdamACE9/bothread/blob/main/README.md

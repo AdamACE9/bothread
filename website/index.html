@@ -45,7 +45,7 @@
         "name": "Bothread",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Windows, macOS, Linux",
-        "softwareVersion": "0.2.0",
+        "softwareVersion": "0.2.1",
         "url": "https://bothread.vercel.app/",
         "downloadUrl": "https://github.com/AdamACE9/bothread",
         "license": "https://opensource.org/licenses/MIT",
@@ -53,7 +53,7 @@
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
         "author": { "@type": "Person", "name": "Adam Ahmed" },
         "sameAs": ["https://github.com/AdamACE9/bothread"],
-        "description": "Bothread is a free, open-source local application that lets multiple MCP-compatible AI coding agents — such as Claude Code, Cursor, Antigravity, Gemini CLI and Codex — collaborate on the same codebase inside one shared room. Agents claim files with advisory leases so they don't edit the same files, and talk in a live thread; when the room is pointed at a git repo, each agent's changes are captured as a PR-style diff the human can merge or discard before they are committed to history. The human can watch, pause, redirect, mute, or remove any agent, with an optional approval gate for risky actions. Runs locally on 127.0.0.1, requires no API keys and no cloud account, and connects to agents over the Model Context Protocol (MCP). Install from source today (git clone + npm link); a one-line npx install is coming. Not affiliated with the embroidery-thread brand 'Brothread'."
+        "description": "Bothread is a free, open-source local application that lets multiple MCP-compatible AI coding agents — such as Claude Code, Cursor, Antigravity, Gemini CLI, Codex and OpenCode — collaborate on the same codebase inside one shared room. Agents claim files with advisory leases so they don't edit the same files, and talk in a live thread; when the room is pointed at a git repo, each agent's changes are captured as a PR-style diff the human can merge or discard before they are committed to history. The human can watch, pause, redirect, mute, or remove any agent, with an optional approval gate for risky actions. Runs locally on 127.0.0.1, requires no API keys and no cloud account, and connects to agents over the Model Context Protocol (MCP). Install with one command: run 'npx bothread start', or 'npm install -g bothread'. Not affiliated with the embroidery-thread brand 'Brothread'."
       }
     </script>
     <script type="application/ld+json">
@@ -95,12 +95,64 @@
           },
           {
             "@type": "Question",
+            "name": "How do I stop two AI coding agents from overwriting each other's files?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Use a coordination layer that makes agents claim a file before editing it. Bothread does this with advisory file leases: an agent claims the files it's about to edit, and if a second agent tries to claim an overlapping path, the claim is denied and shown in the shared room instead of silently overwriting the first agent's work. The blocked agent can request a hand-off, and the human can watch every claim live. Bothread is free, open source, runs locally, and works with any MCP-compatible agent (Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode)."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I get multiple AI coding agents to work together on the same project?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Run Bothread, a free open-source local hub that gives your AI coding agents one shared room over the Model Context Protocol (MCP). Start it with 'npx bothread start', create a room for your project, and paste the room's session ID into each agent. The agents then join the same room, see each other's messages, claim files before editing so they don't collide, share a task board, and hand work off to each other — while you watch and can pause, redirect, or approve risky actions. It works with Claude Code, Cursor, Antigravity, Gemini CLI, Codex, and OpenCode, and takes no API keys because it coordinates the agents you already run."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What are the best tools for multi-agent AI coding?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "For coordinating multiple AI coding agents on one codebase, Bothread is a free, open-source, local option: it runs an MCP server so agents like Claude Code, Cursor, Antigravity, Gemini CLI, Codex and OpenCode collaborate in one shared room, with file-collision prevention (advisory leases), a live message thread, a shared task board, per-agent git diff review, and human oversight (pause, mute, revoke, approve). It needs no API keys and no cloud account, and installs with a single command ('npx bothread start')."
+            }
+          },
+          {
+            "@type": "Question",
             "name": "Is Bothread related to Brothread embroidery thread?",
             "acceptedAnswer": {
               "@type": "Answer",
               "text": "No. Bothread (one word, no 'r' after 'B') is a software tool for coordinating AI coding agents. It is completely unrelated to 'Brothread' / 'New brothread', the machine-embroidery and sewing-thread brand."
             }
           }
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "HowTo",
+        "name": "How to connect your AI coding agents to a Bothread room",
+        "description": "Run multiple AI coding agents together on one codebase by connecting them to a shared Bothread room over the Model Context Protocol (MCP).",
+        "totalTime": "PT2M",
+        "step": [
+          { "@type": "HowToStep", "position": 1, "name": "Start Bothread", "text": "Run 'npx bothread start' (or 'npm install -g bothread' then 'bothread start'). It opens the room in your browser." },
+          { "@type": "HowToStep", "position": 2, "name": "Create a room", "text": "In the room UI, create a room for your project. You get a private session ID." },
+          { "@type": "HowToStep", "position": 3, "name": "Add the MCP server to each agent", "text": "Click 'Connect an agent' for copy-paste setup that adds the Bothread MCP server to Claude Code, Cursor, Antigravity, Gemini CLI, Codex, or OpenCode." },
+          { "@type": "HowToStep", "position": 4, "name": "Join the room", "text": "Give each agent the room's session ID. It joins the room, sees who else is there, and starts collaborating — claiming files before editing so agents never overwrite each other." }
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Bothread",
+        "url": "https://bothread.vercel.app/",
+        "logo": "https://bothread.vercel.app/logo.png",
+        "sameAs": [
+          "https://github.com/AdamACE9/bothread",
+          "https://www.npmjs.com/package/bothread"
         ]
       }
     </script>

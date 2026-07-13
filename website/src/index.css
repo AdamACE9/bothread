@@ -1767,6 +1767,87 @@ footer {
   }
 }
 
+/* ============================ PRESS KIT ============================ */
+.press-h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 1.2rem + 0.8vw, 1.9rem);
+  margin: 2.6rem 0 1.1rem;
+}
+.press-p {
+  color: var(--parchment-1);
+  line-height: 1.7;
+  max-width: 68ch;
+  margin-bottom: 1rem;
+}
+.press-copy {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--copper);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: rgba(34, 29, 22, 0.4);
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+  max-width: 72ch;
+}
+.press-copy-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--saffron);
+  margin-bottom: 0.5rem;
+}
+.press-copy p {
+  color: var(--parchment);
+  line-height: 1.65;
+}
+.press-facts {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  max-width: 72ch;
+}
+.press-facts li {
+  color: var(--parchment-1);
+  line-height: 1.55;
+}
+.press-facts strong {
+  color: var(--parchment);
+}
+.press-facts a {
+  color: var(--saffron);
+  border-bottom: 1px solid rgba(226, 169, 76, 0.4);
+}
+.press-assets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.2rem;
+  margin-top: 0.6rem;
+}
+.press-assets figure {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+}
+.press-assets img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #0d0b08;
+}
+.press-assets figcaption {
+  padding: 0.7rem 0.9rem;
+  font-size: 0.82rem;
+  color: var(--muted-1);
+}
+.press-assets figcaption a {
+  color: var(--saffron);
+}
+
 /* ============================================================================
    2026 redesign polish — more air, premium cards, alive interactions
    ========================================================================== */

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import Background from "./components/Background";
 import Nav from "./components/Nav";
 import Hero from "./components/Hero";
@@ -9,10 +10,46 @@ import Feedback from "./components/Feedback";
 import Footer from "./components/Footer";
 import Reveal from "./components/Reveal";
 import Setup from "./components/Setup";
+import Press from "./components/Press";
 import Faq from "./components/Faq";
 
-function isSetupRoute(): boolean {
-  return window.location.pathname.replace(/\/+$/, "") === "/start";
+type Route = "home" | "start" | "press";
+
+function currentRoute(): Route {
+  const path = window.location.pathname.replace(/\/+$/, "");
+  if (path === "/start") return "start";
+  if (path === "/press") return "press";
+  return "home";
+}
+
+/** Per-route <title> + meta description so /start and /press aren't duplicates of home
+ *  (a real SEO signal; the raw HTML already carries the home-page tags for crawlers). */
+const ROUTE_META: Record<Route, { title: string; description: string }> = {
+  home: {
+    title: "Bothread — run your AI coding agents together on one codebase (local, MCP)",
+    description:
+      "Bothread is a free, open-source local app where the AI coding agents you already use — Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode — work together on one codebase over MCP without overwriting each other, while you watch and approve every step. No API keys, no cloud.",
+  },
+  start: {
+    title: "Get started with Bothread — connect your AI coding agents",
+    description:
+      "Install Bothread and connect your AI coding agents (Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode) to one shared room in about two minutes. Free, local, no API keys.",
+  },
+  press: {
+    title: "Bothread — press & media kit",
+    description:
+      "Press kit for Bothread: the one-liner, boilerplate, fast facts, links, and logo assets. Free, open-source local coordination for multiple AI coding agents on one codebase.",
+  },
+};
+
+function useRouteMeta(route: Route) {
+  useEffect(() => {
+    const meta = ROUTE_META[route];
+    document.title = meta.title;
+    document
+      .querySelector('meta[name="description"]')
+      ?.setAttribute("content", meta.description);
+  }, [route]);
 }
 
 function Home() {
@@ -52,13 +89,14 @@ function Home() {
 }
 
 export default function App() {
-  const setup = isSetupRoute();
+  const route = currentRoute();
+  useRouteMeta(route);
   return (
     <>
       <Background />
       <div className="grain" aria-hidden="true" />
       <Nav />
-      {setup ? <Setup /> : <Home />}
+      {route === "start" ? <Setup /> : route === "press" ? <Press /> : <Home />}
       <Footer />
     </>
   );
