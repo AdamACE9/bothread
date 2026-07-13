@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import ThreadMark from "./ThreadMark";
 
 export default function Nav() {
   const [scrolled, setScrolled] = useState(false);
@@ -14,10 +13,7 @@ export default function Nav() {
     <header className={`nav ${scrolled ? "scrolled" : ""}`}>
       <div className="container nav-inner">
         <a className="brand" href="/" aria-label="Bothread — home">
-          <ThreadMark />
-          <span>
-            Bo<b>thread</b>
-          </span>
+          <img src="/logo.png" alt="Bothread" className="brand-logo" />
         </a>
         <nav className="nav-pill" aria-label="Primary">
           <a href="/#how">How it works</a>

@@ -347,14 +347,12 @@ label {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  font-family: var(--font-display);
-  font-size: 1.25rem;
-  letter-spacing: -0.02em;
   flex: none;
 }
-.brand b {
-  font-weight: 500;
+.brand-logo {
+  height: clamp(1.6rem, 1.3rem + 1vw, 2.2rem);
+  width: auto;
+  display: block;
 }
 
 /* the glass pill — floats free of the page chrome from the very first pixel,
