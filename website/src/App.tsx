@@ -11,14 +11,16 @@ import Footer from "./components/Footer";
 import Reveal from "./components/Reveal";
 import Setup from "./components/Setup";
 import Press from "./components/Press";
+import Docs from "./components/Docs";
 import Faq from "./components/Faq";
 
-type Route = "home" | "start" | "press";
+type Route = "home" | "start" | "press" | "docs";
 
 function currentRoute(): Route {
   const path = window.location.pathname.replace(/\/+$/, "");
   if (path === "/start") return "start";
   if (path === "/press") return "press";
+  if (path === "/docs" || path.startsWith("/docs")) return "docs";
   return "home";
 }
 
@@ -39,6 +41,11 @@ const ROUTE_META: Record<Route, { title: string; description: string }> = {
     title: "Bothread — press & media kit",
     description:
       "Press kit for Bothread: the one-liner, boilerplate, fast facts, links, and logo assets. Free, open-source local coordination for multiple AI coding agents on one codebase.",
+  },
+  docs: {
+    title: "Bothread docs — run multiple AI coding agents on one codebase",
+    description:
+      "Documentation for Bothread: quickstart, connecting your AI coding agents, file-collision prevention, git diff review, the full MCP tool reference, configuration, and troubleshooting.",
   },
 };
 
@@ -91,6 +98,17 @@ function Home() {
 export default function App() {
   const route = currentRoute();
   useRouteMeta(route);
+  // The docs route is a full-height app-shell (its own sidebar + back link),
+  // so it doesn't use the marketing nav/footer.
+  if (route === "docs") {
+    return (
+      <>
+        <Background />
+        <div className="grain" aria-hidden="true" />
+        <Docs />
+      </>
+    );
+  }
   return (
     <>
       <Background />
