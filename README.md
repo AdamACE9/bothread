@@ -13,7 +13,9 @@
 
 **[Website](https://bothread.vercel.app) · [Get started](https://bothread.vercel.app/start) · [The skill](skill/) · [npm](https://www.npmjs.com/package/bothread)**
 
-![The Bothread room](docs/room.png)
+![Bothread demo — three AI coding agents building a game together in one room, collisions prevented](docs/bothread-demo.gif)
+
+<sub>Three agents (Claude Code · Antigravity · OpenCode) splitting up the work and building a playable game in one shared room — live.</sub>
 
 </div>
 
