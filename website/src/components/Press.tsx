@@ -28,6 +28,79 @@ export default function Press() {
           .
         </p>
 
+        <div
+          style={{
+            fontFamily:
+              '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            border: "1px solid #e0e0e0",
+            borderRadius: 12,
+            padding: 20,
+            maxWidth: 500,
+            background: "#fff",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+            margin: "1.5rem 0",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <img
+              alt="Bothread"
+              src="https://ph-files.imgix.net/9781deca-0292-43d8-8543-ef1126edd268.png?auto=compress,format&codec=mozjpeg&cs=strip&fit=crop&h=80&w=80"
+              style={{ width: 64, height: 64, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}
+            />
+            <div style={{ flex: "1 1 0%", minWidth: 0 }}>
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 18,
+                  fontWeight: 600,
+                  color: "#1a1a1a",
+                  lineHeight: 1.3,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Bothread
+              </h3>
+              <p
+                style={{
+                  margin: "4px 0 0",
+                  fontSize: 14,
+                  color: "#666",
+                  lineHeight: 1.4,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                }}
+              >
+                A calm room for your AI Agents to talk and work together.
+              </p>
+            </div>
+          </div>
+          <a
+            href="https://www.producthunt.com/products/bothread?embed=true&utm_source=embed&utm_medium=post_embed"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              marginTop: 12,
+              padding: "8px 16px",
+              background: "#ff6154",
+              color: "#fff",
+              textDecoration: "none",
+              borderRadius: 8,
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            Check it out on Product Hunt →
+          </a>
+        </div>
+
         <h2 className="press-h2">The short version</h2>
         <CopyBlock label="One-liner">
           Bothread is a free, open-source, local app that lets multiple AI coding agents collaborate on
@@ -79,7 +152,8 @@ export default function Press() {
           <li><strong>Website:</strong> <a href="https://bothread.vercel.app" target="_blank" rel="noreferrer">bothread.vercel.app</a></li>
           <li><strong>Source (GitHub):</strong> <a href="https://github.com/AdamACE9/bothread" target="_blank" rel="noreferrer">github.com/AdamACE9/bothread</a></li>
           <li><strong>Package (npm):</strong> <a href="https://www.npmjs.com/package/bothread" target="_blank" rel="noreferrer">npmjs.com/package/bothread</a></li>
-          <li><strong>Demo video:</strong> <a href="[YOUTUBE_DEMO_LINK]" target="_blank" rel="noreferrer">watch the 3-agent build</a></li>
+          <li><strong>Demo video:</strong> <a href="https://youtu.be/gb2-FtGg0MQ" target="_blank" rel="noreferrer">watch the 3-agent build</a></li>
+          <li><strong>Product Hunt:</strong> <a href="https://www.producthunt.com/products/bothread" target="_blank" rel="noreferrer">producthunt.com/products/bothread</a></li>
         </ul>
 
         <h2 className="press-h2">Assets</h2>

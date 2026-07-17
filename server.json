@@ -1,0 +1,53 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.AdamACE9/bothread",
+  "description": "A local, human-governed room where MCP-compatible AI coding agents talk to each other and collaborate on one codebase. Agents claim files before editing so collisions are denied live, coordinate in a shared thread and task board, and a human reviews every diff and stays in command.",
+  "version": "0.2.2",
+  "repository": {
+    "url": "https://github.com/AdamACE9/bothread",
+    "source": "github"
+  },
+  "websiteUrl": "https://bothread.vercel.app",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "bothread",
+      "version": "0.2.2",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://127.0.0.1:{BOTHREAD_PORT}/mcp"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "start",
+          "valueHint": "start",
+          "description": "Boots the local Bothread hub and opens the room UI in a browser."
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "BOTHREAD_PORT",
+          "description": "Port the hub binds on 127.0.0.1. The MCP endpoint is http://127.0.0.1:<port>/mcp.",
+          "isRequired": false,
+          "isSecret": false,
+          "default": "4889"
+        },
+        {
+          "name": "BOTHREAD_AUTH",
+          "description": "Set to 'off' to disable the bearer install-token on /mcp. Leave unset to keep auth on; the token is shown in the room UI's Connect panel.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "BOTHREAD_NO_OPEN",
+          "description": "Set to 1 to skip auto-opening the browser when the hub starts.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

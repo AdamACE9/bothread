@@ -18,6 +18,7 @@ export default function Nav() {
         <nav className="nav-pill" aria-label="Primary">
           <a href="/#how">How it works</a>
           <a href="/#why">Why it’s different</a>
+          <a href="/compare">Compare</a>
           <a href="/docs">Docs</a>
           <a href="/#faq">FAQ</a>
         </nav>

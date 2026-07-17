@@ -12,14 +12,16 @@ import Reveal from "./components/Reveal";
 import Setup from "./components/Setup";
 import Press from "./components/Press";
 import Docs from "./components/Docs";
+import Compare from "./components/Compare";
 import Faq from "./components/Faq";
 
-type Route = "home" | "start" | "press" | "docs";
+type Route = "home" | "start" | "press" | "docs" | "compare";
 
 function currentRoute(): Route {
   const path = window.location.pathname.replace(/\/+$/, "");
   if (path === "/start") return "start";
   if (path === "/press") return "press";
+  if (path === "/compare") return "compare";
   if (path === "/docs" || path.startsWith("/docs")) return "docs";
   return "home";
 }
@@ -46,6 +48,11 @@ const ROUTE_META: Record<Route, { title: string; description: string }> = {
     title: "Bothread docs — run multiple AI coding agents on one codebase",
     description:
       "Documentation for Bothread: quickstart, connecting your AI coding agents, file-collision prevention, git diff review, the full MCP tool reference, configuration, and troubleshooting.",
+  },
+  compare: {
+    title: "Bothread vs git worktrees vs Claude Squad — running multiple AI coding agents on one repo",
+    description:
+      "An honest comparison of the ways to run multiple AI coding agents on one codebase — raw terminals, git worktrees, Claude Squad, and Bothread — with the tradeoffs of each and when to reach for a shared coordination room vs hard isolation.",
   },
 };
 
@@ -114,7 +121,15 @@ export default function App() {
       <Background />
       <div className="grain" aria-hidden="true" />
       <Nav />
-      {route === "start" ? <Setup /> : route === "press" ? <Press /> : <Home />}
+      {route === "start" ? (
+        <Setup />
+      ) : route === "press" ? (
+        <Press />
+      ) : route === "compare" ? (
+        <Compare />
+      ) : (
+        <Home />
+      )}
       <Footer />
     </>
   );
