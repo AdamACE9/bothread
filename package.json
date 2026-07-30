@@ -44,6 +44,7 @@
     "bin/bothread.mjs",
     "dist-server/server.js",
     "apps/room-ui/dist",
+    "scripts/postinstall.mjs",
     "LICENSE",
     "README.md"
   ],
@@ -58,6 +59,7 @@
     "apps/*"
   ],
   "scripts": {
+    "postinstall": "node scripts/postinstall.mjs",
     "start": "node bin/bothread.mjs start",
     "hub": "npm run start -w @bothread/server",
     "dev:hub": "npm run dev -w @bothread/server",

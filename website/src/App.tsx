@@ -14,14 +14,16 @@ import Press from "./components/Press";
 import Docs from "./components/Docs";
 import Compare from "./components/Compare";
 import Faq from "./components/Faq";
+import Admin from "./components/Admin";
 
-type Route = "home" | "start" | "press" | "docs" | "compare";
+type Route = "home" | "start" | "press" | "docs" | "compare" | "admin";
 
 function currentRoute(): Route {
   const path = window.location.pathname.replace(/\/+$/, "");
   if (path === "/start") return "start";
   if (path === "/press") return "press";
   if (path === "/compare") return "compare";
+  if (path === "/admin") return "admin";
   if (path === "/docs" || path.startsWith("/docs")) return "docs";
   return "home";
 }
@@ -54,6 +56,10 @@ const ROUTE_META: Record<Route, { title: string; description: string }> = {
     description:
       "An honest comparison of the ways to run multiple AI coding agents on one codebase — raw terminals, git worktrees, Claude Squad, and Bothread — with the tradeoffs of each and when to reach for a shared coordination room vs hard isolation.",
   },
+  admin: {
+    title: "Bothread admin",
+    description: "Bothread usage dashboard.",
+  },
 };
 
 function useRouteMeta(route: Route) {
@@ -63,6 +69,20 @@ function useRouteMeta(route: Route) {
     document
       .querySelector('meta[name="description"]')
       ?.setAttribute("content", meta.description);
+
+    // Keep the admin dashboard out of search engines. Restore the default
+    // (indexable) directive on any other route.
+    let robots = document.querySelector('meta[name="robots"]');
+    if (route === "admin") {
+      if (!robots) {
+        robots = document.createElement("meta");
+        robots.setAttribute("name", "robots");
+        document.head.appendChild(robots);
+      }
+      robots.setAttribute("content", "noindex, nofollow");
+    } else if (robots) {
+      robots.setAttribute("content", "index, follow");
+    }
   }, [route]);
 }
 
@@ -116,6 +136,7 @@ export default function App() {
       </>
     );
   }
+  if (route === "admin") return <Admin />;
   return (
     <>
       <Background />

@@ -2270,3 +2270,243 @@ footer {
   transform: translateY(-2px);
   box-shadow: 0 1px 0 rgba(255, 220, 180, 0.3) inset, 0 20px 40px -16px rgba(207, 122, 60, 0.7);
 }
+
+/* ============================================================================
+   /admin — internal usage dashboard. Page chrome reuses the site's existing
+   dark ink/parchment tokens; chart series use the validated CVD-safe
+   categorical palette (dark-surface steps) rather than the brand thread
+   colors, since those haven't been run through the palette validator.
+   ========================================================================== */
+.admin-root,
+.admin-gate {
+  --series-1: #3987e5; /* blue */
+  --series-2: #d95926; /* orange */
+  --series-3: #199e70; /* aqua */
+  --series-4: #c98500; /* yellow */
+  --viz-grid: #2c2c2a;
+  min-height: 100vh;
+  background: var(--ink);
+  color: var(--parchment);
+  font-family: var(--font-body);
+}
+
+.admin-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.admin-gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  width: min(320px, 90vw);
+}
+.admin-gate-form h1 {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  margin: 0 0 0.4rem;
+}
+.admin-gate-form input {
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--parchment);
+  font-size: 1rem;
+}
+.admin-gate-form button {
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  border: none;
+  background: var(--copper);
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+.admin-gate-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.admin-error {
+  color: var(--clay);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.admin-root {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+.admin-header h1 {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  margin: 0 0 0.3rem;
+}
+.admin-sub {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0 0 2rem;
+}
+
+.admin-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+.admin-tile {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 1.2rem 1.3rem;
+}
+.admin-tile-value {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  line-height: 1;
+}
+.admin-tile-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.4rem;
+}
+
+.admin-section {
+  margin-bottom: 2.5rem;
+}
+.admin-section h2 {
+  font-size: 1.1rem;
+  margin: 0 0 1rem;
+  color: var(--parchment-1);
+}
+.admin-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+@media (max-width: 640px) {
+  .admin-two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-empty {
+  color: var(--muted);
+}
+
+.admin-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.1rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.85rem;
+  color: var(--muted-1);
+}
+.admin-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.admin-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.admin-table-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--parchment-1);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.admin-line-chart {
+  width: 100%;
+  height: 220px;
+}
+.admin-gridline {
+  stroke: var(--viz-grid);
+  stroke-width: 1;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid var(--line-soft);
+  font-variant-numeric: tabular-nums;
+}
+.admin-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.admin-hour-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+.admin-hour-col {
+  flex: 1;
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.admin-hour-fill {
+  width: 100%;
+  background: var(--series-1);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+}
+.admin-hour-tick {
+  position: absolute;
+  bottom: -1.3rem;
+  left: 0;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.admin-bar-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 50px;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.85rem;
+}
+.admin-bar-label {
+  color: var(--parchment-1);
+}
+.admin-bar-track {
+  background: var(--surface);
+  border-radius: 5px;
+  height: 14px;
+  overflow: hidden;
+}
+.admin-bar-fill {
+  height: 100%;
+  border-radius: 5px;
+}
+.admin-bar-value {
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

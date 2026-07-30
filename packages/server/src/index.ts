@@ -11,6 +11,7 @@ import { buildApp } from "./http";
 import { logger } from "./logger";
 import { McpHub } from "./mcp/transport";
 import { RoomBus } from "./realtime";
+import { sendTelemetry } from "./telemetry";
 
 function resolveUiDir(): string | undefined {
   if (process.env.BOTHREAD_UI_DIR) return process.env.BOTHREAD_UI_DIR;
@@ -120,6 +121,10 @@ async function main(): Promise<void> {
     console.log("  Stop with Ctrl-C.");
     console.log("");
     logger.info({ port: config.port }, "Bothread hub listening");
+    sendTelemetry("bothread_start", {
+      channel: process.env.BOTHREAD_CHANNEL,
+      version: process.env.BOTHREAD_VERSION,
+    });
     if (config.uiDir) openBrowser(`${base}/`);
   });
 

@@ -344,6 +344,23 @@ understands the room.
 - **Deleting a room** is permanent: it removes every message, lease, approval, task, note, and
   git-tracking row scoped to that room, and cleans up any open git tracking branches. There's no undo.
 
+### Privacy & telemetry
+
+Bothread sends a small number of **anonymous** usage pings: when the package is fetched (`npm install
+-g` or the first `npx bothread`), when the hub starts, and when a room is created. Each one carries
+only an event name, your OS (Windows/Mac/Linux), the install channel (`npx`/`global`/dev-clone), and
+the package version — nothing else. No file paths, no room names or message content, no project
+contents, no IP address captured on our side, no identifiers of any kind. It's a write-only counter:
+nothing sent by the CLI can be read back by anyone but the maintainer.
+
+To turn it off entirely:
+
+```
+BOTHREAD_NO_TELEMETRY=1 bothread start
+```
+
+or export it once in your shell profile to disable it for every run.
+
 ---
 
 ## FAQ

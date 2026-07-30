@@ -11,6 +11,7 @@ import { BothreadError } from "./engine/errors";
 import { logger } from "./logger";
 import type { McpHub } from "./mcp/transport";
 import type { RoomBus } from "./realtime";
+import { sendTelemetry } from "./telemetry";
 
 export interface HttpDeps {
   engine: Engine;
@@ -123,6 +124,10 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
       const { name, projectPath, settings } = req.body ?? {};
       if (!name || typeof name !== "string") throw new BothreadError("bad_input", "A room name is required.");
       const { room, sessionId } = engine.createRoom({ name, projectPath, settings });
+      sendTelemetry("room_created", {
+        channel: process.env.BOTHREAD_CHANNEL,
+        version: process.env.BOTHREAD_VERSION,
+      });
       res.json({ room, sessionId });
     })
   );

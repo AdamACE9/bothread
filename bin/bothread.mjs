@@ -10,11 +10,27 @@
  * `npm install -g bothread` (or `npx bothread start` for zero-install).
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// Which channel installed/invoked this run — purely for the anonymous usage
+// counters (see packages/server/src/telemetry.ts). `_npx` is npm/npx's cache
+// directory name on every OS, so a package resolved from inside it means this
+// run came from `npx bothread`, cached or not.
+function detectChannel() {
+  if (existsSync(path.join(root, "packages", "server", "src", "index.ts"))) return "dev-clone";
+  return root.includes(`${path.sep}_npx${path.sep}`) || root.includes("/_npx/") ? "npx" : "global";
+}
+function pkgVersion() {
+  try {
+    return JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version ?? "";
+  } catch {
+    return "";
+  }
+}
 const isWin = process.platform === "win32";
 const args = process.argv.slice(2);
 const cmd = (args[0] ?? "start").toLowerCase();
@@ -105,10 +121,11 @@ function help() {
     bothread help        Show this help
 
   Options (env vars):
-    BOTHREAD_PORT=4889   Port to bind on 127.0.0.1
-    BOTHREAD_AUTH=off    Disable the agent bearer token (local only)
-    BOTHREAD_NO_OPEN=1   Don't auto-open the browser
-    BOTHREAD_DB=path     SQLite file (default: per-user data dir)
+    BOTHREAD_PORT=4889     Port to bind on 127.0.0.1
+    BOTHREAD_AUTH=off      Disable the agent bearer token (local only)
+    BOTHREAD_NO_OPEN=1     Don't auto-open the browser
+    BOTHREAD_DB=path       SQLite file (default: per-user data dir)
+    BOTHREAD_NO_TELEMETRY=1  Disable anonymous usage telemetry (see README)
 `);
 }
 
@@ -194,12 +211,14 @@ function uiNeedsBuild() {
 const isDevClone = existsSync(path.join(root, "packages", "server", "src", "index.ts"));
 const prodBundle = path.join(root, "dist-server", "server.js");
 
+const runEnv = { ...process.env, BOTHREAD_CHANNEL: detectChannel(), BOTHREAD_VERSION: pkgVersion() };
+
 if (!isDevClone && existsSync(prodBundle)) {
   // ── Production mode (npm install / npx): use the pre-built bundle. ──
   const hub = spawn(process.execPath, [prodBundle], {
     stdio: "inherit",
     cwd: root,
-    env: process.env,
+    env: runEnv,
   });
   hub.on("exit", (code) => process.exit(code ?? 0));
   process.on("SIGINT", () => hub.kill("SIGINT"));
@@ -219,7 +238,7 @@ if (!isDevClone && existsSync(prodBundle)) {
   const hub = spawn(process.execPath, [tsxCli, path.join(root, "packages", "server", "src", "index.ts")], {
     stdio: "inherit",
     cwd: root,
-    env: process.env,
+    env: runEnv,
   });
   hub.on("exit", (code) => process.exit(code ?? 0));
   process.on("SIGINT", () => hub.kill("SIGINT"));

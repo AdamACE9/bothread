@@ -15,6 +15,13 @@ service cloud.firestore {
       allow create: if isValidFeedback();
     }
 
+    // Anonymous CLI usage counters. Write-only from outside — nobody but the
+    // admin dashboard's server-side (Admin SDK, bypasses these rules) reads it.
+    match /telemetry/{docId} {
+      allow read, list, update, delete: if false;
+      allow create: if isValidTelemetry();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
@@ -46,6 +53,19 @@ service cloud.firestore {
              && d.email.matches('^[^@\\s]+@[^@\\s]+[.][^@\\s]+$')))
         && (!('userAgent' in d) || (d.userAgent is string && d.userAgent.size() <= 512))
         && (!('page' in d) || (d.page is string && d.page.size() <= 200));
+    }
+
+    function isValidTelemetry() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['event', 'platform', 'ts'])
+        && d.keys().hasOnly(['event', 'platform', 'ts', 'channel', 'version'])
+        && d.event is string
+        && d.event in ['package_installed', 'bothread_start', 'room_created']
+        && d.platform is string
+        && d.platform in ['windows', 'mac', 'linux', 'other']
+        && d.ts is timestamp
+        && (!('channel' in d) || (d.channel is string && d.channel in ['npx', 'global', 'dev-clone', 'other']))
+        && (!('version' in d) || (d.version is string && d.version.size() <= 40));
     }
   }
 }
