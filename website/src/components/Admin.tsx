@@ -4,7 +4,7 @@ type EventKey = "package_installed" | "bothread_start" | "room_created";
 type Platform = "windows" | "mac" | "linux" | "other";
 type Channel = "npx" | "global" | "dev-clone" | "other";
 
-interface Stats {
+interface TelemetryStats {
   totals: Record<EventKey, number>;
   byPlatform: Record<Platform, number>;
   byChannel: Record<Channel, number>;
@@ -13,6 +13,40 @@ interface Stats {
   sampleSize: number;
   oldestEvent: string | null;
   newestEvent: string | null;
+}
+
+interface WaitlistEntry {
+  email?: string;
+  source?: string;
+  createdAt: string | null;
+}
+
+interface WaitlistStats {
+  count: number;
+  entries: WaitlistEntry[];
+}
+
+interface GithubStats {
+  stars?: number;
+  forks?: number;
+  openIssues?: number;
+  watchers?: number;
+  createdAt?: string;
+  pushedAt?: string;
+  error?: string;
+}
+
+interface NpmStats {
+  lastMonth?: number;
+  byDay?: { day: string; downloads: number }[];
+  error?: string;
+}
+
+interface Stats {
+  telemetry: TelemetryStats;
+  waitlist: WaitlistStats;
+  github: GithubStats;
+  npm: NpmStats;
   generatedAt: string;
 }
 
@@ -104,7 +138,7 @@ function HourChart({ byHourUtc }: { byHourUtc: number[] }) {
   );
 }
 
-function DayLineChart({ byDayUtc }: { byDayUtc: Stats["byDayUtc"] }) {
+function DayLineChart({ byDayUtc }: { byDayUtc: TelemetryStats["byDayUtc"] }) {
   const [showTable, setShowTable] = useState(false);
   const keys: EventKey[] = ["package_installed", "bothread_start", "room_created"];
   const width = 720;
@@ -188,6 +222,54 @@ function DayLineChart({ byDayUtc }: { byDayUtc: Stats["byDayUtc"] }) {
   );
 }
 
+function WaitlistSection({ waitlist }: { waitlist: WaitlistStats }) {
+  const [copied, setCopied] = useState(false);
+  const emails = waitlist.entries.map((e) => e.email).filter(Boolean) as string[];
+
+  async function copyEmails() {
+    await navigator.clipboard.writeText(emails.join(", "));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <section className="admin-section">
+      <div className="admin-legend">
+        <h2 style={{ margin: 0 }}>Waitlist ({waitlist.count})</h2>
+        {emails.length > 0 && (
+          <button type="button" className="admin-table-toggle" onClick={copyEmails}>
+            {copied ? "Copied!" : "Copy all emails"}
+          </button>
+        )}
+      </div>
+      {waitlist.entries.length === 0 ? (
+        <p className="admin-empty">No signups yet.</p>
+      ) : (
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Source</th>
+                <th>Signed up</th>
+              </tr>
+            </thead>
+            <tbody>
+              {waitlist.entries.map((e) => (
+                <tr key={e.email}>
+                  <td>{e.email}</td>
+                  <td>{e.source ?? "—"}</td>
+                  <td>{e.createdAt ? e.createdAt.slice(0, 10) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function Admin() {
   const [password, setPassword] = useState("");
   const [stats, setStats] = useState<Stats | null>(null);
@@ -242,47 +324,61 @@ export default function Admin() {
     );
   }
 
+  const { telemetry, waitlist, github, npm } = stats;
   const eventKeys: EventKey[] = ["package_installed", "bothread_start", "room_created"];
-  const platformMax = Math.max(1, ...Object.values(stats.byPlatform));
-  const channelMax = Math.max(1, ...Object.values(stats.byChannel));
+  const platformMax = Math.max(1, ...Object.values(telemetry.byPlatform));
+  const channelMax = Math.max(1, ...Object.values(telemetry.byChannel));
 
   return (
     <main className="admin-root">
       <div className="admin-header">
         <h1>Bothread usage</h1>
         <p className="admin-sub">
-          {stats.sampleSize.toLocaleString()} events
-          {stats.oldestEvent && (
-            <> · since {new Date(stats.oldestEvent).toISOString().slice(0, 10)}</>
+          {telemetry.sampleSize.toLocaleString()} CLI events
+          {telemetry.oldestEvent && (
+            <> · since {new Date(telemetry.oldestEvent).toISOString().slice(0, 10)}</>
           )}
           {" · times shown in UTC (no timezone is collected)"}
         </p>
       </div>
 
       <div className="admin-tiles">
+        <StatTile label="GitHub stars" value={github.stars ?? 0} />
+        <StatTile label="GitHub forks" value={github.forks ?? 0} />
+        <StatTile label="npm downloads (30d)" value={npm.lastMonth ?? 0} />
+        <StatTile label="Waitlist signups" value={waitlist.count} />
+      </div>
+      {(github.error || npm.error) && (
+        <p className="admin-error" style={{ marginTop: "-1.5rem", marginBottom: "1.5rem" }}>
+          {github.error && <>GitHub: {github.error}. </>}
+          {npm.error && <>npm: {npm.error}.</>}
+        </p>
+      )}
+
+      <div className="admin-tiles">
         {eventKeys.map((k) => (
-          <StatTile key={k} label={EVENT_LABEL[k]} value={stats.totals[k]} />
+          <StatTile key={k} label={EVENT_LABEL[k]} value={telemetry.totals[k]} />
         ))}
       </div>
 
       <section className="admin-section">
         <h2>By day</h2>
-        <DayLineChart byDayUtc={stats.byDayUtc} />
+        <DayLineChart byDayUtc={telemetry.byDayUtc} />
       </section>
 
       <section className="admin-section">
         <h2>By hour of day (UTC)</h2>
-        <HourChart byHourUtc={stats.byHourUtc} />
+        <HourChart byHourUtc={telemetry.byHourUtc} />
       </section>
 
       <div className="admin-two-col">
         <section className="admin-section">
           <h2>By platform</h2>
-          {(Object.keys(stats.byPlatform) as Platform[]).map((p) => (
+          {(Object.keys(telemetry.byPlatform) as Platform[]).map((p) => (
             <BarRow
               key={p}
               label={PLATFORM_LABEL[p]}
-              value={stats.byPlatform[p]}
+              value={telemetry.byPlatform[p]}
               max={platformMax}
               color={PLATFORM_COLOR[p]}
             />
@@ -291,17 +387,19 @@ export default function Admin() {
 
         <section className="admin-section">
           <h2>By install channel</h2>
-          {(Object.keys(stats.byChannel) as Channel[]).map((c) => (
+          {(Object.keys(telemetry.byChannel) as Channel[]).map((c) => (
             <BarRow
               key={c}
               label={CHANNEL_LABEL[c]}
-              value={stats.byChannel[c]}
+              value={telemetry.byChannel[c]}
               max={channelMax}
               color={CHANNEL_COLOR[c]}
             />
           ))}
         </section>
       </div>
+
+      <WaitlistSection waitlist={waitlist} />
     </main>
   );
 }

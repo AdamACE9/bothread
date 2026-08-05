@@ -211,7 +211,7 @@ section {
 #how,
 #why,
 #faq,
-#waitlist {
+#get-started {
   position: relative;
 }
 
@@ -471,6 +471,9 @@ label {
   margin-top: 2.2rem;
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
   width: 100%;
 }
 .hero-form {
@@ -2173,44 +2176,6 @@ footer {
 /* ============================================================================
    2026 redesign polish — more air, premium cards, alive interactions
    ========================================================================== */
-
-/* Waitlist success state */
-.wl-success {
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  padding: 1rem 1.1rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(99, 173, 143, 0.4);
-  background: rgba(99, 173, 143, 0.09);
-  animation: rowIn 0.5s var(--ease) both;
-}
-.wl-check {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--teal);
-  color: #10140f;
-  font-weight: 700;
-  box-shadow: 0 0 0 0 rgba(99, 173, 143, 0.5);
-  animation: pulse 2.4s var(--ease) infinite;
-}
-.wl-success strong {
-  color: var(--parchment);
-  font-size: 1.02rem;
-}
-.wl-success p {
-  color: var(--muted);
-  font-size: 0.86rem;
-  margin-top: 1px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .wl-success { animation: none; }
-  .wl-check { animation: none; }
-}
 
 /* Get-started steps → clean, spaced-out cards */
 .steps-list {

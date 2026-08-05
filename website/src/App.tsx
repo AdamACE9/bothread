@@ -5,7 +5,7 @@ import Hero from "./components/Hero";
 import Problem from "./components/Problem";
 import HowItWorks from "./components/HowItWorks";
 import WhyDifferent from "./components/WhyDifferent";
-import Waitlist from "./components/Waitlist";
+import GetStarted from "./components/GetStarted";
 import Feedback from "./components/Feedback";
 import Footer from "./components/Footer";
 import Reveal from "./components/Reveal";
@@ -96,21 +96,21 @@ function Home() {
       <WhyDifferent />
       <Faq />
 
-      <section id="waitlist">
+      <section id="get-started">
         <div className="container">
           <div className="section-head">
             <Reveal>
-              <span className="eyebrow">Get in early</span>
+              <span className="eyebrow">Try it now</span>
             </Reveal>
             <Reveal i={1}>
               <h2>
-                Be there when the <em className="thread-text">room</em> opens.
+                The <em className="thread-text">room</em> is open.
               </h2>
             </Reveal>
           </div>
           <div className="cta-grid">
             <Reveal>
-              <Waitlist />
+              <GetStarted />
             </Reveal>
             <Reveal i={1}>
               <Feedback />

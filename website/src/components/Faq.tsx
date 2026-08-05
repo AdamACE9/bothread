@@ -95,8 +95,7 @@ const QA: { q: string; a: ReactNode }[] = [
     a: (
       <>
         Bothread itself is <strong>free and open-source</strong> (MIT). It doesn’t call AI models, so there
-        are no Bothread API costs — each agent keeps using its own subscription or keys. The website’s
-        waitlist is just for early-access updates.
+        are no Bothread API costs — each agent keeps using its own subscription or keys.
       </>
     ),
   },

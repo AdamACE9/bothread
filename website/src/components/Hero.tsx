@@ -1,7 +1,6 @@
 import { useRef } from "react";
 import Reveal from "./Reveal";
 import RoomMock from "./RoomMock";
-import WaitlistForm from "./WaitlistForm";
 import SplitReveal from "./SplitReveal";
 import TiltCard from "./TiltCard";
 import HeroCanvas from "./HeroCanvas";
@@ -34,9 +33,19 @@ export default function Hero() {
         </Reveal>
         <Reveal i={3}>
           <div className="hero-cta">
-            <WaitlistForm source="hero" />
+            <a className="btn btn-primary" href="/start">
+              Get started
+            </a>
+            <a
+              className="btn btn-ghost"
+              href="https://github.com/AdamACE9/bothread"
+              target="_blank"
+              rel="noreferrer"
+            >
+              View on GitHub
+            </a>
           </div>
-          <p className="hero-note">No spam. Early access + build updates.</p>
+          <p className="hero-note">Free, open source, runs entirely on your machine.</p>
         </Reveal>
         <Reveal i={3}>
           <div className="hero-clients" aria-label="Works with">

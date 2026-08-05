@@ -1,5 +1,9 @@
 import { firebaseReady, getDb } from "./firebase";
-import type { SubmitResult } from "./waitlist";
+
+export interface SubmitResult {
+  ok: boolean;
+  message: string;
+}
 
 export type FeedbackCategory = "bug" | "feature" | "general" | "other";
 

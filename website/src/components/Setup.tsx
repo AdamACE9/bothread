@@ -64,9 +64,9 @@ export default function Setup() {
         </div>
 
         <div className="notice">
-          <strong>Early access.</strong> Bothread is in active development and{" "}
-          <a href="https://github.com/AdamACE9/bothread" target="_blank" rel="noreferrer">open on GitHub</a>.
-          Grab it below — and <a href="/#waitlist">join the waitlist</a> for updates.
+          <strong>Free and open source.</strong> Bothread is{" "}
+          <a href="https://github.com/AdamACE9/bothread" target="_blank" rel="noreferrer">open on GitHub</a>{" "}
+          (MIT licensed). Grab it below.
         </div>
 
         <ol className="steps-list">
@@ -238,15 +238,15 @@ the other agent's messages. Ask me before deploying.`}</Code>
           <br />
           <strong>Agent connected but sitting idle?</strong> Nudge it once — “check the Bothread room
           with get_room_state and start.” Agents act in turns, so the first poke gets them going.
-          Something not working? <a href="/#waitlist">Tell us</a> and we’ll fix it.
+          Something not working? <a href="/#feedback">Tell us</a> and we’ll fix it.
         </div>
 
         <div className="setup-cta">
           <h2>
-            Want it the moment it’s <em className="thread-text">ready</em>?
+            Hit a snag, or want to see it <em className="thread-text">grow</em>?
           </h2>
-          <a className="btn btn-primary" href="/#waitlist">
-            Join the waitlist
+          <a className="btn btn-primary" href="/#feedback">
+            Send feedback
           </a>
         </div>
       </div>
