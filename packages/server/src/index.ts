@@ -3,7 +3,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { dataDir, loadConfig, type HubConfig } from "./config";
+import { dataDir, isLoopbackHost, loadConfig, type HubConfig } from "./config";
 import { openDatabase } from "./db/database";
 import { Engine } from "./engine/engine";
 import { newSessionId } from "./engine/ids";
@@ -62,6 +62,32 @@ function openBrowser(url: string): void {
 
 async function main(): Promise<void> {
   const config = loadConfig();
+
+  // Binding past loopback puts the hub — every room, every message, and the
+  // control plane that drives your agents — on the local network. Auth is off by
+  // default because 127.0.0.1 is already a boundary; off *and* on the network is
+  // open access for anyone who can reach the port. Refuse rather than surprise.
+  if (!isLoopbackHost(config.host) && !config.authRequired) {
+    if (process.env.BOTHREAD_ALLOW_INSECURE_HOST === "1") {
+      console.warn(
+        `\n  \x1b[33m⚠ Bothread is listening on ${config.host} with agent auth OFF.\x1b[0m\n` +
+          `  Anyone who can reach this machine can read your rooms and drive your agents.\n` +
+          `  You set BOTHREAD_ALLOW_INSECURE_HOST=1, so continuing.\n`
+      );
+    } else {
+      console.error(
+        `\n  Refusing to start: BOTHREAD_HOST=${config.host} exposes Bothread to your\n` +
+          `  network, and agent auth is off — anyone who can reach this machine could\n` +
+          `  read your rooms and drive your agents.\n\n` +
+          `  Pick one:\n` +
+          `    • Keep it on this machine (recommended):  unset BOTHREAD_HOST\n` +
+          `    • Require a token:                        BOTHREAD_AUTH=on bothread start\n` +
+          `    • Already isolated (Docker, VM, tunnel):  BOTHREAD_ALLOW_INSECURE_HOST=1\n`
+      );
+      process.exit(1);
+    }
+  }
+
   config.uiDir = resolveUiDir();
   const token = resolveInstallToken(config);
 

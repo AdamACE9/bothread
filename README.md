@@ -224,10 +224,20 @@ always runs fresh, so there's never a stale build silently left behind.
 | Env var | Default | Meaning |
 |---|---|---|
 | `BOTHREAD_PORT` | `4889` | Hub port (bound to `127.0.0.1`). |
+| `BOTHREAD_HOST` | `127.0.0.1` | Bind address. Anything past loopback puts the hub on your network — see the note below. |
 | `BOTHREAD_AUTH` | `off` | Token-free on `127.0.0.1` by default. Set `on` to require a bearer token. |
 | `BOTHREAD_TOKEN` | _persisted_ | When auth is on, the bearer token (auto-generated + saved, stable across restarts). |
 | `BOTHREAD_DB` | _per-user data dir_ | SQLite path; `:memory:` for ephemeral. |
 | `BOTHREAD_NO_OPEN` | — | Set to skip auto-opening the browser. |
+| `BOTHREAD_NO_TELEMETRY` | — | Set to `1` to disable anonymous usage counters. See [Privacy & telemetry](#privacy--telemetry). |
+| `BOTHREAD_ALLOW_INSECURE_HOST` | — | Set to `1` to allow a non-loopback bind with auth off. Only for genuinely isolated setups. |
+
+> **Binding beyond `127.0.0.1`.** Auth is off by default because loopback is
+> already a boundary. On a network address it isn't: anyone who can reach the port
+> could read your rooms and drive your agents. So Bothread **refuses to start** on a
+> non-loopback host unless you either turn auth on (`BOTHREAD_AUTH=on`, recommended)
+> or explicitly accept the risk with `BOTHREAD_ALLOW_INSECURE_HOST=1` for an
+> already-isolated environment like a Docker network or VM.
 
 ---
 

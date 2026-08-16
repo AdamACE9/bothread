@@ -12,6 +12,18 @@ export interface HubConfig {
   uiDir?: string;
 }
 
+/**
+ * Is this host reachable only from this machine?
+ *
+ * Anything else puts the hub on the network, where "auth off" means
+ * unauthenticated. Covers all of 127.0.0.0/8, not just 127.0.0.1.
+ */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().replace(/^\[|\]$/g, "").toLowerCase();
+  if (h === "localhost" || h === "::1" || h === "::ffff:127.0.0.1") return true;
+  return /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(h);
+}
+
 /** Cross-platform per-user data dir for the local hub's SQLite store. */
 export function dataDir(): string {
   if (process.env.BOTHREAD_HOME) return process.env.BOTHREAD_HOME;

@@ -1,5 +1,6 @@
 import http from "node:http";
 import { describe, expect, it } from "vitest";
+import { isLoopbackHost } from "../src/config";
 import { openDatabase } from "../src/db/database";
 import { Engine } from "../src/engine/engine";
 import { buildApp } from "../src/http";
@@ -77,5 +78,24 @@ describe("listen-failure handling", () => {
     // No wss handler: ws re-emits onto the WebSocketServer, which throws.
     expect(() => server.emit("error", listenError("EAFNOSUPPORT"))).toThrow();
     close();
+  });
+});
+
+/**
+ * The startup guard keys off this: a non-loopback bind with auth off is
+ * unauthenticated network access, so the hub refuses to start. Misclassifying a
+ * host either blocks a legitimate local run or silently exposes the hub.
+ */
+describe("isLoopbackHost", () => {
+  it("accepts every form of 'only this machine'", () => {
+    for (const h of ["127.0.0.1", "localhost", "LocalHost", "::1", "[::1]", "127.0.0.2", "127.1.2.3", " 127.0.0.1 "]) {
+      expect(isLoopbackHost(h), h).toBe(true);
+    }
+  });
+
+  it("rejects hosts that put the hub on the network", () => {
+    for (const h of ["0.0.0.0", "::", "192.168.1.10", "10.0.0.5", "example.com", "128.0.0.1", ""]) {
+      expect(isLoopbackHost(h), h).toBe(false);
+    }
   });
 });
