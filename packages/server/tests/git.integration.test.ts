@@ -31,7 +31,11 @@ function makeEngine() {
   return new Engine(db, new RoomBus());
 }
 
-describe("Git micro-branching (integration)", () => {
+// Every test here shells out to real `git` many times over a temp repo. On a
+// slow or sync-backed disk (OneDrive, network home dirs) that comfortably
+// outruns Vitest's 5s default, so the suite gets a realistic budget rather
+// than failing as a flake.
+describe("Git micro-branching (integration)", { timeout: 30_000 }, () => {
   beforeEach(() => {
     repoDir = makeRepo();
   });
