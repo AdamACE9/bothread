@@ -90,7 +90,14 @@ async function main(): Promise<void> {
 
   const { app, attachWebSocket } = buildApp({ engine, bus, hub, config, token });
   const server = http.createServer(app);
-  attachWebSocket(server);
+  const wss = attachWebSocket(server);
+
+  // `ws` mirrors this server's `error` onto the WebSocketServer. That mirror is
+  // registered first, and an unhandled `error` emit throws — so without a
+  // listener here the process dies before the message below ever prints.
+  wss.on("error", () => {
+    /* reported on the http server just below */
+  });
 
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
@@ -133,10 +140,15 @@ async function main(): Promise<void> {
   let server6: http.Server | undefined;
   if (config.host === "127.0.0.1") {
     server6 = http.createServer(app);
-    attachWebSocket(server6);
-    server6.on("error", () => {
+    const wss6 = attachWebSocket(server6);
+    // Both halves must be guarded: on a host without IPv6, `listen` fails with
+    // EAFNOSUPPORT and `ws` re-emits that on the WebSocketServer, which is fatal
+    // if unhandled. Either one left bare takes the whole hub down.
+    const ignoreIpv6Failure = () => {
       /* IPv6 loopback unavailable or busy — 127.0.0.1 still serves; ignore. */
-    });
+    };
+    server6.on("error", ignoreIpv6Failure);
+    wss6.on("error", ignoreIpv6Failure);
     server6.listen(config.port, "::1");
   }
 

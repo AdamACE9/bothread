@@ -32,7 +32,10 @@ const isLocalhostOrigin = (origin: string | undefined): boolean => {
   }
 };
 
-export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocket: (server: Server) => void } {
+export function buildApp(deps: HttpDeps): {
+  app: express.Express;
+  attachWebSocket: (server: Server) => WebSocketServer;
+} {
   const { engine, bus, hub, config, token } = deps;
   const app = express();
 
@@ -425,7 +428,14 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
 
   /* ---------------------------- WebSocket push ---------------------------- */
 
-  const attachWebSocket = (server: Server) => {
+  /**
+   * Attach the room-UI push socket to an http server.
+   *
+   * Returns the WebSocketServer because `ws` mirrors the http server's `error`
+   * event onto it. An unhandled `error` emit throws, so a caller that only
+   * guards the http server still dies — the caller must handle both.
+   */
+  const attachWebSocket = (server: Server): WebSocketServer => {
     const wss = new WebSocketServer({ server, path: "/ws" });
     wss.on("connection", (ws, req) => {
       const url = new URL(req.url ?? "/ws", "http://localhost");
@@ -442,6 +452,7 @@ export function buildApp(deps: HttpDeps): { app: express.Express; attachWebSocke
       ws.on("close", off);
       ws.on("error", off);
     });
+    return wss;
   };
 
   return { app, attachWebSocket };
