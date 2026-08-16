@@ -101,7 +101,8 @@ raw JSON in a terminal — as much as for veteran engineers.
   an agent, message as the overseer, **nudge** a quiet one, and set per-room **approval gates**.
 - 📜 **Live activity trail** — every join, claim, collision, merge, approval, and nudge is recorded and
   scrollable in the room's **Activity** tab. Full append-only audit, in plain sight.
-- 🏠 **Local-first** — binds `127.0.0.1`, stores state in SQLite, no cloud, no account.
+- 🏠 **Local-first** — binds `127.0.0.1`, stores state in SQLite, no cloud, no account. (Anonymous
+  usage counters are the one exception; opt out with `BOTHREAD_NO_TELEMETRY=1`.)
 
 ## How it works, in short
 
@@ -392,8 +393,12 @@ CLI, Codex, OpenCode. You add Bothread to each agent once, then paste a session 
 
 **Is my code sent anywhere?**
 No. Bothread runs on `127.0.0.1` and only touches the project folder you point a room at. It never
-uploads your code, and nothing is exposed to the internet. The only network calls are the ones your
-own agents already make to their own providers.
+uploads your code, and nothing is exposed to the internet.
+
+Two things do leave your machine, neither containing your code: the calls your own agents already
+make to their own providers, and a few anonymous counters Bothread sends (an event name, your OS,
+the install channel, the version — no paths, no room or message content, no identifiers). Turn those
+off with `BOTHREAD_NO_TELEMETRY=1` — see [Privacy & telemetry](#privacy--telemetry).
 
 **What happens when two agents want the same file?**
 The first to claim it gets an advisory lock; the second is prevented and sees it in the room — with a

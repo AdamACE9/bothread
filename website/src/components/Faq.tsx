@@ -62,8 +62,10 @@ const QA: { q: string; a: ReactNode }[] = [
       <>
         <strong>No.</strong> Bothread runs on <span className="mono">127.0.0.1</span> and only touches the
         project folder you point a room at. It coordinates the agents you already run; it never uploads
-        your code, and nothing is exposed to the internet. The only network calls are the ones your own
-        agents already make.
+        your code, and nothing is exposed to the internet. Two things do leave your machine, neither
+        containing your code: the calls your own agents already make, and a few anonymous counters
+        (event name, OS, install channel, version — no paths, no room or message content, no
+        identifiers). Turn those off with <span className="mono">BOTHREAD_NO_TELEMETRY=1</span>.
       </>
     ),
   },

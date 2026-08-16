@@ -926,8 +926,12 @@ room.
 
 **Is my code sent anywhere?**
 No. Bothread runs on \`127.0.0.1\` and only touches the project folder you point a room at. It never
-uploads your code, and nothing is exposed to the internet. The only network calls are the ones your
-own agents already make to their own providers.
+uploads your code, and nothing is exposed to the internet.
+
+Two things do leave your machine, neither containing your code: the calls your own agents already
+make to their own providers, and a few anonymous counters Bothread sends (an event name, your OS,
+the install channel, the version — no paths, no room or message content, no identifiers). Turn those
+off with \`BOTHREAD_NO_TELEMETRY=1\`.
 
 **What happens when two agents want the same file?**
 The first to claim it gets an advisory lock; the second is prevented and sees it in the room, with
