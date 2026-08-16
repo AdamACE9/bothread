@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 type EventKey = "package_installed" | "bothread_start" | "room_created";
 type Platform = "windows" | "mac" | "linux" | "other";
@@ -51,17 +51,26 @@ interface Stats {
 }
 
 const EVENT_LABEL: Record<EventKey, string> = {
-  package_installed: "Package installed (npm/npx fetch)",
+  package_installed: "Installs",
+  bothread_start: "Hub starts",
+  room_created: "Rooms created",
+};
+
+const EVENT_FULL: Record<EventKey, string> = {
+  package_installed: "Package installed (npm -g / npx)",
   bothread_start: "bothread start",
   room_created: "Room created",
 };
 
-// Fixed categorical order — slots 1/2/3 from the validated palette, never reordered by value.
+// Fixed categorical order, never reordered by value. Validated CVD-safe
+// against this page's dark surface (worst adjacent ΔE 9.4 deutan / 26.5 normal).
 const EVENT_COLOR: Record<EventKey, string> = {
   package_installed: "var(--series-1)",
   bothread_start: "var(--series-2)",
   room_created: "var(--series-3)",
 };
+
+const EVENT_KEYS: EventKey[] = ["package_installed", "bothread_start", "room_created"];
 
 const PLATFORM_LABEL: Record<Platform, string> = {
   windows: "Windows",
@@ -69,54 +78,115 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   linux: "Linux",
   other: "Other",
 };
-const PLATFORM_COLOR: Record<Platform, string> = {
-  windows: "var(--series-1)",
-  mac: "var(--series-2)",
-  linux: "var(--series-3)",
-  other: "var(--series-4)",
-};
 
 const CHANNEL_LABEL: Record<Channel, string> = {
-  npx: "npx bothread start",
-  global: "npm install -g bothread",
+  npx: "npx bothread",
+  global: "npm install -g",
   "dev-clone": "git clone (dev)",
   other: "Other",
 };
-const CHANNEL_COLOR: Record<Channel, string> = {
-  npx: "var(--series-1)",
-  global: "var(--series-2)",
-  "dev-clone": "var(--series-3)",
-  other: "var(--series-4)",
-};
 
-function StatTile({ label, value }: { label: string; value: number }) {
+const nf = (n: number) => n.toLocaleString();
+
+function timeAgo(iso: string): string {
+  const secs = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60) return "just now";
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+}
+
+/* ---------------------------------------------------------------- primitives */
+
+function Kpi({
+  value,
+  label,
+  meta,
+  accent,
+}: {
+  value: number;
+  label: string;
+  meta?: string;
+  accent?: boolean;
+}) {
   return (
-    <div className="admin-tile">
-      <div className="admin-tile-value">{value.toLocaleString()}</div>
-      <div className="admin-tile-label">{label}</div>
+    <div className={`ad-kpi${accent ? " ad-kpi-accent" : ""}`}>
+      <div className="ad-kpi-value">{nf(value)}</div>
+      <div className="ad-kpi-label">{label}</div>
+      {meta && <div className="ad-kpi-meta">{meta}</div>}
     </div>
   );
 }
 
-function BarRow({
-  label,
-  value,
-  max,
-  color,
+function Section({
+  title,
+  note,
+  children,
+  action,
 }: {
-  label: string;
-  value: number;
-  max: number;
-  color: string;
+  title: string;
+  note?: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
 }) {
-  const pct = max > 0 ? Math.max(2, (value / max) * 100) : 0;
   return (
-    <div className="admin-bar-row" title={`${label}: ${value.toLocaleString()}`}>
-      <div className="admin-bar-label">{label}</div>
-      <div className="admin-bar-track">
-        <div className="admin-bar-fill" style={{ width: `${pct}%`, background: color }} />
+    <section className="ad-section">
+      <div className="ad-section-head">
+        <div>
+          <h2>{title}</h2>
+          {note && <p className="ad-section-note">{note}</p>}
+        </div>
+        {action}
       </div>
-      <div className="admin-bar-value">{value.toLocaleString()}</div>
+      {children}
+    </section>
+  );
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return <div className="ad-empty">{children}</div>;
+}
+
+/* ------------------------------------------------------------------- charts */
+
+/** Single-series daily bars. Brand copper is safe here: one series has no
+ *  CVD adjacent-pair to separate from. */
+function DailyBars({
+  data,
+  label,
+}: {
+  data: { day: string; downloads: number }[];
+  label: string;
+}) {
+  if (!data.length) return <Empty>No data in this window.</Empty>;
+  const max = Math.max(1, ...data.map((d) => d.downloads));
+  const total = data.reduce((s, d) => s + d.downloads, 0);
+  const peak = data.reduce((a, b) => (b.downloads > a.downloads ? b : a));
+
+  return (
+    <div className="ad-card">
+      <div className="ad-chart-meta">
+        <span>
+          <strong>{nf(total)}</strong> total
+        </span>
+        <span>
+          peak <strong>{nf(peak.downloads)}</strong> on {peak.day.slice(5)}
+        </span>
+      </div>
+      <div className="ad-bars" role="img" aria-label={label}>
+        {data.map((d) => (
+          <div key={d.day} className="ad-bars-col" title={`${d.day}: ${nf(d.downloads)}`}>
+            <div
+              className="ad-bars-fill"
+              style={{ height: `${Math.max(2, (d.downloads / max) * 100)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="ad-axis">
+        <span>{data[0]?.day.slice(5)}</span>
+        <span>{data[data.length - 1]?.day.slice(5)}</span>
+      </div>
     </div>
   );
 }
@@ -124,60 +194,60 @@ function BarRow({
 function HourChart({ byHourUtc }: { byHourUtc: number[] }) {
   const max = Math.max(1, ...byHourUtc);
   return (
-    <div className="admin-hour-chart" role="img" aria-label="Events by hour of day, UTC">
-      {byHourUtc.map((v, h) => (
-        <div key={h} className="admin-hour-col" title={`${h}:00 UTC — ${v.toLocaleString()}`}>
-          <div
-            className="admin-hour-fill"
-            style={{ height: `${Math.max(2, (v / max) * 100)}%` }}
-          />
-          {h % 3 === 0 && <div className="admin-hour-tick">{h}</div>}
-        </div>
-      ))}
+    <div className="ad-card">
+      <div className="ad-bars ad-bars-hour" role="img" aria-label="Events by hour of day, UTC">
+        {byHourUtc.map((v, h) => (
+          <div key={h} className="ad-bars-col" title={`${String(h).padStart(2, "0")}:00 UTC — ${nf(v)}`}>
+            <div className="ad-bars-fill" style={{ height: `${Math.max(2, (v / max) * 100)}%` }} />
+          </div>
+        ))}
+      </div>
+      <div className="ad-axis ad-axis-hours">
+        {[0, 6, 12, 18, 23].map((h) => (
+          <span key={h}>{String(h).padStart(2, "0")}</span>
+        ))}
+      </div>
     </div>
   );
 }
 
 function DayLineChart({ byDayUtc }: { byDayUtc: TelemetryStats["byDayUtc"] }) {
   const [showTable, setShowTable] = useState(false);
-  const keys: EventKey[] = ["package_installed", "bothread_start", "room_created"];
   const width = 720;
-  const height = 200;
-  const pad = 24;
+  const height = 210;
+  const padX = 28;
+  const padY = 22;
 
-  if (byDayUtc.length === 0) {
-    return <p className="admin-empty">No events yet.</p>;
-  }
+  if (byDayUtc.length === 0) return <Empty>No events yet.</Empty>;
 
-  const max = Math.max(1, ...byDayUtc.flatMap((d) => keys.map((k) => d[k])));
-  const stepX = byDayUtc.length > 1 ? (width - pad * 2) / (byDayUtc.length - 1) : 0;
-  const yFor = (v: number) => height - pad - (v / max) * (height - pad * 2);
-  const xFor = (i: number) => pad + i * stepX;
-
+  const max = Math.max(1, ...byDayUtc.flatMap((d) => EVENT_KEYS.map((k) => d[k])));
+  const stepX = byDayUtc.length > 1 ? (width - padX * 2) / (byDayUtc.length - 1) : 0;
+  const yFor = (v: number) => height - padY - (v / max) * (height - padY * 2);
+  const xFor = (i: number) => padX + i * stepX;
   const pathFor = (key: EventKey) =>
     byDayUtc.map((d, i) => `${i === 0 ? "M" : "L"}${xFor(i)},${yFor(d[key])}`).join(" ");
 
   return (
-    <div>
-      <div className="admin-legend">
-        {keys.map((k) => (
-          <span key={k} className="admin-legend-item">
-            <span className="admin-legend-swatch" style={{ background: EVENT_COLOR[k] }} />
+    <div className="ad-card">
+      <div className="ad-legend">
+        {EVENT_KEYS.map((k) => (
+          <span key={k} className="ad-legend-item">
+            <span className="ad-swatch" style={{ background: EVENT_COLOR[k] }} />
             {EVENT_LABEL[k]}
           </span>
         ))}
-        <button type="button" className="admin-table-toggle" onClick={() => setShowTable((s) => !s)}>
-          {showTable ? "Show chart" : "Show table"}
+        <button type="button" className="ad-btn-sm" onClick={() => setShowTable((s) => !s)}>
+          {showTable ? "Chart" : "Table"}
         </button>
       </div>
 
       {showTable ? (
-        <div className="admin-table-wrap">
-          <table className="admin-table">
+        <div className="ad-table-wrap">
+          <table className="ad-table">
             <thead>
               <tr>
                 <th>Date (UTC)</th>
-                {keys.map((k) => (
+                {EVENT_KEYS.map((k) => (
                   <th key={k}>{EVENT_LABEL[k]}</th>
                 ))}
               </tr>
@@ -186,7 +256,7 @@ function DayLineChart({ byDayUtc }: { byDayUtc: TelemetryStats["byDayUtc"] }) {
               {byDayUtc.map((d) => (
                 <tr key={d.date}>
                   <td>{d.date}</td>
-                  {keys.map((k) => (
+                  {EVENT_KEYS.map((k) => (
                     <td key={k}>{d[k]}</td>
                   ))}
                 </tr>
@@ -195,24 +265,24 @@ function DayLineChart({ byDayUtc }: { byDayUtc: TelemetryStats["byDayUtc"] }) {
           </table>
         </div>
       ) : (
-        <svg viewBox={`0 0 ${width} ${height}`} className="admin-line-chart" role="img" aria-label="Daily event counts">
-          {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+        <svg viewBox={`0 0 ${width} ${height}`} className="ad-line" role="img" aria-label="Daily event counts">
+          {[0, 0.5, 1].map((t) => (
             <line
               key={t}
-              x1={pad}
-              x2={width - pad}
-              y1={pad + t * (height - pad * 2)}
-              y2={pad + t * (height - pad * 2)}
-              className="admin-gridline"
+              x1={padX}
+              x2={width - padX}
+              y1={padY + t * (height - padY * 2)}
+              y2={padY + t * (height - padY * 2)}
+              className="ad-gridline"
             />
           ))}
-          {keys.map((k) => (
+          {EVENT_KEYS.map((k) => (
             <path key={k} d={pathFor(k)} fill="none" stroke={EVENT_COLOR[k]} strokeWidth={2} />
           ))}
           {byDayUtc.map((d, i) =>
-            keys.map((k) => (
-              <circle key={`${k}-${d.date}`} cx={xFor(i)} cy={yFor(d[k])} r={3} fill={EVENT_COLOR[k]}>
-                <title>{`${d.date} · ${EVENT_LABEL[k]}: ${d[k]}`}</title>
+            EVENT_KEYS.map((k) => (
+              <circle key={`${k}-${d.date}`} cx={xFor(i)} cy={yFor(d[k])} r={3.5} fill={EVENT_COLOR[k]}>
+                <title>{`${d.date} · ${EVENT_FULL[k]}: ${d[k]}`}</title>
               </circle>
             ))
           )}
@@ -222,31 +292,62 @@ function DayLineChart({ byDayUtc }: { byDayUtc: TelemetryStats["byDayUtc"] }) {
   );
 }
 
-function WaitlistSection({ waitlist }: { waitlist: WaitlistStats }) {
+function BreakdownBars({
+  rows,
+  color,
+}: {
+  rows: { label: string; value: number }[];
+  color: string;
+}) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  const total = rows.reduce((s, r) => s + r.value, 0);
+  return (
+    <div className="ad-card">
+      {rows.map((r) => (
+        <div key={r.label} className="ad-row">
+          <div className="ad-row-label">{r.label}</div>
+          <div className="ad-row-track">
+            <div
+              className="ad-row-fill"
+              style={{ width: `${total > 0 ? Math.max(1.5, (r.value / max) * 100) : 0}%`, background: color }}
+            />
+          </div>
+          <div className="ad-row-value">{nf(r.value)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- waitlist */
+
+function WaitlistTable({ waitlist }: { waitlist: WaitlistStats }) {
   const [copied, setCopied] = useState(false);
   const emails = waitlist.entries.map((e) => e.email).filter(Boolean) as string[];
 
   async function copyEmails() {
     await navigator.clipboard.writeText(emails.join(", "));
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    setTimeout(() => setCopied(false), 1600);
   }
 
   return (
-    <section className="admin-section">
-      <div className="admin-legend">
-        <h2 style={{ margin: 0 }}>Waitlist ({waitlist.count})</h2>
-        {emails.length > 0 && (
-          <button type="button" className="admin-table-toggle" onClick={copyEmails}>
-            {copied ? "Copied!" : "Copy all emails"}
+    <Section
+      title="Waitlist"
+      note={`${waitlist.count} signup${waitlist.count === 1 ? "" : "s"} (closed — the site now links straight to /start)`}
+      action={
+        emails.length > 0 ? (
+          <button type="button" className="ad-btn-sm" onClick={copyEmails}>
+            {copied ? "Copied ✓" : "Copy emails"}
           </button>
-        )}
-      </div>
+        ) : undefined
+      }
+    >
       {waitlist.entries.length === 0 ? (
-        <p className="admin-empty">No signups yet.</p>
+        <Empty>No signups.</Empty>
       ) : (
-        <div className="admin-table-wrap">
-          <table className="admin-table">
+        <div className="ad-card ad-table-wrap">
+          <table className="ad-table">
             <thead>
               <tr>
                 <th>Email</th>
@@ -266,9 +367,11 @@ function WaitlistSection({ waitlist }: { waitlist: WaitlistStats }) {
           </table>
         </div>
       )}
-    </section>
+    </Section>
   );
 }
+
+/* ------------------------------------------------------------------- page */
 
 export default function Admin() {
   const [password, setPassword] = useState("");
@@ -276,130 +379,168 @@ export default function Admin() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  const load = useCallback(async (pw: string) => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/admin-stats", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password: pw }),
       });
       if (res.status === 401) {
         setError("Wrong password.");
-        setLoading(false);
         return;
       }
       if (!res.ok) {
-        setError(`Something went wrong (${res.status}).`);
-        setLoading(false);
+        setError(`Request failed (${res.status}).`);
         return;
       }
       setStats((await res.json()) as Stats);
     } catch {
       setError("Couldn't reach the server.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }
+  }, []);
 
   if (!stats) {
     return (
-      <main className="admin-gate">
-        <form onSubmit={submit} className="admin-gate-form">
+      <main className="ad-gate">
+        <form
+          className="ad-gate-card"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void load(password);
+          }}
+        >
+          <div className="ad-gate-mark" aria-hidden="true" />
           <h1>Bothread admin</h1>
+          <p>Private dashboard.</p>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
+            aria-label="Password"
             autoFocus
           />
-          <button type="submit" disabled={loading}>
+          <button className="ad-btn" type="submit" disabled={loading}>
             {loading ? "Checking…" : "Enter"}
           </button>
-          {error && <p className="admin-error">{error}</p>}
+          {error && <p className="ad-error">{error}</p>}
         </form>
       </main>
     );
   }
 
   const { telemetry, waitlist, github, npm } = stats;
-  const eventKeys: EventKey[] = ["package_installed", "bothread_start", "room_created"];
-  const platformMax = Math.max(1, ...Object.values(telemetry.byPlatform));
-  const channelMax = Math.max(1, ...Object.values(telemetry.byChannel));
+  const noTelemetry = telemetry.sampleSize === 0;
 
   return (
-    <main className="admin-root">
-      <div className="admin-header">
-        <h1>Bothread usage</h1>
-        <p className="admin-sub">
-          {telemetry.sampleSize.toLocaleString()} CLI events
-          {telemetry.oldestEvent && (
-            <> · since {new Date(telemetry.oldestEvent).toISOString().slice(0, 10)}</>
-          )}
-          {" · times shown in UTC (no timezone is collected)"}
-        </p>
-      </div>
+    <main className="ad-root">
+      <header className="ad-header">
+        <div>
+          <h1>Bothread</h1>
+          <p className="ad-sub">
+            Updated {timeAgo(stats.generatedAt)} · all times UTC
+          </p>
+        </div>
+        <button className="ad-btn-sm" onClick={() => void load(password)} disabled={loading}>
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </header>
 
-      <div className="admin-tiles">
-        <StatTile label="GitHub stars" value={github.stars ?? 0} />
-        <StatTile label="GitHub forks" value={github.forks ?? 0} />
-        <StatTile label="npm downloads (30d)" value={npm.lastMonth ?? 0} />
-        <StatTile label="Waitlist signups" value={waitlist.count} />
-      </div>
-      {(github.error || npm.error) && (
-        <p className="admin-error" style={{ marginTop: "-1.5rem", marginBottom: "1.5rem" }}>
-          {github.error && <>GitHub: {github.error}. </>}
-          {npm.error && <>npm: {npm.error}.</>}
-        </p>
+      {error && <p className="ad-error">{error}</p>}
+
+      <Section title="Reach" note="Live from the GitHub and npm public APIs.">
+        <div className="ad-kpis">
+          <Kpi
+            value={github.stars ?? 0}
+            label="GitHub stars"
+            meta={github.forks !== undefined ? `${nf(github.forks)} forks · ${nf(github.openIssues ?? 0)} open issues` : undefined}
+            accent
+          />
+          <Kpi
+            value={npm.lastMonth ?? 0}
+            label="npm downloads"
+            meta="last 30 days"
+            accent
+          />
+          <Kpi value={waitlist.count} label="Waitlist signups" meta="all time" />
+          <Kpi
+            value={github.watchers ?? 0}
+            label="Watchers"
+            meta={github.pushedAt ? `pushed ${timeAgo(github.pushedAt)}` : undefined}
+          />
+        </div>
+        {(github.error || npm.error) && (
+          <p className="ad-error">
+            {github.error && <>GitHub: {github.error}. </>}
+            {npm.error && <>npm: {npm.error}.</>}
+          </p>
+        )}
+      </Section>
+
+      {npm.byDay && npm.byDay.length > 0 && (
+        <Section title="npm downloads" note="Daily, last 30 days.">
+          <DailyBars data={npm.byDay} label="npm downloads per day, last 30 days" />
+        </Section>
       )}
 
-      <div className="admin-tiles">
-        {eventKeys.map((k) => (
-          <StatTile key={k} label={EVENT_LABEL[k]} value={telemetry.totals[k]} />
-        ))}
-      </div>
+      <Section
+        title="Product usage"
+        note="Anonymous CLI telemetry — installs, hub starts, and rooms created."
+      >
+        {noTelemetry ? (
+          <Empty>
+            <strong>No CLI events recorded yet.</strong>
+            <p>
+              Telemetry only reports from versions that ship it. If the published npm package predates
+              the telemetry code, installs won't report until a newer version is published.
+            </p>
+          </Empty>
+        ) : (
+          <>
+            <div className="ad-kpis">
+              {EVENT_KEYS.map((k) => (
+                <Kpi key={k} value={telemetry.totals[k]} label={EVENT_LABEL[k]} meta={EVENT_FULL[k]} />
+              ))}
+            </div>
+            <div className="ad-stack">
+              <DayLineChart byDayUtc={telemetry.byDayUtc} />
+              <div className="ad-two">
+                <div>
+                  <h3 className="ad-h3">By platform</h3>
+                  <BreakdownBars
+                    color="var(--series-1)"
+                    rows={(Object.keys(telemetry.byPlatform) as Platform[]).map((p) => ({
+                      label: PLATFORM_LABEL[p],
+                      value: telemetry.byPlatform[p],
+                    }))}
+                  />
+                </div>
+                <div>
+                  <h3 className="ad-h3">By install channel</h3>
+                  <BreakdownBars
+                    color="var(--series-2)"
+                    rows={(Object.keys(telemetry.byChannel) as Channel[]).map((c) => ({
+                      label: CHANNEL_LABEL[c],
+                      value: telemetry.byChannel[c],
+                    }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <h3 className="ad-h3">By hour of day (UTC)</h3>
+                <HourChart byHourUtc={telemetry.byHourUtc} />
+              </div>
+            </div>
+          </>
+        )}
+      </Section>
 
-      <section className="admin-section">
-        <h2>By day</h2>
-        <DayLineChart byDayUtc={telemetry.byDayUtc} />
-      </section>
-
-      <section className="admin-section">
-        <h2>By hour of day (UTC)</h2>
-        <HourChart byHourUtc={telemetry.byHourUtc} />
-      </section>
-
-      <div className="admin-two-col">
-        <section className="admin-section">
-          <h2>By platform</h2>
-          {(Object.keys(telemetry.byPlatform) as Platform[]).map((p) => (
-            <BarRow
-              key={p}
-              label={PLATFORM_LABEL[p]}
-              value={telemetry.byPlatform[p]}
-              max={platformMax}
-              color={PLATFORM_COLOR[p]}
-            />
-          ))}
-        </section>
-
-        <section className="admin-section">
-          <h2>By install channel</h2>
-          {(Object.keys(telemetry.byChannel) as Channel[]).map((c) => (
-            <BarRow
-              key={c}
-              label={CHANNEL_LABEL[c]}
-              value={telemetry.byChannel[c]}
-              max={channelMax}
-              color={CHANNEL_COLOR[c]}
-            />
-          ))}
-        </section>
-      </div>
-
-      <WaitlistSection waitlist={waitlist} />
+      <WaitlistTable waitlist={waitlist} />
     </main>
   );
 }
