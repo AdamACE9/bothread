@@ -17,15 +17,36 @@ import path from "node:path";
 // `npm install` in the monorepo, not a real install — skip telemetry.
 const isDevClone = existsSync(path.join(process.cwd(), "packages", "server", "src", "index.ts"));
 
+/**
+ * Most installs on a young package are automated: registry mirrors, security
+ * scanners, and CI. They look identical to a real user here except that they
+ * never go on to run the CLI, which made every dashboard number ambiguous.
+ * CI runners near-universally set CI=true, so record that one anonymous bit.
+ */
+const isCi = Boolean(
+  process.env.CI ||
+    process.env.CONTINUOUS_INTEGRATION ||
+    process.env.GITHUB_ACTIONS ||
+    process.env.GITLAB_CI ||
+    process.env.BUILDKITE ||
+    process.env.CIRCLECI ||
+    process.env.JENKINS_URL ||
+    process.env.TEAMCITY_VERSION
+);
+
 if (!isDevClone && !process.env.BOTHREAD_NO_TELEMETRY) {
   const platform = { win32: "windows", darwin: "mac", linux: "linux" }[os.platform()] ?? "other";
   const cwd = process.cwd();
+  // "local" is a plain `npm install bothread` into a project — distinct from
+  // "other", which now genuinely means "couldn't tell".
   const channel =
     cwd.includes(`${path.sep}_npx${path.sep}`) || cwd.includes("/_npx/")
       ? "npx"
       : process.env.npm_config_global === "true"
         ? "global"
-        : "other";
+        : process.env.npm_command === "install" || process.env.npm_config_local_prefix
+          ? "local"
+          : "other";
 
   let version = "";
   try {
@@ -38,6 +59,7 @@ if (!isDevClone && !process.env.BOTHREAD_NO_TELEMETRY) {
     event: { stringValue: "package_installed" },
     platform: { stringValue: platform },
     channel: { stringValue: channel },
+    ci: { booleanValue: isCi },
     ts: { timestampValue: new Date().toISOString() },
     ...(version ? { version: { stringValue: version } } : {}),
   };

@@ -38,6 +38,8 @@ interface DayRow {
   platforms: Record<Platform, number>;
   channels: Record<Channel, number>;
   versions: Record<string, number>;
+  /** Automated (CI/scanner) vs everything else. `unknown` = pre-0.2.5 clients. */
+  sources: { ci: number; direct: number; unknown: number };
 }
 
 async function telemetryStats(db: FirebaseFirestore.Firestore) {
@@ -54,6 +56,7 @@ async function telemetryStats(db: FirebaseFirestore.Firestore) {
     platforms: counter(PLATFORMS),
     channels: counter(CHANNELS),
     versions: {},
+    sources: { ci: 0, direct: 0, unknown: 0 },
   });
 
   snap.forEach((doc) => {
@@ -76,6 +79,7 @@ async function telemetryStats(db: FirebaseFirestore.Firestore) {
     row.platforms[platform] += 1;
     row.channels[channel] += 1;
     row.versions[version] = (row.versions[version] ?? 0) + 1;
+    row.sources[typeof d.ci === "boolean" ? (d.ci ? "ci" : "direct") : "unknown"] += 1;
     byDay.set(key, row);
 
     byHourUtc[ts.getUTCHours()] += 1;

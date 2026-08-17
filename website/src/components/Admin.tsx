@@ -12,6 +12,7 @@ interface DayRow {
   platforms: Record<Platform, number>;
   channels: Record<Channel, number>;
   versions: Record<string, number>;
+  sources: { ci: number; direct: number; unknown: number };
 }
 
 interface Telemetry {
@@ -525,6 +526,7 @@ export default function Admin() {
       platforms: sumInto(days.map((d) => d.platforms)),
       channels: sumInto(days.map((d) => d.channels)),
       versions: sumInto(days.map((d) => d.versions)),
+      sources: sumInto(days.map((d) => d.sources ?? { ci: 0, direct: 0, unknown: 0 })),
       npmTotal: npmDays.reduce((s, d) => s + d.downloads, 0),
     };
   }, [stats, rangeDays]);
@@ -669,6 +671,21 @@ export default function Admin() {
           />
         </Section>
       </div>
+
+      <Section
+        title="Automated vs direct"
+        note="CI runners set CI=true, so automated traffic can be told apart from people. Reported from 0.2.5 on; anything older lands in Unknown."
+      >
+        <BarList
+          color="var(--series-1)"
+          emptyNote="No installs in this range."
+          rows={[
+            { label: "Direct (a person)", value: view.sources.direct ?? 0 },
+            { label: "CI / automated", value: view.sources.ci ?? 0 },
+            { label: "Unknown (pre-0.2.5)", value: view.sources.unknown ?? 0 },
+          ]}
+        />
+      </Section>
 
       <div className="ad-two">
         <Section title="Version adoption (npm, last 7d)" note="Which versions people are actually pulling.">

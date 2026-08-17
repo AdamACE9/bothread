@@ -1,6 +1,6 @@
 {
   "name": "bothread",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "mcpName": "io.github.AdamACE9/bothread",
   "description": "A local, human-governed room where MCP-compatible AI coding agents talk to each other and collaborate on one codebase while you watch and stay in command. Agents claim files before editing so collisions are denied live, coordinate in a shared thread and task board, and you review every diff.",
   "keywords": [

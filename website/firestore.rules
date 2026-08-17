@@ -58,14 +58,15 @@ service cloud.firestore {
     function isValidTelemetry() {
       let d = request.resource.data;
       return d.keys().hasAll(['event', 'platform', 'ts'])
-        && d.keys().hasOnly(['event', 'platform', 'ts', 'channel', 'version'])
+        && d.keys().hasOnly(['event', 'platform', 'ts', 'channel', 'version', 'ci'])
         && d.event is string
         && d.event in ['package_installed', 'bothread_start', 'room_created']
         && d.platform is string
         && d.platform in ['windows', 'mac', 'linux', 'other']
         && d.ts is timestamp
-        && (!('channel' in d) || (d.channel is string && d.channel in ['npx', 'global', 'dev-clone', 'other']))
-        && (!('version' in d) || (d.version is string && d.version.size() <= 40));
+        && (!('channel' in d) || (d.channel is string && d.channel in ['npx', 'global', 'dev-clone', 'local', 'other']))
+        && (!('version' in d) || (d.version is string && d.version.size() <= 40))
+        && (!('ci' in d) || d.ci is bool);
     }
   }
 }
