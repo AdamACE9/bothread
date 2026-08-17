@@ -2308,7 +2308,7 @@ footer {
   border-color: var(--copper);
 }
 
-/* --- Buttons ------------------------------------------------------------- */
+/* --- Buttons / tabs ------------------------------------------------------ */
 .ad-btn,
 .ad-btn-sm {
   font-family: var(--font-body);
@@ -2347,6 +2347,35 @@ footer {
   cursor: default;
 }
 
+.ad-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  background: rgba(20, 17, 13, 0.5);
+  flex-wrap: wrap;
+}
+.ad-tab {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  padding: 0.34rem 0.85rem;
+  border-radius: 100px;
+  cursor: pointer;
+  transition: background 0.25s var(--ease), color 0.25s var(--ease);
+  text-transform: capitalize;
+}
+.ad-tab:hover {
+  color: var(--parchment-1);
+}
+.ad-tab.is-on {
+  background: rgba(207, 122, 60, 0.18);
+  color: var(--copper-1);
+}
+
 .ad-error {
   color: var(--clay);
   font-size: 0.86rem;
@@ -2355,7 +2384,7 @@ footer {
 
 /* --- Layout -------------------------------------------------------------- */
 .ad-root {
-  max-width: 1040px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 2.6rem 1.5rem 5rem;
 }
@@ -2365,7 +2394,7 @@ footer {
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  padding-bottom: 1.6rem;
+  padding-bottom: 1.5rem;
   border-bottom: 1px solid var(--line-soft);
 }
 .ad-header h1 {
@@ -2376,62 +2405,58 @@ footer {
 }
 .ad-sub {
   color: var(--muted-1);
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-family: var(--font-mono);
-  letter-spacing: 0.01em;
   margin: 0.45rem 0 0;
+}
+.ad-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .ad-section {
-  margin-top: 2.8rem;
+  margin-top: 2.6rem;
 }
 .ad-section-head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1.1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
 }
 .ad-section-head h2 {
-  font-size: 1.06rem;
+  font-size: 1.05rem;
   font-weight: 600;
-  letter-spacing: 0.005em;
   margin: 0;
   color: var(--parchment);
 }
 .ad-section-note {
   color: var(--muted-1);
-  font-size: 0.84rem;
+  font-size: 0.83rem;
   margin: 0.3rem 0 0;
-  max-width: 62ch;
-}
-.ad-h3 {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--muted);
-  font-weight: 600;
-  margin: 0 0 0.6rem;
-}
-
-.ad-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 1.8rem;
+  max-width: 64ch;
 }
 .ad-two {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1.6rem;
 }
-@media (max-width: 680px) {
+.ad-two .ad-section {
+  margin-top: 2.6rem;
+  min-width: 0;
+}
+@media (max-width: 760px) {
   .ad-two {
     grid-template-columns: 1fr;
+    gap: 0;
   }
 }
 
-/* --- Card ---------------------------------------------------------------- */
-.ad-card {
+.ad-card,
+.ad-chart {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--ad-card);
@@ -2441,13 +2466,14 @@ footer {
 /* --- KPI ----------------------------------------------------------------- */
 .ad-kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 1rem;
+  margin-top: 1.8rem;
 }
 .ad-kpi {
   position: relative;
   overflow: hidden;
-  padding: 1.25rem 1.3rem 1.35rem;
+  padding: 1.25rem 1.3rem 1.3rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--ad-card);
@@ -2466,52 +2492,116 @@ footer {
 }
 .ad-kpi-value {
   font-family: var(--font-display);
-  font-size: 2.3rem;
+  font-size: 2.25rem;
   line-height: 1;
   letter-spacing: -0.015em;
 }
 .ad-kpi-label {
-  margin-top: 0.55rem;
+  margin-top: 0.5rem;
   font-size: 0.9rem;
   color: var(--parchment-1);
 }
 .ad-kpi-meta {
-  margin-top: 0.25rem;
-  font-size: 0.76rem;
+  margin-top: 0.22rem;
+  font-size: 0.74rem;
   color: var(--muted-1);
   font-family: var(--font-mono);
 }
+.ad-spark {
+  display: block;
+  width: 100%;
+  height: 26px;
+  margin-top: 0.8rem;
+  opacity: 0.85;
+}
 
-/* --- Empty state --------------------------------------------------------- */
+/* --- Explainer note ------------------------------------------------------ */
+.ad-note {
+  margin-top: 1.6rem;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid rgba(226, 169, 76, 0.32);
+  border-left: 3px solid var(--saffron);
+  border-radius: var(--radius-sm);
+  background: rgba(226, 169, 76, 0.07);
+}
+.ad-note strong {
+  display: block;
+  color: var(--parchment);
+  margin-bottom: 0.35rem;
+  font-size: 0.95rem;
+}
+.ad-note p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.87rem;
+  line-height: 1.6;
+  max-width: 78ch;
+}
+
+/* --- Empty --------------------------------------------------------------- */
 .ad-empty {
   border: 1px dashed var(--line);
   border-radius: var(--radius);
-  padding: 1.6rem 1.5rem;
+  padding: 1.5rem;
   color: var(--muted);
-  font-size: 0.9rem;
-  background: rgba(34, 29, 22, 0.28);
-}
-.ad-empty strong {
-  color: var(--parchment-1);
-  display: block;
-  margin-bottom: 0.4rem;
-  font-size: 0.96rem;
-}
-.ad-empty p {
-  margin: 0;
-  max-width: 68ch;
-  line-height: 1.55;
+  font-size: 0.89rem;
+  background: rgba(34, 29, 22, 0.26);
 }
 
-/* --- Bar charts ---------------------------------------------------------- */
+/* --- Funnel -------------------------------------------------------------- */
+.ad-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.ad-funnel-step {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ad-card);
+  padding: 0.9rem 1.1rem;
+}
+.ad-funnel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+.ad-funnel-label {
+  font-size: 0.92rem;
+  color: var(--parchment-1);
+}
+.ad-funnel-value {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+.ad-funnel-track {
+  height: 8px;
+  border-radius: 5px;
+  background: rgba(20, 17, 13, 0.62);
+  overflow: hidden;
+  margin: 0.6rem 0 0.5rem;
+}
+.ad-funnel-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--thread);
+}
+.ad-funnel-note {
+  font-size: 0.76rem;
+  color: var(--muted-1);
+}
+
+/* --- Charts -------------------------------------------------------------- */
 .ad-chart-meta {
   display: flex;
   gap: 1.4rem;
   flex-wrap: wrap;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--muted-1);
   font-family: var(--font-mono);
-  margin-bottom: 1rem;
+  margin-bottom: 0.9rem;
+  min-height: 1.1em;
 }
 .ad-chart-meta strong {
   color: var(--parchment);
@@ -2520,13 +2610,10 @@ footer {
 .ad-bars {
   display: flex;
   align-items: flex-end;
-  gap: 3px;
-  height: 130px;
-  padding-bottom: 4px;
+  gap: 2px;
+  height: 132px;
+  padding-bottom: 3px;
   border-bottom: 1px solid var(--line);
-}
-.ad-bars-hour {
-  height: 108px;
 }
 .ad-bars-col {
   flex: 1;
@@ -2534,16 +2621,18 @@ footer {
   display: flex;
   align-items: flex-end;
   min-width: 0;
+  cursor: default;
 }
 .ad-bars-fill {
   width: 100%;
   min-height: 2px;
   border-radius: 3px 3px 0 0;
-  background: linear-gradient(180deg, var(--copper-1), rgba(207, 122, 60, 0.55));
-  transition: filter 0.2s var(--ease);
+  background: linear-gradient(180deg, var(--copper-1), rgba(207, 122, 60, 0.5));
+  transition: filter 0.15s var(--ease);
 }
-.ad-bars-col:hover .ad-bars-fill {
-  filter: brightness(1.35);
+.ad-bars-col:hover .ad-bars-fill,
+.ad-bars-col.is-hot .ad-bars-fill {
+  filter: brightness(1.4);
 }
 .ad-axis {
   display: flex;
@@ -2554,14 +2643,13 @@ footer {
   font-family: var(--font-mono);
 }
 
-/* --- Line chart ---------------------------------------------------------- */
 .ad-legend {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 1.1rem;
-  margin-bottom: 0.9rem;
-  font-size: 0.83rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.82rem;
   color: var(--muted);
 }
 .ad-legend-item {
@@ -2569,35 +2657,71 @@ footer {
   align-items: center;
   gap: 0.42rem;
 }
-.ad-legend .ad-btn-sm {
-  margin-left: auto;
-}
 .ad-swatch {
   width: 10px;
   height: 10px;
   border-radius: 3px;
   display: inline-block;
+  flex: none;
 }
 .ad-line {
   width: 100%;
   height: auto;
   display: block;
+  cursor: crosshair;
 }
 .ad-gridline {
   stroke: var(--ad-grid);
   stroke-width: 1;
 }
+.ad-crosshair {
+  stroke: var(--copper);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.75;
+}
+.ad-tick {
+  fill: var(--muted-1);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+.ad-tip-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.8rem;
+  color: var(--muted);
+  min-height: 2.1em;
+}
+.ad-tip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+}
+.ad-tip-item strong,
+.ad-tip-row > strong {
+  color: var(--parchment);
+  font-variant-numeric: tabular-nums;
+}
+.ad-tip-hint {
+  color: var(--muted-1);
+  font-style: italic;
+}
 
 /* --- Breakdown rows ------------------------------------------------------ */
 .ad-row {
   display: grid;
-  grid-template-columns: minmax(88px, 34%) 1fr auto;
+  grid-template-columns: minmax(96px, 38%) 1fr auto;
   align-items: center;
-  gap: 0.8rem;
-  font-size: 0.86rem;
+  gap: 0.75rem;
+  font-size: 0.85rem;
 }
 .ad-row + .ad-row {
-  margin-top: 0.7rem;
+  margin-top: 0.65rem;
 }
 .ad-row-label {
   color: var(--parchment-1);
@@ -2606,7 +2730,7 @@ footer {
   white-space: nowrap;
 }
 .ad-row-track {
-  height: 13px;
+  height: 12px;
   border-radius: 5px;
   background: rgba(20, 17, 13, 0.62);
   overflow: hidden;
@@ -2616,10 +2740,80 @@ footer {
   border-radius: 5px;
 }
 .ad-row-value {
-  color: var(--muted);
+  color: var(--parchment-1);
   font-variant-numeric: tabular-nums;
-  min-width: 2.6ch;
   text-align: right;
+  white-space: nowrap;
+}
+.ad-row-pct {
+  color: var(--muted-1);
+  margin-left: 0.5rem;
+  font-size: 0.76rem;
+}
+
+/* --- Feedback ------------------------------------------------------------ */
+.ad-feed {
+  display: grid;
+  gap: 0.9rem;
+}
+.ad-feed-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ad-card);
+  padding: 1rem 1.1rem;
+}
+.ad-feed-item header {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.55rem;
+}
+.ad-feed-item p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--parchment-1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ad-feed-date,
+.ad-feed-page {
+  font-size: 0.74rem;
+  color: var(--muted-1);
+  font-family: var(--font-mono);
+}
+.ad-feed-mail {
+  display: inline-block;
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--copper-1);
+  font-family: var(--font-mono);
+}
+.ad-chip {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 100px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.ad-chip-bug {
+  border-color: rgba(207, 92, 65, 0.45);
+  color: #e88a72;
+  background: rgba(207, 92, 65, 0.1);
+}
+.ad-chip-feature {
+  border-color: rgba(99, 173, 143, 0.45);
+  color: var(--teal-1);
+  background: rgba(99, 173, 143, 0.1);
+}
+.ad-chip-general,
+.ad-chip-other {
+  border-color: rgba(226, 169, 76, 0.4);
+  color: var(--saffron);
+  background: rgba(226, 169, 76, 0.09);
 }
 
 /* --- Table --------------------------------------------------------------- */
@@ -2629,7 +2823,7 @@ footer {
 .ad-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.86rem;
+  font-size: 0.85rem;
 }
 .ad-table th,
 .ad-table td {
@@ -2642,7 +2836,7 @@ footer {
 .ad-table th {
   color: var(--muted);
   font-weight: 600;
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
 }
@@ -2653,10 +2847,20 @@ footer {
   background: rgba(207, 122, 60, 0.05);
 }
 
+.ad-footer {
+  margin-top: 3rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.76rem;
+  color: var(--muted-1);
+  font-family: var(--font-mono);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ad-kpi,
   .ad-btn,
   .ad-btn-sm,
+  .ad-tab,
   .ad-bars-fill {
     transition: none;
   }
