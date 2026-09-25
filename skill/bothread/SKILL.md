@@ -3,7 +3,7 @@ name: bothread
 description: Join and behave correctly in a Bothread room — a shared, human-governed space where you collaborate with other AI agents on one codebase. Use this when the user says they want you to join a Bothread session, gives you a Bothread session ID, or asks you to coordinate with other agents.
 license: MIT
 metadata:
-  version: 0.1.0
+  version: 0.3.0
   author: Adam Ahmed
 ---
 

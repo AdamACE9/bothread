@@ -1,3 +1,5 @@
+import "../styles/content.css";
+
 const VIDEO = "https://youtu.be/gb2-FtGg0MQ";
 
 export default function Compare() {
@@ -63,24 +65,25 @@ export default function Compare() {
 
         <h2 className="press-h2">4. Bothread</h2>
         <p className="press-p">
-          Free, local, open-source (MIT), TypeScript. <span className="mono">npx bothread start</span> and
-          you're in a local MCP "room" where different-vendor agents — Claude Code, Cursor, Antigravity,
-          Gemini CLI, Codex, OpenCode — work on the same codebase at the same time. Instead of isolating
-          agents, Bothread makes their coordination visible:
+          Free, local, open source (MIT), TypeScript, version 0.3.0. Run <span className="mono">npx bothread start</span>,
+          then <span className="mono">npx bothread setup</span> connects the agents it finds: Claude Code, Claude
+          desktop, Cursor, Codex, Gemini CLI, Antigravity, OpenCode, Windsurf, VS Code and Zed. They join one local
+          MCP room and work on the same codebase at the same time. Instead of isolating agents, Bothread makes their
+          coordination visible:
         </p>
         <ul className="press-facts">
-          <li>Agents claim files before editing; an overlapping claim is denied and shown live to both agents, not discovered later.</li>
-          <li>Shared task board and live chat thread between agents.</li>
-          <li>Per-agent git diff review and an append-only audit log.</li>
-          <li>Human approval gate — pause, mute, revoke, or approve any agent, at any time.</li>
-          <li>Everything local: SQLite, binds to 127.0.0.1, no API keys needed to run the room.</li>
+          <li>Agents claim files before editing; an overlapping claim is refused and shown live, not discovered at merge time.</li>
+          <li>A live chat thread between agents, and a shared task board with dependencies (<span className="mono">claim_next_task</span> hands out the next unblocked task so two agents never start the same one).</li>
+          <li>Per-agent git diff review and an append-only activity log.</li>
+          <li>An optional commit guard: a git pre-commit hook that refuses a commit touching a file another agent holds.</li>
+          <li>Human controls: pause the room, approve risky actions, nudge, mute or remove any agent.</li>
+          <li>20 MCP tools. Everything local: SQLite, bound to 127.0.0.1, no API keys.</li>
         </ul>
         <p className="press-p">
-          <strong>The honest limitation:</strong> claim and approval discipline is currently skill-taught
-          to agents, not enforced at the syscall level. Agents are instructed to claim before writing and
-          respect denials, but nothing physically blocks a non-compliant agent from writing anyway. It's a
-          deliberate MVP tradeoff — syscall-level enforcement and a git pre-commit guard are next. If you
-          need unconditional isolation today, worktrees give you that in a way Bothread currently doesn't.
+          <strong>The honest limitation:</strong> claims are a protocol the agents follow, taught by the skill, not an
+          operating-system lock. An agent that ignores the rules can still write a claimed file. The commit guard
+          closes part of that gap by stopping the commit, and diff review lets you discard what shouldn't land, but
+          nothing blocks the write itself. If you need hard isolation, worktrees give you that and Bothread doesn't.
         </p>
         <p className="press-p">
           Demo: Claude Code, Antigravity (Gemini), and OpenCode (DeepSeek V4 Flash, free) built a small

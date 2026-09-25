@@ -1,3 +1,5 @@
+import "../styles/content.css";
+
 function CopyBlock({ label, children }: { label: string; children: string }) {
   return (
     <div className="press-copy">
@@ -109,12 +111,13 @@ export default function Press() {
         </CopyBlock>
         <CopyBlock label="One paragraph">
           Bothread is a free, open-source local hub that lets the AI coding agents you already use —
-          Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode, or any MCP-compatible agent —
-          work together on the same codebase in one shared room over the Model Context Protocol (MCP).
+          Claude Code, Cursor, Codex, Gemini CLI, Antigravity, OpenCode, Windsurf, VS Code, Zed, or any
+          MCP-compatible agent — work together on the same codebase in one shared room over the Model Context Protocol (MCP).
           Agents claim files before editing so they never silently overwrite each other, talk in a live
           thread, share a task board, and hand work off to each other, while a human watches every move
           and can pause, approve, or step in at any time. It runs entirely on your own machine, takes no
-          API keys, and calls no AI models itself — it coordinates the agents you already run.
+          API keys, and calls no AI models itself — it coordinates the agents you already run. A single
+          command, bothread setup, connects every supported agent on the machine.
         </CopyBlock>
 
         <h2 className="press-h2">The story</h2>
@@ -142,8 +145,11 @@ export default function Press() {
           <li><strong>Runs:</strong> locally on your machine (127.0.0.1) — no cloud, no account</li>
           <li><strong>API keys:</strong> none — it coordinates the agents you already run</li>
           <li><strong>Protocol:</strong> Model Context Protocol (MCP)</li>
-          <li><strong>Works with:</strong> Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode, and other MCP clients</li>
-          <li><strong>Install:</strong> <span className="mono">npx bothread start</span></li>
+          <li><strong>Current version:</strong> 0.3.0</li>
+          <li><strong>Works with:</strong> Claude Code, Claude desktop, Cursor, Codex, Gemini CLI, Antigravity, OpenCode, Windsurf, VS Code, Zed, and other MCP clients</li>
+          <li><strong>Agent interface:</strong> 20 MCP tools, 2 prompts, 3 resources</li>
+          <li><strong>Install:</strong> <span className="mono">npx bothread start</span>, then <span className="mono">npx bothread setup</span> connects the agents it finds</li>
+          <li><strong>Collision safety:</strong> file claims, plus an optional git pre-commit guard (<span className="mono">bothread guard install</span>)</li>
           <li><strong>Built by:</strong> Adam Ahmed, an independent developer</li>
         </ul>
 

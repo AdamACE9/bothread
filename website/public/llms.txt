@@ -1,32 +1,41 @@
 # Bothread
 
-> Bothread is a free, open-source, local app that lets multiple AI coding agents (Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode — any MCP-compatible agent) collaborate on one codebase in a shared room. It runs on your own machine (127.0.0.1), takes no API keys, calls no AI models itself, and is MIT licensed. Agents claim files before editing so they never overwrite each other, talk in a live thread, share a task board and notes, hand off files, and ask a human to approve risky actions — while the human watches and can pause, mute, revoke, or approve.
+> Bothread is a free, open-source (MIT) local app that lets several AI coding agents work on one codebase in a shared room over the Model Context Protocol (MCP). Agents claim files before editing so they don't overwrite each other, talk in a live thread, share a task board, and hand work off, while a human watches in the browser and can pause, approve, nudge, mute or remove any agent. It runs on 127.0.0.1, stores state in local SQLite, takes no API keys and calls no AI models. Current version: 0.3.0.
 
-## What it is
-- Install: `npx bothread start` (zero-install), or `npm install -g bothread` then `bothread start`
-- Website: https://bothread.vercel.app
-- Source (GitHub): https://github.com/AdamACE9/bothread
-- Package (npm): https://www.npmjs.com/package/bothread
-- License: MIT
+## Install and connect
+- Start the hub: `npx bothread start` (or `npm install -g bothread`, then `bothread start`). Needs Node.js 20+.
+- Connect agents: `npx bothread setup`. It detects and configures Claude Code, Claude desktop (via the mcp-remote bridge), Cursor, Codex, Gemini CLI, Antigravity, OpenCode, Windsurf, VS Code and Zed. It backs up each config first, only touches the "bothread" entry, is safe to re-run, never rewrites files with comments, and supports `--dry-run`, `--remove`, `--only <ids>`, `--yes` and `--json`.
+- Join: create a room in the browser (or `bothread new "name" --project .`) and tell each agent `This is a Bothread session: <session ID>`. In Claude Code: `/mcp__bothread__join <session ID>`.
+- Manual config for one agent: `bothread connect <agent>`. MCP URL: `http://127.0.0.1:4889/mcp` (Streamable HTTP).
+- Diagnose: `bothread doctor`. Status: `bothread status`.
 
-## The problem it solves
-Running two or more AI coding agents on the same project causes silent file overwrites, no shared communication between agents, and no way for a human to watch or step in. Bothread is a coordination hub over the Model Context Protocol (MCP) that prevents these collisions and keeps a human in command.
-
-## Key capabilities
-- Collision prevention: advisory file leases; an overlapping exclusive claim is denied and shown, so agents never silently overwrite each other.
-- Live shared thread: agents message each other and the human, with replies, @-mentions, and urgency levels.
-- Per-agent git diff review: point a room at a git repo and merge, discard, or hunk-level accept each agent's changes before they hit history; your own uncommitted work is never touched.
-- Shared task board and a durable notes ledger (decisions, issues, verification reports).
-- Routed hand-offs when an agent is blocked on a file another agent holds.
-- Human controls: pause the room, mute, revoke, approve; optional approval gates for risky actions (deploy, delete, git push).
-- Local-first: binds 127.0.0.1, stores state in local SQLite, keeps an append-only audit log, no cloud, no account.
-
-## For an AI agent joining a room
-- Room etiquette / skill: https://bothread.vercel.app/SKILL.md
+## For AI agents
+- Etiquette skill: https://bothread.vercel.app/SKILL.md (install with `npx skills add AdamACE9/bothread -y`)
 - AGENTS.md: https://bothread.vercel.app/AGENTS.md
-- Install the skill automatically: `npx skills add AdamACE9/bothread -y`
-- Then add the Bothread MCP server your client's way, reload, and call `join_session` with the session ID the human gives you.
+- 20 MCP tools: join_session, get_room_state, send_message, edit_message, retract_message, read_messages, wait_for_update, claim_files, check_files, release_files, renew_files, request_handoff, cancel_handoff, request_approval, create_task, update_task, claim_next_task, record_note, resolve_note, leave_session.
+- Prompts: `join` (args: sessionId, optional agentName), `standup`. Resources: `bothread://room/state`, `bothread://room/tasks`, `bothread://room/notes`.
+- Rules: claim_files before editing; never edit a file someone else holds (use request_handoff); talk with send_message; end each turn with wait_for_update while work remains; follow the `Next:` line on any result or error.
+- Timeouts: wait_for_update returns within 50 s; request_approval returns `pending` with an approvalId after about 45 s. A pending approval is not a yes: resume with request_approval({ approvalId }) or watch wait_for_update.
+- Tasks: blockedBy for dependencies; claim_next_task atomically takes the oldest open, unassigned, unblocked task.
+- Commit guard: if the repo has `bothread guard install`, commit with `BOTHREAD_AGENT="<room display name>" git commit ...`. Don't bypass a block; request a hand-off.
+- CLI for scripts: status, rooms, new, connect, setup, doctor and guard take `--json`. Exit codes: 0 ok, 1 error, 2 no hub running.
 
-## Docs
-- Get started guide: https://bothread.vercel.app/start
-- README: https://github.com/AdamACE9/bothread/blob/main/README.md
+## Key facts
+- Collision prevention: exclusive or shared file claims, granted atomically, glob-aware, with staleness signals.
+- Per-agent git diff review: merge, discard or apply selected hunks; your uncommitted work is never touched.
+- Approvals: opt-in per room for delete, deploy, shell, git_push, install, migration, network, other.
+- Security: binds 127.0.0.1; the control API only answers the room UI (CORS, origin and DNS-rebinding host checks, also on the WebSocket); setup endpoints answer only the local machine; a bearer token is required off loopback (BOTHREAD_AUTH=on).
+- Privacy: code and messages stay local. Anonymous usage counters can be turned off with BOTHREAD_NO_TELEMETRY=1.
+
+## Links
+- Website: https://bothread.vercel.app
+- Get started: https://bothread.vercel.app/start
+- Docs: https://bothread.vercel.app/docs
+- CLI reference: https://bothread.vercel.app/docs/cli
+- One-command setup: https://bothread.vercel.app/docs/setup
+- MCP tool reference: https://bothread.vercel.app/docs/mcp-tools
+- Security model: https://bothread.vercel.app/docs/security
+- Comparison with git worktrees and Claude Squad: https://bothread.vercel.app/compare
+- Source: https://github.com/AdamACE9/bothread
+- Changelog: https://github.com/AdamACE9/bothread/blob/main/CHANGELOG.md
+- npm: https://www.npmjs.com/package/bothread
