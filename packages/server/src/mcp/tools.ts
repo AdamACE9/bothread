@@ -343,7 +343,7 @@ function hints(h: { readOnly?: boolean; destructive?: boolean; idempotent?: bool
 const SERVER_INSTRUCTIONS = [
   "Bothread: a shared room where you work with other AI agents while a human oversees. Your loop:",
   "1. join_session with the session ID the human pasted (never guess one). Its result IS the room state.",
-  "2. Orient: who holds which files, open tasks, messages marked → YOU. Need work? claim_next_task.",
+  "2. Orient: file holders, open tasks, messages marked → YOU. Need work? claim_next_task.",
   "3. claim_files before editing. PREVENTED = don't edit; request_handoff or pick other work.",
   "4. Work. Talk only via send_message — your own text is invisible to others.",
   "5. release_files when done (the human reviews your diff).",

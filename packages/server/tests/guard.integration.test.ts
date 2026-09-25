@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -250,10 +250,20 @@ describe("bothread guard (real git repo, real pre-commit hook)", { timeout: 60_0
   let env: NodeJS.ProcessEnv;
   let agent: Client;
 
-  const git = (args: string[], extra: Record<string, string> = {}) =>
-    spawnSync("git", args, { cwd: repo, env: { ...env, ...extra }, encoding: "utf8", timeout: 30_000 });
-  const cli = (args: string[], extra: Record<string, string> = {}) =>
-    spawnSync(process.execPath, [bin, ...args], { cwd: repo, env: { ...env, ...extra }, encoding: "utf8", timeout: 30_000 });
+  // Async on purpose: the hub runs in THIS process, so a spawnSync'd `git commit`
+  // would block the very event loop its pre-commit hook needs an answer from.
+  const run = (cmd: string, args: string[], extra: Record<string, string>) =>
+    new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn(cmd, args, { cwd: repo, env: { ...env, ...extra }, stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.on("data", (d) => (stderr += d));
+      child.on("error", reject);
+      child.on("close", (status) => resolve({ status, stdout, stderr }));
+    });
+  const git = (args: string[], extra: Record<string, string> = {}) => run("git", args, extra);
+  const cli = (args: string[], extra: Record<string, string> = {}) => run(process.execPath, [bin, ...args], extra);
   const edit = (file: string, text: string) => {
     fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
     fs.writeFileSync(path.join(repo, file), text);
@@ -301,8 +311,8 @@ describe("bothread guard (real git repo, real pre-commit hook)", { timeout: 60_0
     if (hub?.server.listening) await hub.close();
   });
 
-  it("install writes a marked, executable hook; status/check report it", () => {
-    const r = cli(["guard", "install", "--path", repo]);
+  it("install writes a marked, executable hook; status/check report it", async () => {
+    const r = await cli(["guard", "install", "--path", repo]);
     expect(r.stderr).toBe("");
     expect(r.status).toBe(0);
     const hookPath = path.join(repo, ".git", "hooks", "pre-commit");
@@ -311,24 +321,24 @@ describe("bothread guard (real git repo, real pre-commit hook)", { timeout: 60_0
     expect(src).toContain("bothread-guard");
     if (process.platform !== "win32") expect(fs.statSync(hookPath).mode & 0o111).not.toBe(0);
 
-    const st = JSON.parse(cli(["guard", "status", "--json"]).stdout);
+    const st = JSON.parse((await cli(["guard", "status", "--json"])).stdout);
     expect(st).toMatchObject({ installed: true, foreignHook: false, hub: { running: true, port: hub.port } });
     expect(fs.realpathSync(st.hookPath)).toBe(fs.realpathSync(hookPath));
 
-    const check = cli(["guard", "check", "--json", "src/a.ts"]);
+    const check = await cli(["guard", "check", "--json", "src/a.ts"]);
     expect(check.status).toBe(1);
     expect(JSON.parse(check.stdout).blocked[0]).toMatchObject({ file: "src/a.ts", heldByName: "Claude Code" });
-    expect(cli(["guard", "check", "--agent", "Claude Code", "src/a.ts"]).status).toBe(0);
+    expect((await cli(["guard", "check", "--agent", "Claude Code", "src/a.ts"])).status).toBe(0);
 
-    const doctor = JSON.parse(cli(["doctor", "--json"]).stdout);
+    const doctor = JSON.parse((await cli(["doctor", "--json"])).stdout);
     expect(doctor.checks.find((k: { name: string }) => k.name === "guard")).toMatchObject({ status: "info" });
     expect(doctor.checks.find((k: { name: string }) => k.name === "guard").message).toContain("installed in");
   });
 
-  it("blocks a commit of a file another agent holds, naming the holder", () => {
+  it("blocks a commit of a file another agent holds, naming the holder", async () => {
     edit("src/a.ts", "export const a = 2;\n");
-    git(["add", "src/a.ts"]);
-    const r = git(["commit", "-m", "x"]);
+    await git(["add", "src/a.ts"]);
+    const r = await git(["commit", "-m", "x"]);
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain("Commit blocked by Bothread");
     expect(r.stderr).toContain("src/a.ts");
@@ -338,68 +348,68 @@ describe("bothread guard (real git repo, real pre-commit hook)", { timeout: 60_0
     expect(hub.engine.listRooms().some((room) => hub.engine.listAudit(room.id).some((e) => e.type === "guard.blocked"))).toBe(true);
 
     // Another agent identifying itself is still blocked.
-    expect(git(["commit", "-m", "x"], { BOTHREAD_AGENT: "Cursor" }).status).not.toBe(0);
+    expect((await git(["commit", "-m", "x"], { BOTHREAD_AGENT: "Cursor" })).status).not.toBe(0);
     // A commit that doesn't touch held files is fine.
-    git(["reset", "-q", "src/a.ts"]);
+    await git(["reset", "-q", "src/a.ts"]);
     edit("README.md", "# repo v2\n");
-    git(["add", "README.md"]);
-    expect(git(["commit", "-q", "-m", "readme"]).status).toBe(0);
+    await git(["add", "README.md"]);
+    expect((await git(["commit", "-q", "-m", "readme"])).status).toBe(0);
   });
 
-  it("lets the holder commit (BOTHREAD_AGENT), and honors BOTHREAD_GUARD=off", () => {
-    git(["add", "src/a.ts"]);
-    const r = git(["commit", "-q", "-m", "by holder"], { BOTHREAD_AGENT: "Claude Code" });
+  it("lets the holder commit (BOTHREAD_AGENT), and honors BOTHREAD_GUARD=off", async () => {
+    await git(["add", "src/a.ts"]);
+    const r = await git(["commit", "-q", "-m", "by holder"], { BOTHREAD_AGENT: "Claude Code" });
     expect(r.stderr).toBe("");
     expect(r.status).toBe(0);
 
     edit("src/a.ts", "export const a = 3;\n");
-    git(["add", "src/a.ts"]);
-    expect(git(["commit", "-q", "-m", "bypass"], { BOTHREAD_GUARD: "off" }).status).toBe(0);
+    await git(["add", "src/a.ts"]);
+    expect((await git(["commit", "-q", "-m", "bypass"], { BOTHREAD_GUARD: "off" })).status).toBe(0);
   });
 
-  it("chains a foreign hook only with --force, and uninstall restores it", () => {
+  it("chains a foreign hook only with --force, and uninstall restores it", async () => {
     const hooks = path.join(repo, ".git", "hooks");
-    expect(cli(["guard", "uninstall"]).status).toBe(0);
+    expect((await cli(["guard", "uninstall"])).status).toBe(0);
     expect(fs.existsSync(path.join(hooks, "pre-commit"))).toBe(false);
 
     const marker = path.join(repo, ".git", "prev-ran");
     const foreign = `#!/bin/sh\necho ran > "${marker.replace(/\\/g, "/")}"\nexit 0\n`;
     fs.writeFileSync(path.join(hooks, "pre-commit"), foreign, { mode: 0o755 });
-    const refused = cli(["guard", "install"]);
+    const refused = await cli(["guard", "install"]);
     expect(refused.status).toBe(1);
     expect(refused.stderr).toContain("--force");
     expect(fs.readFileSync(path.join(hooks, "pre-commit"), "utf8")).toBe(foreign);
 
-    expect(cli(["guard", "install", "--force"]).status).toBe(0);
+    expect((await cli(["guard", "install", "--force"])).status).toBe(0);
     expect(fs.readFileSync(path.join(hooks, "pre-commit.bothread-prev"), "utf8")).toBe(foreign);
 
     edit("src/a.ts", "export const a = 4;\n");
-    git(["add", "src/a.ts"]);
-    expect(git(["commit", "-m", "blocked"]).status).not.toBe(0);
+    await git(["add", "src/a.ts"]);
+    expect((await git(["commit", "-m", "blocked"])).status).not.toBe(0);
     expect(fs.existsSync(marker)).toBe(true); // chained hook ran first
 
-    expect(cli(["guard", "uninstall"]).status).toBe(0);
+    expect((await cli(["guard", "uninstall"])).status).toBe(0);
     expect(fs.readFileSync(path.join(hooks, "pre-commit"), "utf8")).toBe(foreign);
     expect(fs.existsSync(path.join(hooks, "pre-commit.bothread-prev"))).toBe(false);
-    git(["reset", "-q", "src/a.ts"]);
+    await git(["reset", "-q", "src/a.ts"]);
     fs.unlinkSync(path.join(hooks, "pre-commit"));
   });
 
-  it("respects core.hooksPath", () => {
-    git(["config", "core.hooksPath", ".githooks"]);
-    expect(cli(["guard", "install"]).status).toBe(0);
+  it("respects core.hooksPath", async () => {
+    await git(["config", "core.hooksPath", ".githooks"]);
+    expect((await cli(["guard", "install"])).status).toBe(0);
     expect(fs.readFileSync(path.join(repo, ".githooks", "pre-commit"), "utf8")).toContain("bothread-guard");
     edit("src/a.ts", "export const a = 5;\n");
-    git(["add", "src/a.ts"]);
-    expect(git(["commit", "-m", "blocked"]).status).not.toBe(0);
+    await git(["add", "src/a.ts"]);
+    expect((await git(["commit", "-m", "blocked"])).status).not.toBe(0);
   });
 
   it("fails open when the hub is down", async () => {
     await agent.close().catch(() => {});
     await hub.close();
-    const r = git(["commit", "-q", "-m", "hub down"]);
+    const r = await git(["commit", "-q", "-m", "hub down"]);
     expect(r.status).toBe(0);
     expect(r.stderr).toContain("commit not checked");
-    expect(cli(["guard", "check", "src/a.ts"]).status).toBe(2);
+    expect((await cli(["guard", "check", "src/a.ts"])).status).toBe(2);
   });
 });

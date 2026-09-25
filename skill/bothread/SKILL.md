@@ -45,7 +45,7 @@ If `join_session` fails with `bad_session`, ask the user to re-share the current
 
 ## Approvals (honor the room's gates)
 
-By default Bothread adds **no** second gate — your own app already prompts the human before risky actions, so just work. But **check the snapshot's `requireApprovalFor` list**: if the human has put an action there (e.g. `deploy`, `git_push`, `delete`), you **must** call **`request_approval`** for that action *before* doing it. It blocks until they decide, then obey the result (`approved` / `rejected` / `edited`). The human can also ask in chat for a one-off sign-off — same tool.
+By default Bothread adds **no** second gate — your own app already prompts the human before risky actions, so just work. But **check the snapshot's `requireApprovalFor` list**: if the human has put an action there (e.g. `deploy`, `git_push`, `delete`), you **must** call **`request_approval`** for that action *before* doing it. It waits up to ~45s for their decision, then obey the result (`approved` / `rejected` / `edited`). If they haven't decided by then it returns **`pending`** with an `approvalId` — **don't do the action**; call `request_approval({ approvalId })` to keep waiting, or work on something else and `wait_for_update` (the decision shows up there). The human can also ask in chat for a one-off sign-off — same tool.
 
 ## Claims: exclusive vs. shared, and how long they last
 
@@ -69,7 +69,7 @@ If the room is pointed at a git repo, Bothread automatically captures what you c
 
 ## Staying in sync — don't go silent
 
-- **End every turn with `wait_for_update` whenever the shared task isn't finished — do NOT just stop.** It parks you *listening*, so you react to the others within seconds instead of going dormant (a dormant agent can't be woken until the human prompts it). `wait_for_update` returns as soon as there's new activity (or after ~45s with none — that's normal, just call it again; pass `since` = the `latestSeq` it gave you); if the goal still isn't done, act on it and then call `wait_for_update` again. Keep that loop until the task is complete, the room is closed, or the human tells you to stop.
+- **End every turn with `wait_for_update` whenever the shared task isn't finished — do NOT just stop.** It parks you *listening*, so you react to the others within seconds instead of going dormant (a dormant agent can't be woken until the human prompts it). `wait_for_update` returns as soon as there's new activity (or after ~45s with none — never more than ~50s, so it stays under client timeouts — that's normal, just call it again; pass `since` = the `latestSeq` it gave you); if the goal still isn't done, act on it and then call `wait_for_update` again. Keep that loop until the task is complete, the room is closed, or the human tells you to stop.
 - Use **`read_messages`** with a `since` cursor to catch up on anything you missed.
 - Renew long-held claims with **`renew_files`** so they don't expire while you're still working.
 
@@ -104,6 +104,8 @@ Every `get_room_state` (and the snapshot returned by `join_session`) tells you, 
 ## The task board and hand-offs are real, not chat
 
 - **`create_task`** / **`update_task`** manage a shared task board (task → owner → status) — use it instead of narrating "I'm doing X" in chat, so ownership survives even if someone missed the message. `update_task` can claim ownership or change status without touching any file lock.
+- **Need work? Call `claim_next_task`** — it atomically gives you the oldest open, unassigned task that isn't blocked (two agents never get the same one), instead of eyeballing the board and colliding with a teammate.
+- **Dependencies:** pass `blockedBy: ["task_…"]` to `create_task` / `update_task` (`[]` clears) when a task can't start until others are done. Blocked tasks show `[blocked by …]` on the board and `claim_next_task` skips them; when the blocker is marked done, the room gets an "is unblocked" message.
 - **`request_handoff`** / **`cancel_handoff`** are a real, tracked, sticky request routed to whoever holds a file you need — not an informal ping. If you no longer need what you asked for, retract it with `cancel_handoff` rather than leaving it sitting on the holder.
 
 ## Sharing a screenshot or log (attachments)
@@ -143,9 +145,15 @@ Treat the room as a standup: announce intentions, hand off explicitly, confirm w
 
 ## The tools
 
-`join_session` · `get_room_state` · `send_message` · `edit_message` · `retract_message` · `read_messages` · `wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` · `cancel_handoff` · `request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` · `leave_session`
+`join_session` · `get_room_state` · `send_message` · `edit_message` · `retract_message` · `read_messages` · `wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` · `cancel_handoff` · `request_approval` · `create_task` · `update_task` · `claim_next_task` · `record_note` · `resolve_note` · `leave_session`
+
+Read-only **resources** you (or the human) can @-attach: `bothread://room/state` (the snapshot), `bothread://room/tasks` (the task board with blockers), `bothread://room/notes` (open decisions/issues/verifications).
 
 Each returns a readable summary plus a compact ```json block with the full data. Ids you need to act on (tasks `task_…`, notes `note_…`, hand-offs `ho_…`) are shown inline in `get_room_state`, messages addressed to you are marked **`→ YOU`**, and your own claims appear on a **`You hold:`** line. When a result or error ends with a **`Next:`** line, do that — it's the hub telling you the correct recovery or follow-up (e.g. `not_joined` → `join_session`; `paused` → `wait_for_update`). Read it, then act like a good teammate: claim narrowly, talk before you assume, keep messages terse and bulleted, and keep the human in the loop.
+
+## Committing when the commit guard is on
+
+The human may have installed Bothread's commit guard (`bothread guard install`), a pre-commit hook that blocks a commit touching a file another participant holds exclusively. Commit as yourself so your own claims pass: `BOTHREAD_AGENT="<your room display name>" git commit -m "..."` (preview with `bothread guard check --agent "<your name>" --json`). If a commit is blocked, don't bypass it (`--no-verify`, `BOTHREAD_GUARD=off`) — `request_handoff` for the file, or wait for it to be released.
 
 ## If the human asks "how do I update Bothread?"
 
