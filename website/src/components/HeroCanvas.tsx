@@ -47,7 +47,12 @@ export default function HeroCanvas() {
     import("../three/roomScene")
       .then(({ createRoomScene }) => {
         if (!alive) return;
-        scene = createRoomScene(host, { reducedMotion: reduced, onFirstFrame: () => alive && setReady(true) });
+        scene = createRoomScene(host, {
+          reducedMotion: reduced,
+          onFirstFrame: () => alive && setReady(true),
+          // If the GPU drops the context, show the static illustration instead.
+          onContextLost: () => alive && setFailed(true),
+        });
         sync();
       })
       .catch(() => alive && setFailed(true));

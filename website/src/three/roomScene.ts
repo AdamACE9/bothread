@@ -112,7 +112,7 @@ function ringTexture(): Texture {
 
 export function createRoomScene(
   host: HTMLElement,
-  opts: { reducedMotion: boolean; onFirstFrame?: () => void }
+  opts: { reducedMotion: boolean; onFirstFrame?: () => void; onContextLost?: () => void }
 ): RoomScene {
   const renderer = new WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -122,6 +122,13 @@ export function createRoomScene(
   canvas.className = "hs-canvas";
   canvas.setAttribute("aria-hidden", "true");
   host.appendChild(canvas);
+  const onLost = (e: Event) => {
+    e.preventDefault();
+    running = false;
+    cancelAnimationFrame(raf);
+    opts.onContextLost?.();
+  };
+  canvas.addEventListener("webglcontextlost", onLost);
 
   const labelLayer = document.createElement("div");
   labelLayer.className = "hs-labels";
@@ -749,6 +756,7 @@ export function createRoomScene(
       running = false;
       cancelAnimationFrame(raf);
       ro.disconnect();
+      canvas.removeEventListener("webglcontextlost", onLost);
       host.removeEventListener("pointermove", onPointerMove);
       host.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointerup", onPointerUp);
