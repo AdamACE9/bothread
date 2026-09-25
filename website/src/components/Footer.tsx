@@ -1,27 +1,41 @@
-import ThreadMark from "./ThreadMark";
-
+import "../styles/home.css";
 export default function Footer() {
   const year = new Date().getFullYear();
   return (
-    <footer>
-      <div className="container foot-inner">
-        <div>
-          <a className="brand" href="#top" aria-label="Bothread — home">
-            <ThreadMark size={22} />
-            <span>
-              Bo<b>thread</b>
-            </span>
+    <footer className="hf">
+      <div className="hf-inner">
+        <div className="hf-brand">
+          <a href="/" aria-label="Bothread home">
+            <img src="/logo.png" alt="" width="131" height="26" />
           </a>
-          <p className="foot-tag" style={{ marginTop: "0.7rem" }}>
-            Local-first. MCP-native. You stay in command.
-          </p>
+          <p>Free, open-source coordination for the AI coding agents you already use. Runs on your machine.</p>
         </div>
-        <div style={{ display: "flex", gap: "1.5rem", alignItems: "center", flexWrap: "wrap" }}>
-          <a href="#how" className="muted">How it works</a>
-          <a href="#why" className="muted">Why it’s different</a>
-          <a href="#feedback" className="muted">Feedback</a>
-          <span className="foot-tag">© {year} Bothread</span>
-        </div>
+        <nav className="hf-cols" aria-label="Footer">
+          <div>
+            <h2>Product</h2>
+            <a href="/#how">How it works</a>
+            <a href="/#features">Features</a>
+            <a href="/#agents">For agents</a>
+            <a href="/compare">Compare</a>
+          </div>
+          <div>
+            <h2>Use it</h2>
+            <a href="/start">Setup guide</a>
+            <a href="/docs">Docs</a>
+            <a href="/#faq">FAQ</a>
+            <a href="/#feedback">Send feedback</a>
+          </div>
+          <div>
+            <h2>Project</h2>
+            <a href="https://github.com/AdamACE9/bothread" target="_blank" rel="noreferrer">GitHub</a>
+            <a href="https://www.npmjs.com/package/bothread" target="_blank" rel="noreferrer">npm</a>
+            <a href="/press">Press kit</a>
+          </div>
+        </nav>
+      </div>
+      <div className="hf-base">
+        <span>© {year} Bothread. MIT licensed.</span>
+        <span>Not affiliated with the embroidery brand Brothread.</span>
       </div>
     </footer>
   );
