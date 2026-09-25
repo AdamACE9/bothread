@@ -172,3 +172,5 @@ export interface DetectedAgent {
 export const listAgents = () => jget<{ agents: DetectedAgent[] }>("/api/agents").then((r) => r.agents);
 export const setupAgent = (id: string) =>
   jpost<{ ok: boolean; message: string; target?: string; backup?: string }>(`/api/agents/${encodeURIComponent(id)}/setup`);
+export const removeAgentSetup = (id: string) =>
+  jpost<{ ok: boolean; message: string; target?: string; backup?: string }>(`/api/agents/${encodeURIComponent(id)}/remove`);

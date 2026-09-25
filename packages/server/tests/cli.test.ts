@@ -15,12 +15,15 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const bin = path.join(repoRoot, "bin", "bothread.mjs");
 const pkgVersion = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).version as string;
 
+const agentHome = fs.mkdtempSync(path.join(os.tmpdir(), "bothread-cli-home-"));
+
 // No inherited BOTHREAD_* (a developer's own port/auth/db must not leak in), no
 // color, no telemetry, never open a browser.
 function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("BOTHREAD_") && k !== "FORCE_COLOR") env[k] = v;
-  return { ...env, NO_COLOR: "1", BOTHREAD_NO_TELEMETRY: "1", BOTHREAD_NO_OPEN: "1", ...extra };
+  // Agent detection (start screen, doctor) looks at an empty fake home, never the real one.
+  return { ...env, NO_COLOR: "1", BOTHREAD_NO_TELEMETRY: "1", BOTHREAD_NO_OPEN: "1", BOTHREAD_AGENT_HOME: agentHome, ...extra };
 }
 
 function cli(args: string[], extraEnv: Record<string, string> = {}) {
@@ -55,7 +58,7 @@ describe("bothread CLI", () => {
   it("help lists every command, and per-command help works", () => {
     const r = cli(["help"]);
     expect(r.code).toBe(0);
-    for (const cmd of ["start", "status", "rooms", "new", "connect", "doctor"]) expect(r.stdout).toContain(cmd);
+    for (const cmd of ["start", "setup", "status", "rooms", "new", "connect", "doctor"]) expect(r.stdout).toContain(cmd);
     expect(r.stdout).toContain("--json");
     expect(r.stdout).toContain("BOTHREAD_AUTH=on");
     expect(r.stdout).not.toMatch(/\x1b\[/); // NO_COLOR → plain
@@ -73,7 +76,7 @@ describe("bothread CLI", () => {
     const out = JSON.parse(r.stdout);
     expect(out.agent).toBe("claude");
     expect(out.mcpUrl).toBe(`http://127.0.0.1:${port}/mcp`);
-    expect(out.config).toBe(`claude mcp add --transport http bothread http://127.0.0.1:${port}/mcp`);
+    expect(out.config).toBe(`claude mcp add --transport http --scope user bothread http://127.0.0.1:${port}/mcp`);
     expect(out.skillInstall).toBe("npx skills add AdamACE9/bothread -y");
     expect(typeof out.where).toBe("string");
   });

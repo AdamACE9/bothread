@@ -18,6 +18,7 @@
  * `npm install -g bothread` (or `npx bothread start` for zero-install).
  */
 import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { createRequire } from "node:module";
@@ -25,6 +26,9 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { AGENTS, detectAgents, removeAgent, resolveAgentId, setupAgent, snippetFor, tildify } from "./lib/agents.mjs";
+import { CANCEL, createUi, splitKeys } from "./lib/prompts.mjs";
+import { colorEnabled, listJoin, palette } from "./lib/term.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -63,26 +67,8 @@ const TOKEN_PLACEHOLDER = "<BOTHREAD_TOKEN>";
 /* ─────────────────────────────── colors ─────────────────────────────── */
 
 // Color only on a real terminal, never when NO_COLOR is set; FORCE_COLOR wins
-// over both (same precedence Node itself uses). `--json` output never goes
-// through these helpers, so it is always plain.
-function colorEnabled(stream) {
-  const force = process.env.FORCE_COLOR;
-  if (force !== undefined) return force !== "0" && force !== "false";
-  if (process.env.NO_COLOR) return false;
-  return !!stream.isTTY && process.env.TERM !== "dumb";
-}
-function palette(on) {
-  const wrap = (open, close) => (s) => (on ? `\x1b[${open}m${s}\x1b[${close}m` : String(s));
-  return {
-    bold: wrap("1", "22"),
-    dim: wrap("2", "22"),
-    red: wrap("31", "39"),
-    green: wrap("32", "39"),
-    yellow: wrap("33", "39"),
-    cyan: wrap("36", "39"),
-    accent: wrap("38;5;173", "39"), // Loom copper
-  };
-}
+// over both (see lib/term.mjs). `--json` output never goes through these
+// helpers, so it is always plain.
 const c = palette(colorEnabled(process.stdout));
 const ce = palette(colorEnabled(process.stderr));
 
@@ -185,21 +171,62 @@ const FLAGS = {
   path: { value: true, usage: "--path <repo>", desc: "Git repo to act on (default: current folder)" },
   agent: { value: true, usage: "--agent <name>", desc: "Check as this room display name (env BOTHREAD_AGENT)" },
   force: { value: false, usage: "--force", desc: "Chain an existing pre-commit hook instead of refusing" },
+  "no-setup": { value: false, usage: "--no-setup", desc: "Skip the first-run \"connect your agents?\" question (env BOTHREAD_NO_SETUP=1)" },
+  yes: { value: false, usage: "-y, --yes", desc: "Don't ask: connect every agent found that isn't connected yet" },
+  only: { value: true, usage: "--only <ids>", desc: "Only these agents, comma-separated (e.g. claude,cursor)" },
+  "dry-run": { value: false, usage: "--dry-run", desc: "Show what would change; write nothing" },
+  remove: { value: false, usage: "--remove", desc: "Take Bothread back out of agent configs (backups kept)" },
+  skill: { value: false, usage: "--skill", desc: "Also install the room-etiquette skill (npx skills add …)" },
+  "no-skill": { value: false, usage: "--no-skill", desc: "Don't offer to install the skill" },
   help: { value: false, usage: "-h, --help", desc: "Show help" },
   version: { value: false, usage: "-v, --version", desc: "Print the installed version" },
 };
-const SHORT_FLAGS = { h: "help", v: "version" };
+const SHORT_FLAGS = { h: "help", v: "version", y: "yes" };
 
 const COMMANDS = {
   start: {
     args: "",
     summary: "Start the hub and open the room (the default)",
-    flags: ["port", "host", "db", "auth", "no-open"],
+    flags: ["port", "host", "db", "auth", "no-open", "no-setup"],
     details:
       "Runs the hub on 127.0.0.1 and opens the room UI. If a Bothread hub is\n" +
       "already running on the port, it just opens that one and exits 0.\n" +
-      "Flags win over the matching BOTHREAD_* env vars. Stop with Ctrl-C.",
+      "Flags win over the matching BOTHREAD_* env vars.\n" +
+      "\n" +
+      "The first time, if AI agents are installed but none is connected yet, it\n" +
+      "asks once whether to connect them (skip with --no-setup).\n" +
+      "\n" +
+      "Keys while it runs (in a terminal):\n" +
+      "  o  open the room in your browser     c  copy the MCP URL\n" +
+      "  s  set up agents (bothread setup)    h  show the keys\n" +
+      "  q  stop (also Ctrl-C / Ctrl-D)",
     examples: ["bothread start", "bothread start --port 4890 --no-open", "bothread start --db :memory:", "bothread start --auth"],
+  },
+  setup: {
+    args: "[agents...]",
+    summary: "Find your AI agents and connect them all (with backups)",
+    flags: ["yes", "only", "dry-run", "remove", "skill", "no-skill", "port", "auth", "json"],
+    details:
+      "Looks for Claude Code, Claude (desktop), Cursor, Codex, Gemini CLI,\n" +
+      "Antigravity, OpenCode, Windsurf, VS Code and Zed on this computer and adds\n" +
+      "Bothread's MCP server to each one you pick. Only the \"bothread\" entry is\n" +
+      "touched; an existing config is copied to <file>.bothread-backup-<time> first,\n" +
+      "and running it again changes nothing. Files with comments (JSONC) are never\n" +
+      "rewritten — you get the exact snippet to paste instead.\n" +
+      "\n" +
+      "In a terminal it asks (↑/↓, space, a = all, enter). Piped, with --yes or\n" +
+      "--json it connects every agent found that isn't connected yet, no questions.\n" +
+      "The skill install is offered interactively; unattended runs only do it with --skill.\n" +
+      "Uses the running hub's MCP URL and token when one is up, else the port's.\n" +
+      "Exits 1 if writing a config failed (manual steps alone don't fail it).",
+    examples: [
+      "bothread setup",
+      "bothread setup --yes",
+      "bothread setup --only claude,cursor",
+      "bothread setup --dry-run",
+      "bothread setup --remove",
+      "bothread setup --yes --json",
+    ],
   },
   status: {
     args: "",
@@ -238,7 +265,7 @@ const COMMANDS = {
   },
   doctor: {
     args: "",
-    summary: "Check Node, SQLite, data dir, port, UI build, guard",
+    summary: "Check Node, SQLite, data dir, port, UI build, agents, guard",
     flags: ["port", "db", "json"],
     details: "Prints ✓ / ! / ✗ per check (· for info) and a verdict. Exits 1 if anything would stop\n'bothread start' from working.",
     examples: ["bothread doctor", "bothread doctor --json"],
@@ -327,7 +354,9 @@ function parseArgs(argv, allowed) {
       break;
     }
     if (/^-[a-zA-Z]$/.test(arg) && SHORT_FLAGS[arg[1]]) {
-      flags[SHORT_FLAGS[arg[1]]] = true;
+      const name = SHORT_FLAGS[arg[1]];
+      if (!ok.has(name) && name !== "version") throw new CliError(`Unknown flag '${arg}'. Run 'bothread help' for the flag list.`);
+      flags[name] = true;
       continue;
     }
     if (!arg.startsWith("--") || arg === "-") {
@@ -381,8 +410,8 @@ function dataDir() {
 }
 
 /** Same behaviour as packages/server/src/index.ts openBrowser(). */
-function openBrowser(url) {
-  if (process.env.BOTHREAD_NO_OPEN) return;
+function openBrowser(url, force = false) {
+  if (process.env.BOTHREAD_NO_OPEN && !force) return;
   try {
     const child = isWin
       ? spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" })
@@ -673,59 +702,9 @@ async function cmdNew({ flags, positionals }) {
   return 0;
 }
 
-/* connect — mirrors apps/room-ui/src/ConnectPanel.tsx (AGENTS + snippet()). */
+/* connect — the agent list + snippets live in lib/agents.mjs (shared with the hub). */
 
-const AGENTS = [
-  { id: "claude", label: "Claude Code", where: "Run once in your terminal:" },
-  { id: "claude-desktop", label: "Claude (desktop app)", where: "Settings → Developer → Edit Config, paste this, then fully quit & reopen Claude:" },
-  { id: "antigravity", label: "Antigravity", where: "Settings → Customizations → Open MCP Config (~/.gemini/config/mcp_config.json):" },
-  { id: "cursor", label: "Cursor", where: "Add to .cursor/mcp.json:" },
-  { id: "gemini", label: "Gemini CLI", where: "Add to ~/.gemini/settings.json:" },
-  { id: "codex", label: "Codex", where: "Add to ~/.codex/config.toml:" },
-  { id: "opencode", label: "OpenCode", where: "Run once in your terminal:" },
-  { id: "other", label: "Other", where: "Bridge any MCP client via mcp-remote:" },
-];
-const AGENT_ALIASES = {
-  "claude-code": "claude",
-  claudecode: "claude",
-  "claude-app": "claude-desktop",
-  desktop: "claude-desktop",
-  "gemini-cli": "gemini",
-  "mcp-remote": "other",
-};
-
-function snippet(agent, url, token) {
-  const bearer = token ? `Bearer ${token}` : null;
-  switch (agent) {
-    case "claude":
-      return bearer
-        ? `claude mcp add --transport http bothread ${url} \\\n  --header "Authorization: ${bearer}"`
-        : `claude mcp add --transport http bothread ${url}`;
-    case "cursor":
-      return JSON.stringify({ mcpServers: { bothread: { url, ...(bearer ? { headers: { Authorization: bearer } } : {}) } } }, null, 2);
-    case "claude-desktop": {
-      const args = ["-y", "mcp-remote", url];
-      if (bearer) args.push("--header", `Authorization: ${bearer}`);
-      return JSON.stringify({ mcpServers: { bothread: { command: "npx", args } } }, null, 2);
-    }
-    case "antigravity":
-      return JSON.stringify({ mcpServers: { bothread: { serverUrl: url, ...(bearer ? { headers: { Authorization: bearer } } : {}) } } }, null, 2);
-    case "gemini":
-      return JSON.stringify({ mcpServers: { bothread: { httpUrl: url, ...(bearer ? { headers: { Authorization: bearer } } : {}) } } }, null, 2);
-    case "codex":
-      return `[mcp_servers.bothread]\nurl = "${url}"` + (bearer ? `\nhttp_headers = { Authorization = "${bearer}" }` : "");
-    case "opencode":
-      return bearer ? `opencode mcp add bothread --url ${url} \\\n  --header "Authorization=${bearer}"` : `opencode mcp add bothread --url ${url}`;
-    case "other":
-      return JSON.stringify(
-        { mcpServers: { bothread: { command: "npx", args: ["-y", "mcp-remote@latest", url, ...(bearer ? ["--header", `Authorization: ${bearer}`] : [])] } } },
-        null,
-        2
-      );
-    default:
-      return "";
-  }
-}
+const snippet = (agent, url, token) => snippetFor(agent, { mcpUrl: url, token });
 
 /**
  * Does this hub need a token, and what is it? A running hub is asked directly
@@ -767,16 +746,7 @@ async function cmdConnect({ flags, positionals }) {
   const port = resolvePort(flags);
   const url = mcpUrlFor(port);
   if (positionals.length > 1) throw new CliError(`Pass one agent at a time, e.g.: bothread connect ${positionals[0]}`);
-  const ids = AGENTS.map((a) => a.id);
-  let agentId = positionals[0]?.toLowerCase();
-  if (agentId) {
-    agentId = AGENT_ALIASES[agentId] ?? agentId;
-    if (!ids.includes(agentId)) {
-      const guess = closest(agentId, [...ids, ...Object.keys(AGENT_ALIASES)]);
-      const hint = guess ? ` Did you mean '${AGENT_ALIASES[guess] ?? guess}'?` : "";
-      throw new CliError(`Unknown agent '${positionals[0]}'.${hint}\nAgents: ${ids.join(", ")}`);
-    }
-  }
+  let agentId = positionals[0] ? resolveAgentOrThrow(positionals[0]) : undefined;
   const { hub, authRequired, token: realToken } = await resolveConnectAuth(port, flags);
   const token = authRequired ? realToken ?? TOKEN_PLACEHOLDER : null;
   const placeholder = authRequired && !realToken;
@@ -803,6 +773,7 @@ async function cmdConnect({ flags, positionals }) {
     for (const a of AGENTS) console.log(`    ${c.bold(a.id.padEnd(16))}${a.label}`);
     console.log("");
     console.log(`  Then run:  ${c.bold("bothread connect <agent>")}   ${c.dim("e.g. bothread connect claude")}`);
+    console.log(`  Or let Bothread find and configure them all:  ${c.bold("bothread setup")}`);
     console.log(`  Every agent also wants the room-etiquette skill:  ${c.bold(SKILL_INSTALL)}`);
     console.log("");
     return 0;
@@ -834,6 +805,10 @@ async function cmdConnect({ flags, positionals }) {
   console.log("");
   console.log(indent(config, 7));
   console.log("");
+  if (agentId !== "other") {
+    console.log(`     ${c.dim("Or let Bothread add it for you (with a backup):")} ${c.bold(`bothread setup --only ${agentId}`)}`);
+    console.log("");
+  }
   if (placeholder) {
     console.log(`     ${c.yellow("!")} Auth is on: replace ${c.bold(TOKEN_PLACEHOLDER)} with the token from the room UI's`);
     console.log(`       "Connect an agent" panel or the hub's startup output.`);
@@ -850,6 +825,332 @@ async function cmdConnect({ flags, positionals }) {
   console.log(`     ${c.dim('No room yet? bothread new "my room" --project .  prints a session ID.')}`);
   console.log("");
   return 0;
+}
+
+/* setup — detect every AI coding agent on this machine and point it at the hub */
+
+const AGENT_IDS = () => AGENTS.map((a) => a.id);
+
+/** A known agent id for user input, or a CliError with a "did you mean". */
+function resolveAgentOrThrow(input, { allowOther = true } = {}) {
+  const id = resolveAgentId(input);
+  if (id && (allowOther || id !== "other")) return id;
+  const ids = AGENT_IDS().filter((a) => allowOther || a !== "other");
+  const guess = closest(String(input).toLowerCase(), ids);
+  throw new CliError(`Unknown agent '${input}'.` + (guess ? ` Did you mean '${guess}'?` : "") + `\nAgents: ${ids.join(", ")}`);
+}
+
+/** How to run another bothread command the way this one was installed. */
+function selfCmd(sub) {
+  const channel = detectChannel();
+  if (channel === "dev-clone") return `node bin/bothread.mjs ${sub}`;
+  if (channel === "global") return `bothread ${sub}`;
+  return `npx bothread ${sub}`;
+}
+
+/**
+ * Auth on but no hub running and no token yet: mint the hub's install token now
+ * (the same file the hub reads at boot), so the configs written here keep working.
+ */
+function ensureInstallToken() {
+  if (process.env.BOTHREAD_TOKEN) return process.env.BOTHREAD_TOKEN;
+  const file = path.join(dataDir(), "install-token");
+  try {
+    const existing = readFileSync(file, "utf8").trim();
+    if (existing) return existing;
+  } catch {
+    /* none yet */
+  }
+  const token = randomBytes(18).toString("base64url");
+  mkdirSync(dataDir(), { recursive: true });
+  writeFileSync(file, token, { encoding: "utf8", mode: 0o600 });
+  return token;
+}
+
+/** The MCP URL + token agents should use: the running hub's own, else the port's. */
+async function setupContext(port, flags) {
+  const probe = await probeHub(port, 800);
+  if (probe.state === "bothread") {
+    let info = null;
+    try {
+      const r = await hubRequest(port, "GET", "/api/connect-info", undefined, 1500);
+      info = r.json;
+    } catch {
+      /* fall back to the port's URL */
+    }
+    const authRequired = !!(info?.authRequired ?? probe.health.authRequired);
+    let mcpUrl = typeof info?.mcpUrl === "string" ? info.mcpUrl : mcpUrlFor(port);
+    mcpUrl = mcpUrl.replace("://0.0.0.0:", "://127.0.0.1:").replace("://[::]:", "://127.0.0.1:");
+    const token = authRequired ? (typeof info?.token === "string" && info.token ? info.token : null) : null;
+    if (authRequired && !token) throw new CliError(`The hub on port ${port} requires a token but didn't share it — set BOTHREAD_TOKEN and try again.`);
+    return { hubRunning: true, health: probe.health, mcpUrl, token, authRequired };
+  }
+  const authRequired = !!flags.auth || process.env.BOTHREAD_AUTH === "on";
+  return { hubRunning: false, health: null, mcpUrl: mcpUrlFor(port), token: authRequired ? ensureInstallToken() : null, authRequired };
+}
+
+/** `npx -y skills add AdamACE9/bothread -y`, captured, with a timeout. Never throws. */
+function installSkill(timeoutMs = 180_000) {
+  return new Promise((resolve) => {
+    const args = ["-y", "skills", "add", "AdamACE9/bothread", "-y"];
+    let out = "";
+    let child;
+    try {
+      child = spawn(isWin ? "npx.cmd" : "npx", args, { stdio: ["ignore", "pipe", "pipe"], shell: isWin, windowsHide: true });
+    } catch (err) {
+      resolve({ ok: false, error: err.message });
+      return;
+    }
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve({ ok: false, error: `timed out after ${Math.round(timeoutMs / 1000)}s` });
+    }, timeoutMs);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: err.message });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const last = out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").trim().split("\n").filter(Boolean).pop() ?? "";
+      resolve(code === 0 ? { ok: true } : { ok: false, error: last || `exit ${code}` });
+    });
+  });
+}
+
+function parseOnly(flags, positionals) {
+  const raw = [...(flags.only ? String(flags.only).split(",") : []), ...positionals.flatMap((p) => p.split(","))].map((s) => s.trim()).filter(Boolean);
+  if (!raw.length) return null;
+  return [...new Set(raw.map((r) => resolveAgentOrThrow(r, { allowOther: false })))];
+}
+
+/**
+ * The whole setup flow, shared by `bothread setup`, the `s` key in a running
+ * `bothread start`, and start's first-run question.
+ *   mode "setup" (default) | "remove";  `only` = agent ids or null;
+ *   `nudge` = coming from start's first-run question (hub about to start).
+ * Returns an exit code.
+ */
+async function setupFlow({ flags, only = null, nudge = false, inline = false }) {
+  const json = !!flags.json;
+  const dryRun = !!flags["dry-run"];
+  const remove = !!flags.remove;
+  const ui = createUi();
+  const k = ui.c;
+  const interactive = !json && !flags.yes && ui.interactive;
+  const port = resolvePort(flags);
+
+  if (!json) ui.intro(k.bold(remove ? "Remove Bothread from your AI agents" : nudge ? "Connecting your AI agents" : "Connect your AI agents to Bothread") + (dryRun ? k.dim("  (dry run — nothing is written)") : ""));
+
+  const spin = json ? null : ui.spinner();
+  spin?.start("Looking for AI coding agents");
+  let ctx;
+  let agents;
+  try {
+    ctx = await setupContext(port, flags);
+    agents = detectAgents({ mcpUrl: ctx.mcpUrl, token: ctx.token });
+  } catch (err) {
+    spin?.stop("Couldn't look for agents", 1);
+    throw err;
+  }
+  const found = agents.filter((a) => a.detected || a.hasEntry);
+  const pool = remove
+    ? agents.filter((a) => a.hasEntry && (!only || only.includes(a.id)))
+    : only
+      ? agents.filter((a) => only.includes(a.id))
+      : found;
+  const preselected = remove ? pool.map((a) => a.id) : pool.filter((a) => !a.configured && (a.canAutoSetup || only)).map((a) => a.id);
+
+  if (!json) {
+    spin.stop(found.length ? `Found ${found.length} AI coding agent${found.length === 1 ? "" : "s"} on this computer` : "No AI coding agents found on this computer", found.length ? 0 : 2);
+    if (!nudge) {
+      const w = Math.max(...agents.map((a) => a.label.length)) + 2;
+      const rows = agents.map((a) => {
+        if (a.configured) return `${k.green("✓")} ${a.label.padEnd(w)}${k.dim("already connected")}`;
+        if (a.hasEntry) return `${k.yellow("●")} ${a.label.padEnd(w)}${k.dim(remove ? a.target : "set up for a different URL — will update")}`;
+        if (a.detected && !a.canAutoSetup) return `${k.yellow("●")} ${a.label.padEnd(w)}${k.dim("found — needs a manual step")}`;
+        if (a.detected) return `${k.cyan("●")} ${a.label.padEnd(w)}${k.dim(a.target ?? "")}`;
+        return k.dim(`· ${a.label.padEnd(w)}not found`);
+      });
+      ui.detail(rows);
+    }
+  }
+
+  const summary = { ok: true, dryRun, remove, mcpUrl: ctx.mcpUrl, hubRunning: ctx.hubRunning, authRequired: ctx.authRequired, agents, selected: [], results: [], skill: null, nextSteps: [] };
+  const done = (code, msg) => {
+    if (json) printJson({ ...summary, ok: code === 0 });
+    else if (msg) ui.outro(msg);
+    return code;
+  };
+
+  if (!pool.length) {
+    if (remove) return done(0, "Bothread isn't in any agent's config — nothing to remove.");
+    if (!json) {
+      ui.step("Nothing to set up automatically", [
+        `Install an AI coding agent (Claude Code, Cursor, Codex, …) and run ${k.bold(selfCmd("setup"))} again,`,
+        `or connect any MCP client by hand: ${k.bold(selfCmd("connect"))}`,
+      ], "warn");
+    }
+    return done(0, "See you soon.");
+  }
+
+  // Choose. Unattended runs also try agents that need a manual step, so the
+  // output carries the exact snippet to paste.
+  let selected = remove || only ? preselected : pool.filter((a) => !a.configured).map((a) => a.id);
+  if (interactive) {
+    const options = [...pool]
+      .sort((a, b) => Number(a.configured) - Number(b.configured))
+      .map((a) => ({
+        value: a.id,
+        label: a.label,
+        hint: remove ? a.target : a.configured ? "already connected" : !a.canAutoSetup ? "manual step — Bothread shows you what to paste" : a.hasEntry ? `update ${a.target}` : a.target,
+      }));
+    if (!remove && !preselected.length && pool.every((a) => a.configured)) {
+      ui.step(`${k.green("✓")} Everything found is already connected to Bothread`);
+      selected = [];
+    } else {
+      const picked = await ui.multiselect({
+        message: remove ? "Remove Bothread from which agents?" : "Which agents should Bothread connect?",
+        options,
+        initialValues: preselected,
+      });
+      if (picked === CANCEL) {
+        ui.cancelled(remove ? "Removal cancelled" : "Setup cancelled");
+        return 130;
+      }
+      selected = picked;
+      if (!selected.length) return done(0, "Nothing selected — no changes made.");
+      if (!dryRun) {
+        const chosen = pool.filter((a) => selected.includes(a.id));
+        const w = Math.max(...chosen.map((a) => a.label.length)) + 2;
+        ui.note(remove ? "Here's what will be removed" : "Here's the plan", [
+          ...chosen.map((a) => `${a.label.padEnd(w)}${k.dim("→")} ${a.target ?? ""}`),
+          "",
+          k.dim(remove ? "Only the bothread entry is removed; a backup is saved first." : "Only the bothread entry is added; existing files are backed up first."),
+        ]);
+        const go = await ui.confirm({ message: remove ? "Remove it now?" : "Apply these changes?" });
+        if (go === CANCEL || go === false) {
+          ui.cancelled(remove ? "Removal cancelled — nothing changed" : "Setup cancelled — nothing changed");
+          return go === CANCEL ? 130 : 0;
+        }
+      }
+    }
+  } else if (!json && !selected.length && !remove) {
+    ui.step(`${k.green("✓")} Everything found is already connected to Bothread`);
+  }
+  summary.selected = selected;
+
+  // Apply.
+  const opts = { mcpUrl: ctx.mcpUrl, token: ctx.token, dryRun };
+  for (const id of selected) {
+    const meta = agents.find((a) => a.id === id);
+    spin?.start(`${remove ? "Removing Bothread from" : dryRun ? "Checking" : "Connecting"} ${meta.label}`);
+    let r;
+    try {
+      r = remove ? await removeAgent(id, opts) : await setupAgent(id, opts);
+    } catch (err) {
+      r = { id, label: meta.label, ok: false, changed: false, action: "failed", backup: null, message: String(err?.message ?? err) };
+    }
+    summary.results.push(r);
+    if (json) continue;
+    const arrow = r.target ? ` ${k.dim("→")} ${r.target}` : "";
+    if (!r.ok) {
+      spin.stop(`${meta.label} ${k.dim("—")} ${r.message}`, r.action === "manual" ? 2 : 1);
+      if (r.snippet) ui.detail(["", ...r.snippet.split("\n").map((l) => `  ${k.cyan(l)}`), ""]);
+    } else if (!r.changed) {
+      spin.stop(`${meta.label} ${k.dim(remove ? "— nothing to remove" : "— already connected")}`);
+    } else if (dryRun) {
+      spin.stop(`${meta.label} ${k.dim("— would change")}${arrow}`);
+      ui.detail([k.dim(r.message), ...(r.snippet ? r.snippet.split("\n").map((l) => `  ${k.cyan(l)}`) : [])]);
+    } else {
+      spin.stop(`${k.green("✓")} ${meta.label} ${remove ? "disconnected" : "connected"}${arrow}`);
+      if (r.backup) ui.detail([k.dim(`backup: ${tildify(r.backup)}`)]);
+    }
+  }
+  const failed = summary.results.filter((r) => !r.ok && r.action !== "manual");
+  const byHand = summary.results.filter((r) => !r.ok);
+  const changed = summary.results.filter((r) => r.ok && r.changed);
+
+  // The room-etiquette skill.
+  if (!remove && !dryRun && !flags["no-skill"]) {
+    let want = !!flags.skill;
+    if (!want && !json && ui.interactive && (!flags.yes || nudge)) {
+      const a = await ui.confirm({ message: `Also install the room-etiquette skill? ${k.dim("(recommended)")}` });
+      if (a === CANCEL) {
+        ui.cancelled("Skipped the rest of setup");
+        return 130;
+      }
+      want = a;
+    }
+    if (want) {
+      spin?.start(`Installing the skill ${k.dim(`(${SKILL_INSTALL})`)}`);
+      const r = await installSkill();
+      summary.skill = { installed: r.ok, command: SKILL_INSTALL, ...(r.ok ? {} : { error: r.error }) };
+      if (!json) {
+        if (r.ok) spin.stop(`${k.green("✓")} Room-etiquette skill installed`);
+        else spin.stop(`Couldn't install the skill (${r.error}) — run it later: ${k.bold(SKILL_INSTALL)}`, 2);
+      }
+    } else summary.skill = { installed: false, skipped: true, command: SKILL_INSTALL };
+  }
+
+  // Next steps.
+  const restartable = changed.map((r) => agents.find((a) => a.id === r.id)).filter(Boolean);
+  const next = [];
+  if (!dryRun && restartable.length)
+    next.push({ text: `Restart ${listJoin(restartable.map((a) => a.label))}`, after: remove ? "(so the change takes effect)" : "(the bothread tools appear after a restart)" });
+  if (!remove && !nudge) {
+    if (!ctx.hubRunning && !inline) next.push({ text: "Start the hub:", cmd: selfCmd("start") });
+    next.push({ text: "Open the room and create a room:", cmd: `${hubUrl(port)}/` });
+    next.push({ text: "In each agent, say:", cmd: "This is a Bothread session: <id>", after: `(the ID is in the room — or use its "Connect an agent" panel)` });
+  }
+  summary.nextSteps = next.map((n) => [n.text, n.cmd].filter(Boolean).join(" "));
+
+  if (json) return done(failed.length ? 1 : 0);
+  if (next.length && !dryRun) {
+    const lines = [];
+    next.forEach((n, i) => {
+      lines.push(`${k.accent(`${i + 1}.`)} ${n.text}`);
+      if (n.cmd) lines.push(`     ${k.cyan(n.cmd)}`);
+      if (n.after) lines.push(`   ${k.dim(n.after)}`);
+      if (i < next.length - 1) lines.push("");
+    });
+    ui.note("Next steps", lines);
+  }
+  if (restartable.some((a) => a.id === "claude-desktop") && !dryRun) ui.detail([k.dim("Claude (desktop app): fully quit it (not just close the window), then reopen.")]);
+  const end = dryRun
+    ? "Dry run — nothing was written."
+    : byHand.length
+      ? k.yellow(`Done, with ${byHand.length} agent${byHand.length === 1 ? "" : "s"} to finish by hand (see above).`)
+      : nudge
+        ? "Starting Bothread…"
+        : remove
+          ? "Bothread removed."
+          : "You're all set — happy building!";
+  ui.outro(end);
+  return failed.length && !nudge ? 1 : 0;
+}
+
+async function cmdSetup({ flags, positionals }) {
+  const only = parseOnly(flags, positionals);
+  if (flags.skill && flags["no-skill"]) throw new CliError("Pick one of --skill or --no-skill.");
+  if (flags.json && !flags["dry-run"]) flags = { ...flags, yes: true };
+  return setupFlow({ flags, only });
+}
+
+/** Best-effort copy to the system clipboard. */
+function copyToClipboard(text) {
+  const cands =
+    process.platform === "darwin"
+      ? [["pbcopy", []]]
+      : isWin
+        ? [["clip", []]]
+        : [...(process.env.WAYLAND_DISPLAY ? [["wl-copy", []]] : []), ["xclip", ["-selection", "clipboard"]], ["xsel", ["--clipboard", "--input"]]];
+  for (const [cmd, args] of cands) {
+    const r = spawnSync(cmd, args, { input: text, stdio: ["pipe", "ignore", "ignore"], timeout: 2000 });
+    if (!r.error && r.status === 0) return true;
+  }
+  return false;
 }
 
 /* doctor */
@@ -958,6 +1259,23 @@ async function cmdDoctor({ flags }) {
   if (!guardRepo) add("info", "guard", "Commit guard: n/a (this folder isn't a git repo)");
   else if (isGuardHook(guardRepo.hookPath)) add("info", "guard", `Commit guard installed in ${guardRepo.toplevel}`);
   else add("info", "guard", `Commit guard not installed in ${guardRepo.toplevel} (optional: bothread guard install)`);
+
+  // AI agents on this machine (informational: connecting them is `bothread setup`)
+  try {
+    const auth = await resolveConnectAuth(port, flags);
+    const agents = detectAgents({ mcpUrl: mcpUrlFor(port), token: auth.authRequired ? auth.token : null });
+    const found = agents.filter((a) => a.detected || a.hasEntry);
+    if (!found.length) add("info", "agents", "No AI coding agents found on this computer", `Connect any MCP client by hand: bothread connect`);
+    for (const a of found) {
+      const name = `agent:${a.id}`;
+      if (a.configured) add("pass", name, `${a.label}: connected (${a.target})`);
+      else if (a.hasEntry) add("info", name, `${a.label}: set up for a different URL (${a.target})`, `Update it: bothread setup --only ${a.id}`);
+      else if (!a.canAutoSetup) add("info", name, `${a.label}: found, not connected — ${a.note ?? "needs a manual step"}`);
+      else add("info", name, `${a.label}: found, not connected`, `Connect it: bothread setup --only ${a.id}`);
+    }
+  } catch (err) {
+    add("info", "agents", `Couldn't look for AI agents: ${err?.message ?? err}`);
+  }
 
   // Telemetry (informational)
   if (process.env.BOTHREAD_NO_TELEMETRY) add("pass", "telemetry", "Telemetry off (BOTHREAD_NO_TELEMETRY is set)");
@@ -1347,7 +1665,7 @@ function mainHelp() {
   const h = (s) => c.bold(c.accent(s));
   const row = (left, right, w = 22) => `    ${c.bold(left.padEnd(w))}${right}`;
   const cmds = Object.entries(COMMANDS).map(([name, spec]) => row(`${name}${spec.args ? " " + spec.args : ""}`, spec.summary));
-  const flagRows = ["port", "host", "db", "auth", "no-open", "project", "json", "help", "version"].map((f) => row(FLAGS[f].usage, FLAGS[f].desc));
+  const flagRows = ["port", "host", "db", "auth", "no-open", "no-setup", "project", "json", "help", "version"].map((f) => row(FLAGS[f].usage, FLAGS[f].desc));
   const env = [
     ["BOTHREAD_PORT=4889", "Hub port"],
     ["BOTHREAD_HOST=127.0.0.1", "Bind address (off-loopback requires auth)"],
@@ -1355,12 +1673,14 @@ function mainHelp() {
     ["BOTHREAD_TOKEN=<token>", "Use this token instead of the generated one"],
     ["BOTHREAD_DB=<path>", "SQLite file or :memory: (default: data dir)"],
     ["BOTHREAD_NO_OPEN=1", "Don't auto-open the browser"],
+    ["BOTHREAD_NO_SETUP=1", "Don't ask to connect agents on first start"],
     ["BOTHREAD_NO_TELEMETRY=1", "Disable anonymous usage counters"],
     ["BOTHREAD_AGENT=<name>", "Commit guard: who is committing (room display name)"],
     ["BOTHREAD_GUARD=off", "Commit guard: skip the pre-commit check once"],
     ["NO_COLOR=1", "Plain output (FORCE_COLOR=1 forces color)"],
   ].map(([k, v]) => `    ${k.padEnd(26)}${c.dim(v)}`);
   const examples = [
+    ["bothread setup", "Connect every AI agent on this computer"],
     ["bothread", "Start on 4889, open the room"],
     ["bothread start --port 4890 --no-open", "Another port, no browser"],
     ['bothread new "auth refactor" --project .', "Create a room for this folder"],
@@ -1377,6 +1697,9 @@ function mainHelp() {
   ${h("COMMANDS")}
 ${cmds.join("\n")}
 
+  ${h("KEYS")} ${c.dim("(while bothread start runs in a terminal)")}
+    ${c.bold("o")} open the room · ${c.bold("s")} set up agents · ${c.bold("c")} copy the MCP URL · ${c.bold("h")} help · ${c.bold("q")} quit
+
   ${h("FLAGS")}
 ${flagRows.join("\n")}
     ${c.dim("Flags win over env vars. Per-command flags: bothread help <command>")}
@@ -1388,7 +1711,8 @@ ${env.join("\n")}
 ${examples.join("\n")}
 
   ${h("FOR AI AGENTS")}
-    status, rooms, new, connect, doctor and guard take ${c.bold("--json")} (pure JSON on stdout).
+    status, rooms, new, connect, setup, doctor and guard take ${c.bold("--json")} (pure JSON on stdout).
+    ${c.bold("bothread setup --yes --json")} connects every agent found, without prompts.
     Exit codes: 0 ok · 1 error or bad usage · 2 no hub running on the port.
     Committing in a repo with the commit guard? Set your room display name so your
     own claims pass:  ${c.bold('BOTHREAD_AGENT="<your room name>" git commit -m "..."')}
@@ -1409,9 +1733,11 @@ function commandHelp(name) {
     `    bothread ${name}${spec.args ? " " + spec.args : ""}${usageFlags ? " " + usageFlags : ""}`,
   ];
   if (spec.details) lines.push("", ...spec.details.split("\n").map((l) => `  ${l}`));
-  if (name === "connect") lines.push("", `  ${h("AGENTS")}`, ...AGENTS.map((a) => `    ${c.bold(a.id.padEnd(16))}${a.label}`));
+  if (name === "connect" || name === "setup")
+    lines.push("", `  ${h("AGENTS")}`, ...AGENTS.filter((a) => name === "connect" || a.id !== "other").map((a) => `    ${c.bold(a.id.padEnd(16))}${a.label}`));
   if (spec.flags.length) {
     lines.push("", `  ${h("FLAGS")}`, ...[...spec.flags, "help"].map((f) => `    ${c.bold(FLAGS[f].usage.padEnd(20))}${FLAGS[f].desc}`));
+    if (name === "setup") lines.push(`    ${c.dim("--json implies --yes (unless --dry-run).")}`);
   }
   lines.push("", `  ${h("EXAMPLES")}`, ...spec.examples.map((e) => `    ${e}`), "");
   console.log(lines.join("\n"));
@@ -1483,6 +1809,162 @@ function uiNeedsBuild() {
   return sourceAt > builtAt;
 }
 
+/**
+ * First run at a terminal: agents are installed, none is connected, and we've
+ * never asked → ask once. Returns an exit code to stop with, or null to go on.
+ */
+async function firstRunNudge(port, flags) {
+  const marker = path.join(dataDir(), "setup-offered");
+  if (existsSync(marker)) return null;
+  let candidates;
+  try {
+    const ctx = await setupContext(port, flags);
+    const agents = detectAgents({ mcpUrl: ctx.mcpUrl, token: ctx.token });
+    if (agents.some((a) => a.configured)) return null;
+    candidates = agents.filter((a) => a.detected && a.canAutoSetup);
+  } catch {
+    return null;
+  }
+  if (!candidates.length) return null;
+  const ui = createUi();
+  const names = listJoin(candidates.map((a) => a.label));
+  const answer = await ui.yesNo(`Found ${names}. Connect ${candidates.length === 1 ? "it" : "them"} to Bothread now?`);
+  try {
+    mkdirSync(dataDir(), { recursive: true });
+    writeFileSync(marker, `${new Date().toISOString()}\n`);
+  } catch {
+    /* worst case we ask again next time */
+  }
+  if (answer === CANCEL) {
+    console.log("");
+    return 130;
+  }
+  if (!answer) {
+    console.log(`    ${c.dim(`No problem — run ${selfCmd("setup")} any time (or press s once it's running).`)}\n`);
+    return null;
+  }
+  console.log("");
+  try {
+    await setupFlow({ flags: { ...flags, yes: true }, only: candidates.map((a) => a.id), nudge: true });
+  } catch (err) {
+    console.error(`  ${ce.yellow("!")} Setup didn't finish: ${err?.message ?? err} — starting anyway.\n`);
+  }
+  return null;
+}
+
+/**
+ * Live keys while the hub runs (TTY only): o open · s setup · c copy MCP URL ·
+ * h help · q / Ctrl-C / Ctrl-D stop. The hub was spawned with stdin ignored, so
+ * Ctrl-C arrives here as a key (raw mode) and is forwarded as SIGINT.
+ */
+function hubKeys(hub, { port, host, flags }) {
+  const stdin = process.stdin;
+  const shownHost = !host || ["0.0.0.0", "::", "[::]"].includes(host) ? "127.0.0.1" : host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  const base = `http://${shownHost}:${port}`;
+  let stopping = false;
+  let busy = false;
+
+  const restore = () => {
+    try {
+      if (stdin.isTTY) stdin.setRawMode(false);
+    } catch {
+      /* terminal already gone */
+    }
+    process.stdout.write("\x1b[?25h");
+  };
+  process.on("exit", restore);
+
+  const stop = (signal = "SIGINT") => {
+    if (stopping) {
+      hub.kill("SIGKILL"); // second press: don't wait
+      return;
+    }
+    stopping = true;
+    console.log(`\n  ${c.dim("Stopping Bothread…")}`);
+    hub.kill(signal);
+    setTimeout(() => hub.kill("SIGKILL"), 6000).unref();
+  };
+  hub.on("exit", (code, signal) => {
+    stdin.off("data", onData);
+    restore();
+    stdin.pause();
+    if (stopping) console.log(`  ${c.green("✓")} Bothread stopped.\n`);
+    process.exit(code ?? (signal && !stopping ? 1 : 0));
+  });
+  process.on("SIGINT", () => stop("SIGINT"));
+  process.on("SIGTERM", () => stop("SIGTERM"));
+  process.on("SIGHUP", () => stop("SIGTERM"));
+
+  const keyHelp = () => {
+    const k = (key, what) => `    ${c.cyan(key)}  ${what}`;
+    console.log(
+      ["", `  ${c.bold("Keys")}`, k("o", "open the room in your browser"), k("s", "set up agents (connect Claude Code, Cursor, …)"), k("c", "copy the MCP URL"), k("h", "show these keys"), k("q", "stop Bothread (also Ctrl-C)"), ""].join("\n")
+    );
+  };
+  const hint = () => console.log(`  ${c.dim("press")} ${c.cyan("h")} ${c.dim("for keys ·")} ${c.cyan("q")} ${c.dim("to quit")}\n`);
+
+  const runSetup = async () => {
+    busy = true;
+    stdin.off("data", onData);
+    console.log("");
+    try {
+      await setupFlow({ flags: { port: String(port), ...(flags.auth ? { auth: true } : {}) }, inline: true });
+    } catch (err) {
+      console.error(`  ${ce.red("✗")} ${err?.message ?? err}\n`);
+    } finally {
+      if (!stopping) {
+        try {
+          stdin.setRawMode(true);
+        } catch {
+          /* ignore */
+        }
+        stdin.resume();
+        stdin.on("data", onData);
+        hint();
+      }
+      busy = false;
+    }
+  };
+
+  const onKey = (key) => {
+    if (busy) return;
+    if (key === "\x03" || key === "\x04" || key === "q" || key === "Q") return stop("SIGINT");
+    if (stopping) return;
+    switch (key.toLowerCase()) {
+      case "o":
+        console.log(`  ${c.dim("Opening")} ${c.cyan(`${base}/`)}`);
+        openBrowser(`${base}/`, true);
+        return;
+      case "s":
+        void runSetup();
+        return;
+      case "c": {
+        const url = `${base}/mcp`;
+        if (copyToClipboard(url)) console.log(`  ${c.green("✓")} Copied the MCP URL: ${c.cyan(url)}`);
+        else console.log(`  ${c.dim("MCP URL (copy it from here):")}\n  ${c.cyan(url)}`);
+        return;
+      }
+      case "h":
+      case "?":
+        keyHelp();
+        return;
+      case "\r":
+      case "\n":
+        process.stdout.write("\n");
+        return;
+      default:
+    }
+  };
+  const onData = (chunk) => {
+    for (const key of splitKeys(chunk)) onKey(key);
+  };
+
+  stdin.setRawMode(true);
+  stdin.setEncoding("utf8");
+  stdin.resume();
+  stdin.on("data", onData);
+}
+
 async function cmdStart({ flags }) {
   // Friendly preflight: Node version.
   const nodeMajor = Number(process.versions.node.split(".")[0]);
@@ -1520,7 +2002,22 @@ async function cmdStart({ flags }) {
 
   printBanner();
 
+  // A person at a terminal gets the first-run question and live keys; CI, tests
+  // and piped runs get exactly the old behavior (no raw mode, no questions).
+  const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY && typeof process.stdin.setRawMode === "function";
+  if (interactive && !flags["no-setup"] && !process.env.BOTHREAD_NO_SETUP) {
+    const code = await firstRunNudge(port, flags);
+    if (code !== null) return code;
+  }
+  if (interactive) runEnv.BOTHREAD_KEYS = "1";
+
   const run = (cmdArgs) => {
+    if (interactive) {
+      // stdin stays with us (the keys); the hub's output goes straight to the terminal.
+      const hub = spawn(process.execPath, cmdArgs, { stdio: ["ignore", "inherit", "inherit"], cwd: root, env: runEnv });
+      hubKeys(hub, { port, host: flags.host ?? process.env.BOTHREAD_HOST, flags });
+      return;
+    }
     const hub = spawn(process.execPath, cmdArgs, { stdio: "inherit", cwd: root, env: runEnv });
     hub.on("exit", (code) => process.exit(code ?? 0));
     process.on("SIGINT", () => hub.kill("SIGINT"));
@@ -1554,6 +2051,7 @@ const HANDLERS = {
   rooms: cmdRooms,
   new: cmdNew,
   connect: cmdConnect,
+  setup: cmdSetup,
   doctor: cmdDoctor,
   guard: cmdGuard,
   help: cmdHelp,

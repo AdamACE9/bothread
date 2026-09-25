@@ -13,6 +13,7 @@ import type { McpHub } from "./mcp/transport";
 import type { RoomBus } from "./realtime";
 import { sendTelemetry } from "./telemetry";
 import { VERSION } from "./version";
+import { detectAgents, removeAgent, resolveAgentId, setupAgent } from "../../../bin/lib/agents.mjs";
 
 export interface HttpDeps {
   engine: Engine;
@@ -26,6 +27,17 @@ export interface HttpDeps {
 const isLoopbackName = (host: string): boolean => {
   const h = host.replace(/^\[|\]$/g, "").toLowerCase();
   return h === "localhost" || h === "127.0.0.1" || h === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+};
+
+/**
+ * Is this socket's peer on this machine? Rewriting agent configs in the user's
+ * home is only for someone sitting at this computer — never a LAN client, even
+ * one holding the token.
+ */
+export const isLoopbackRemote = (remoteAddress: string | undefined | null): boolean => {
+  if (!remoteAddress) return false;
+  const a = remoteAddress.replace(/^::ffff:/i, "").toLowerCase();
+  return a === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(a);
 };
 
 const isLocalhostOrigin = (origin: string | undefined): boolean => {
@@ -458,6 +470,58 @@ export function buildApp(deps: HttpDeps): {
       res.json(engine.guardCheck({ projectPath, files: files as string[], agent: agent || undefined }));
     })
   );
+
+  /* ---------- One-click agent setup (the Connect panel's "Set it up for me") ---------- */
+  // These read and WRITE MCP config files in the user's home (with backups), so on
+  // top of the origin/host/token checks above they only answer loopback peers.
+  const localOnly = (req: Request, res: Response, next: NextFunction) => {
+    if (isLoopbackRemote(req.socket.remoteAddress)) return next();
+    res.status(403).json({ error: "Agent setup only works from the computer the hub runs on.", code: "forbidden" });
+  };
+  // Agents on this machine reach the hub over loopback, whatever address it binds.
+  const agentHost = ["0.0.0.0", "::", "[::]"].includes(config.host) ? "127.0.0.1" : config.host;
+  const agentOpts = () => ({ mcpUrl: `http://${agentHost}:${config.port}/mcp`, token: config.authRequired ? token : null });
+  // One config write at a time: two clicks must not interleave on the same file.
+  let agentQueue: Promise<unknown> = Promise.resolve();
+  const serialized = <T>(fn: () => Promise<T>): Promise<T> => {
+    const next = agentQueue.then(fn, fn);
+    agentQueue = next.catch(() => undefined);
+    return next;
+  };
+
+  api.get("/agents", localOnly, (_req, res) => {
+    const agents = detectAgents(agentOpts()).map((a) => ({
+      id: a.id,
+      label: a.label,
+      detected: a.detected,
+      configured: a.configured,
+      target: a.target,
+      canAutoSetup: a.canAutoSetup,
+      ...(a.note ? { note: a.note } : {}),
+      method: a.method,
+      configPath: a.configPath,
+    }));
+    res.json({ agents });
+  });
+
+  const agentAction = (kind: "setup" | "remove") => async (req: Request, res: Response) => {
+    const id = resolveAgentId(param(req, "id"));
+    if (!id || id === "other") {
+      res.status(404).json({ error: `Unknown agent '${param(req, "id")}'.`, code: "no_agent" });
+      return;
+    }
+    try {
+      const r = await serialized(() => (kind === "setup" ? setupAgent(id, agentOpts()) : removeAgent(id, agentOpts())));
+      const meta = detectAgents(agentOpts()).find((a) => a.id === id);
+      const message = r.ok && kind === "setup" && r.changed ? `${r.message} ${meta?.restart ?? "Restart it"} so the tools load.` : r.message;
+      res.json({ ok: r.ok, message, target: r.target, backup: r.backup ?? undefined, changed: r.changed, action: r.action, ...(r.snippet && !r.ok ? { snippet: r.snippet } : {}) });
+    } catch (err) {
+      logger.error({ err }, `agent ${kind} failed`);
+      res.status(500).json({ error: `Couldn't ${kind === "setup" ? "set up" : "remove"} ${id}: ${(err as Error).message}` });
+    }
+  };
+  api.post("/agents/:id/setup", localOnly, agentAction("setup"));
+  api.post("/agents/:id/remove", localOnly, agentAction("remove"));
 
   // Serve files agents drop in `<projectPath>/.bothread/attachments/` — the
   // shared evidence folder (screenshots, structured results). Never part of the

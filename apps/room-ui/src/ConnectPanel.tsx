@@ -9,10 +9,13 @@ const AGENTS = [
   { id: "claude", label: "Claude Code", where: "Run once in your terminal:" },
   { id: "claude-desktop", label: "Claude (desktop app)", where: "Settings → Developer → Edit Config, paste this, then fully quit & reopen Claude:" },
   { id: "antigravity", label: "Antigravity", where: "Settings → Customizations → Open MCP Config (~/.gemini/config/mcp_config.json):" },
-  { id: "cursor", label: "Cursor", where: "Add to .cursor/mcp.json:" },
+  { id: "cursor", label: "Cursor", where: "Add to ~/.cursor/mcp.json (or a project's .cursor/mcp.json):" },
   { id: "gemini", label: "Gemini CLI", where: "Add to ~/.gemini/settings.json:" },
   { id: "codex", label: "Codex", where: "Add to ~/.codex/config.toml:" },
-  { id: "opencode", label: "OpenCode", where: "Run once in your terminal:" },
+  { id: "opencode", label: "OpenCode", where: "Add to ~/.config/opencode/opencode.json:" },
+  { id: "windsurf", label: "Windsurf", where: "Add to ~/.codeium/windsurf/mcp_config.json:" },
+  { id: "vscode", label: "VS Code", where: "Command Palette → “MCP: Open User Configuration” (mcp.json), add:" },
+  { id: "zed", label: "Zed", where: "Zed → Settings → Open Settings (settings.json), add:" },
   { id: "other", label: "Other", where: "Bridge any MCP client via mcp-remote:" },
 ] as const;
 type AgentId = (typeof AGENTS)[number]["id"];
@@ -24,8 +27,8 @@ function snippet(agent: AgentId, info: ConnectInfo): string {
   switch (agent) {
     case "claude":
       return bearer
-        ? `claude mcp add --transport http bothread ${url} \\\n  --header "Authorization: ${bearer}"`
-        : `claude mcp add --transport http bothread ${url}`;
+        ? `claude mcp add --transport http --scope user bothread ${url} \\\n  --header "Authorization: ${bearer}"`
+        : `claude mcp add --transport http --scope user bothread ${url}`;
     case "cursor":
       return JSON.stringify(
         { mcpServers: { bothread: { url, ...(bearer ? { headers: { Authorization: bearer } } : {}) } } },
@@ -52,9 +55,35 @@ function snippet(agent: AgentId, info: ConnectInfo): string {
     case "codex":
       return `[mcp_servers.bothread]\nurl = "${url}"` + (bearer ? `\nhttp_headers = { Authorization = "${bearer}" }` : "");
     case "opencode":
-      return bearer
-        ? `opencode mcp add bothread --url ${url} \\\n  --header "Authorization=${bearer}"`
-        : `opencode mcp add bothread --url ${url}`;
+      return JSON.stringify(
+        {
+          $schema: "https://opencode.ai/config.json",
+          mcp: { bothread: { type: "remote", url, enabled: true, ...(bearer ? { headers: { Authorization: bearer } } : {}) } },
+        },
+        null,
+        2
+      );
+    case "windsurf":
+      return JSON.stringify(
+        { mcpServers: { bothread: { serverUrl: url, ...(bearer ? { headers: { Authorization: bearer } } : {}) } } },
+        null,
+        2
+      );
+    case "vscode":
+      return JSON.stringify(
+        { servers: { bothread: { type: "http", url, ...(bearer ? { headers: { Authorization: bearer } } : {}) } } },
+        null,
+        2
+      );
+    case "zed":
+      // settings.json holds everything else too: just the key to merge in.
+      return JSON.stringify(
+        { context_servers: { bothread: { source: "custom", type: "http", url, headers: bearer ? { Authorization: bearer } : {} } } },
+        null,
+        2
+      )
+        .slice(2, -2)
+        .replace(/^ {2}/gm, "");
     case "other":
       return JSON.stringify(
         {
@@ -88,9 +117,9 @@ function configInstruction(agent: AgentId, info: ConnectInfo): string {
   const hdrJson = info.token ? `, "headers": { "Authorization": "Bearer ${info.token}" }` : "";
   switch (agent) {
     case "claude":
-      return `run this in the terminal: claude mcp add --transport http bothread ${url}${hdrCli}`;
+      return `run this in the terminal: claude mcp add --transport http --scope user bothread ${url}${hdrCli}`;
     case "cursor":
-      return `create or edit .cursor/mcp.json in this project so it contains {"mcpServers":{"bothread":{"url":"${url}"${hdrJson}}}}`;
+      return `create or edit ~/.cursor/mcp.json so it contains {"mcpServers":{"bothread":{"url":"${url}"${hdrJson}}}} (keep anything already in it)`;
     case "antigravity":
       return `edit ~/.gemini/config/mcp_config.json to add {"mcpServers":{"bothread":{"serverUrl":"${url}"${hdrJson}}}}`;
     case "gemini":
@@ -98,7 +127,7 @@ function configInstruction(agent: AgentId, info: ConnectInfo): string {
     case "codex":
       return `add to ~/.codex/config.toml a [mcp_servers.bothread] section with url = "${url}"${info.token ? ` and http_headers = { Authorization = "Bearer ${info.token}" }` : ""}`;
     case "opencode":
-      return `run this in the terminal: opencode mcp add bothread --url ${url}${info.token ? ` --header "Authorization=Bearer ${info.token}"` : ""}`;
+      return `edit ~/.config/opencode/opencode.json to add {"mcp":{"bothread":{"type":"remote","url":"${url}","enabled":true${hdrJson}}}} (keep anything already in it)`;
     default:
       return "";
   }
