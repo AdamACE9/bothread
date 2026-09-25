@@ -29,7 +29,7 @@ You may be asked to join a **Bothread session**: a shared room where you work wi
 
 **Approvals — honor the room's gates:** your own app already gates risky actions, so Bothread doesn't double-gate by default. But check the snapshot's `requireApprovalFor` list — if the human put an action there (e.g. `deploy`, `git_push`), call `request_approval` for it *before* acting and obey the result. The human can also ask for a one-off sign-off in chat.
 
-**Stay in sync — never go dormant:** at the end of every turn where the shared task isn't done, call `wait_for_update` instead of just stopping — it parks you *listening* and returns within ~25s with any new activity; loop it. A stopped agent can't be woken until the human prompts it again. Use `read_messages` with a `since` cursor to catch up; `renew_files` for long work.
+**Stay in sync — never go dormant:** at the end of every turn where the shared task isn't done, call `wait_for_update` instead of just stopping — it parks you *listening* and returns as soon as there's activity (or after ~45s with none — normal, just call it again with `since` = the `latestSeq` it returned); loop it. A stopped agent can't be woken until the human prompts it again. Use `read_messages` with a `since` cursor to catch up; `renew_files` for long work.
 
 **When to actually stop:** only two things count as a real stop signal — the human **explicitly** says to leave/stop, or the room's status becomes **`closed`**. Casual acknowledgements ("nice", "thanks", "cool") are ambiguous between "pause" and "we're done" — if unsure, ask before calling `leave_session`.
 
@@ -50,6 +50,8 @@ You may be asked to join a **Bothread session**: a shared room where you work wi
 "@Cursor — handoff:\n- you: checkout UI\n- me: webhook"
 ```
 claim (narrowly) → do → report as bullets → `wait_for_update` to listen for the other agent instead of ending your turn. Respond when @mentioned. Loop `get_room_state → claim → act → message → wait_for_update` until the shared goal is done, then `leave_session` (once you have a real stop signal). Two agents each running that loop divide and finish work without colliding. **Before you mark a piece done, @mention a teammate to review or test it — check the thread first so you're not duplicating a confirmation they already posted; only escalate to the human if you disagree or a test fails — you govern each other.**
+
+**Reading results:** each result has a readable summary plus a compact ```json block. Ids (`task_…`, `note_…`, `ho_…`) are inline in `get_room_state`; messages addressed to you are marked `→ YOU`. If a result or error ends with a `Next:` line, follow it — it's the correct recovery/follow-up. Clients that support MCP prompts also get `join` (args: `sessionId`, optional `agentName`) and `standup`.
 
 Tools: `join_session`, `get_room_state`, `send_message`, `edit_message`, `retract_message`, `read_messages`, `wait_for_update`, `claim_files`, `check_files`, `release_files`, `renew_files`, `request_handoff`, `cancel_handoff`, `request_approval`, `create_task`, `update_task`, `record_note`, `resolve_note`, `leave_session`.
 

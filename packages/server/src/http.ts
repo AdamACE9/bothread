@@ -12,6 +12,7 @@ import { logger } from "./logger";
 import type { McpHub } from "./mcp/transport";
 import type { RoomBus } from "./realtime";
 import { sendTelemetry } from "./telemetry";
+import { VERSION } from "./version";
 
 export interface HttpDeps {
   engine: Engine;
@@ -22,14 +23,40 @@ export interface HttpDeps {
   token: string;
 }
 
+const isLoopbackName = (host: string): boolean => {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+};
+
 const isLocalhostOrigin = (origin: string | undefined): boolean => {
   if (!origin) return true;
   try {
-    const h = new URL(origin).hostname.replace(/^\[|\]$/g, "");
-    return h === "localhost" || h === "127.0.0.1" || h === "::1";
+    return isLoopbackName(new URL(origin).hostname);
   } catch {
     return false;
   }
+};
+
+/**
+ * May a browser page from `origin` drive this hub? Yes for no Origin (curl,
+ * agents, same-origin GETs), a loopback page, or the hub's own page when it's
+ * deliberately served on a LAN address (origin host === the Host header).
+ */
+const isAllowedOrigin = (origin: string | undefined, hostHeader: string | undefined): boolean => {
+  if (isLocalhostOrigin(origin)) return true;
+  try {
+    return !!hostHeader && new URL(origin!).host.toLowerCase() === hostHeader.toLowerCase();
+  } catch {
+    return false;
+  }
+};
+
+/** Hostname part of a Host header, handling bracketed IPv6 ("[::1]:4889"). */
+const hostnameOf = (hostHeader: string | undefined): string => {
+  if (!hostHeader) return "";
+  const m = hostHeader.match(/^\[([^\]]+)\]/);
+  if (m) return m[1]!;
+  return hostHeader.replace(/:\d+$/, "");
 };
 
 export function buildApp(deps: HttpDeps): {
@@ -39,9 +66,27 @@ export function buildApp(deps: HttpDeps): {
   const { engine, bus, hub, config, token } = deps;
   const app = express();
 
+  const loopbackBind = isLoopbackName(config.host);
+
+  /*
+   * DNS-rebinding guard. A page on attacker.example can re-point its own name at
+   * 127.0.0.1 and then make same-origin requests to the hub — no Origin header on
+   * a simple GET, so an Origin check alone never fires, and it could read every
+   * room's session ID. The Host header still says attacker.example, though, so
+   * on a loopback bind only loopback Host names are accepted.
+   */
+  app.use((req, res, next) => {
+    if (!loopbackBind) return next();
+    if (isLoopbackName(hostnameOf(req.headers.host))) return next();
+    res.status(403).json({ error: "Forbidden host (DNS-rebinding protection)." });
+  });
+
   app.use(
     cors({
-      origin: true,
+      // Only the room UI (served from the hub itself, or the Vite dev server on
+      // localhost) may call the API from a browser. Reflecting any origin here
+      // would let every website you visit read your rooms and drive your agents.
+      origin: (origin, cb) => cb(null, isLocalhostOrigin(origin)),
       exposedHeaders: ["Mcp-Session-Id"],
       allowedHeaders: ["Content-Type", "Authorization", "Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-ID"],
       methods: ["GET", "POST", "DELETE", "OPTIONS"],
@@ -84,6 +129,24 @@ export function buildApp(deps: HttpDeps): {
 
   const api = express.Router();
 
+  // Cross-site writes: CORS only hides responses, it doesn't stop a form POST or
+  // a no-cors fetch from landing. Refuse any browser request from a foreign page.
+  api.use((req, res, next) => {
+    if (isAllowedOrigin(req.headers.origin, req.headers.host)) return next();
+    res.status(403).json({ error: "Forbidden origin." });
+  });
+
+  // Off loopback with auth on, the control plane needs the same token agents use —
+  // otherwise anyone on the network could read session IDs straight off /api.
+  api.use((req, res, next) => {
+    if (!config.authRequired || req.path === "/health") return next();
+    const remote = req.socket.remoteAddress ?? "";
+    if (isLoopbackName(remote.replace(/^::ffff:/, ""))) return next();
+    const provided = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (provided && provided === token) return next();
+    res.status(401).json({ error: "Unauthorized: this hub requires its access token.", code: "unauthorized" });
+  });
+
   // express-5 types route params as string | string[]; coerce to a plain string.
   const param = (req: Request, name: string): string => {
     const v = (req.params as Record<string, string | string[] | undefined>)[name];
@@ -105,7 +168,11 @@ export function buildApp(deps: HttpDeps): {
       }
     };
 
-  api.get("/health", (_req, res) => res.json({ ok: true, sessions: hub.count }));
+  // `app` + `version` let the CLI tell "a Bothread hub is already here" apart from
+  // some other process squatting on the port.
+  api.get("/health", (_req, res) =>
+    res.json({ ok: true, app: "bothread", version: VERSION, sessions: hub.count, authRequired: config.authRequired })
+  );
 
   // Everything the UI needs to render copy-paste agent-connect snippets.
   api.get("/connect-info", (_req, res) =>
@@ -118,7 +185,13 @@ export function buildApp(deps: HttpDeps): {
 
   api.get(
     "/rooms",
-    wrap((_req, res) => res.json({ rooms: engine.listRooms() }))
+    wrap((req, res) => {
+      if (req.query["summary"] === "1") {
+        res.json({ rooms: engine.listRooms(), summaries: engine.roomSummaries() });
+        return;
+      }
+      res.json({ rooms: engine.listRooms() });
+    })
   );
 
   api.post(
@@ -142,6 +215,7 @@ export function buildApp(deps: HttpDeps): {
       if (!snapshot) throw new BothreadError("no_room", "Room not found.");
       res.json({
         snapshot,
+        room: engine.getRoom(param(req, "id")),
         sessionId: engine.getRoomSessionId(param(req, "id")),
         participants: engine.listParticipants(param(req, "id")),
         pendingApprovals: engine.pendingApprovals(param(req, "id")),
@@ -165,9 +239,16 @@ export function buildApp(deps: HttpDeps): {
   api.post(
     "/rooms/:id/message",
     wrap((req, res) => {
-      const { text, importance, mentions } = req.body ?? {};
-      if (!text) throw new BothreadError("bad_input", "Message text is required.");
-      const msg = engine.overseerMessage(param(req, "id"), text, importance ?? "steering", mentions ?? []);
+      const { text, importance, mentions, threadId, replyToSeq } = req.body ?? {};
+      if (!text || typeof text !== "string") throw new BothreadError("bad_input", "Message text is required.");
+      const imp = importance ?? "steering";
+      if (!["info", "advisory", "steering", "interrupt"].includes(imp)) {
+        throw new BothreadError("bad_input", "importance must be info | advisory | steering | interrupt.");
+      }
+      const msg = engine.overseerMessage(param(req, "id"), text, imp, Array.isArray(mentions) ? mentions : [], {
+        threadId: typeof threadId === "string" && threadId.trim() ? threadId.trim() : undefined,
+        replyToSeq: typeof replyToSeq === "number" ? replyToSeq : undefined,
+      });
       res.json({ message: msg });
     })
   );
@@ -358,6 +439,26 @@ export function buildApp(deps: HttpDeps): {
     })
   );
 
+  // Commit guard: the `bothread guard` pre-commit hook asks whether any staged
+  // file is exclusively claimed by someone other than the committing agent.
+  api.post(
+    "/guard/check",
+    wrap((req, res) => {
+      const { projectPath, files, agent } = req.body ?? {};
+      if (typeof projectPath !== "string" || !projectPath.trim()) {
+        throw new BothreadError("bad_input", "projectPath (the repo's top-level folder) is required.");
+      }
+      if (!Array.isArray(files) || !files.every((f) => typeof f === "string")) {
+        throw new BothreadError("bad_input", "files must be an array of repo-relative paths.");
+      }
+      if (files.length > 5000) throw new BothreadError("bad_input", "Too many files (max 5000).");
+      if (agent !== undefined && agent !== null && typeof agent !== "string") {
+        throw new BothreadError("bad_input", "agent must be a string.");
+      }
+      res.json(engine.guardCheck({ projectPath, files: files as string[], agent: agent || undefined }));
+    })
+  );
+
   // Serve files agents drop in `<projectPath>/.bothread/attachments/` — the
   // shared evidence folder (screenshots, structured results). Never part of the
   // git-diff review pipeline; this is a plain static read scoped to that folder.
@@ -436,7 +537,21 @@ export function buildApp(deps: HttpDeps): {
    * guards the http server still dies — the caller must handle both.
    */
   const attachWebSocket = (server: Server): WebSocketServer => {
-    const wss = new WebSocketServer({ server, path: "/ws" });
+    // Browsers don't apply CORS to WebSockets, so the same origin/host/token rules
+    // as /api are enforced here at the handshake (cross-site WebSocket hijacking).
+    const wss = new WebSocketServer({
+      server,
+      path: "/ws",
+      verifyClient: ({ origin, req }: { origin: string; req: import("node:http").IncomingMessage }) => {
+        if (!isAllowedOrigin(origin || undefined, req.headers.host)) return false;
+        if (loopbackBind && !isLoopbackName(hostnameOf(req.headers.host))) return false;
+        if (!config.authRequired) return true;
+        const remote = (req.socket.remoteAddress ?? "").replace(/^::ffff:/, "");
+        if (isLoopbackName(remote)) return true;
+        const q = new URL(req.url ?? "/ws", "http://localhost").searchParams.get("token");
+        return q === token;
+      },
+    });
     wss.on("connection", (ws, req) => {
       const url = new URL(req.url ?? "/ws", "http://localhost");
       const roomId = url.searchParams.get("room") ?? "";

@@ -26,6 +26,8 @@ You are about to work **alongside other AI agents** in a shared room, watched by
 
 If `join_session` fails with `bad_session`, ask the user to re-share the current session ID.
 
+**Shortcut:** clients that expose MCP prompts (e.g. Claude Code's `/mcp__bothread__join <sessionId>`) have a `join` prompt that runs this ceremony, and a `standup` prompt that posts a did / doing / blocked update to the room.
+
 ## The rules — ALWAYS
 
 - **ALWAYS** call **`get_room_state`** before you start acting, and again whenever you've been away. It is your source of truth.
@@ -67,7 +69,7 @@ If the room is pointed at a git repo, Bothread automatically captures what you c
 
 ## Staying in sync — don't go silent
 
-- **End every turn with `wait_for_update` whenever the shared task isn't finished — do NOT just stop.** It parks you *listening*, so you react to the others within seconds instead of going dormant (a dormant agent can't be woken until the human prompts it). `wait_for_update` returns after ~25s with any new activity; if the goal still isn't done, act on it and then call `wait_for_update` again. Keep that loop until the task is complete, the room is closed, or the human tells you to stop.
+- **End every turn with `wait_for_update` whenever the shared task isn't finished — do NOT just stop.** It parks you *listening*, so you react to the others within seconds instead of going dormant (a dormant agent can't be woken until the human prompts it). `wait_for_update` returns as soon as there's new activity (or after ~45s with none — that's normal, just call it again; pass `since` = the `latestSeq` it gave you); if the goal still isn't done, act on it and then call `wait_for_update` again. Keep that loop until the task is complete, the room is closed, or the human tells you to stop.
 - Use **`read_messages`** with a `since` cursor to catch up on anything you missed.
 - Renew long-held claims with **`renew_files`** so they don't expire while you're still working.
 
@@ -143,7 +145,7 @@ Treat the room as a standup: announce intentions, hand off explicitly, confirm w
 
 `join_session` · `get_room_state` · `send_message` · `edit_message` · `retract_message` · `read_messages` · `wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` · `cancel_handoff` · `request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` · `leave_session`
 
-Each returns a clean structured result plus a readable summary. Read it, then act like a good teammate: claim narrowly, talk before you assume, keep messages terse and bulleted, and keep the human in the loop.
+Each returns a readable summary plus a compact ```json block with the full data. Ids you need to act on (tasks `task_…`, notes `note_…`, hand-offs `ho_…`) are shown inline in `get_room_state`, messages addressed to you are marked **`→ YOU`**, and your own claims appear on a **`You hold:`** line. When a result or error ends with a **`Next:`** line, do that — it's the hub telling you the correct recovery or follow-up (e.g. `not_joined` → `join_session`; `paused` → `wait_for_update`). Read it, then act like a good teammate: claim narrowly, talk before you assume, keep messages terse and bulleted, and keep the human in the loop.
 
 ## If the human asks "how do I update Bothread?"
 
