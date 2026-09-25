@@ -12,6 +12,9 @@ import { logger } from "./logger";
 import { McpHub } from "./mcp/transport";
 import { RoomBus } from "./realtime";
 import { sendTelemetry } from "./telemetry";
+import { VERSION } from "./version";
+import { detectAgents, type DetectedAgent } from "../../../bin/lib/agents.mjs";
+import { box, colorEnabled, hyperlinksEnabled, link, palette } from "../../../bin/lib/term.mjs";
 
 function resolveUiDir(): string | undefined {
   if (process.env.BOTHREAD_UI_DIR) return process.env.BOTHREAD_UI_DIR;
@@ -58,6 +61,83 @@ function openBrowser(url: string): void {
   } catch {
     /* opening the browser is best-effort */
   }
+}
+
+/** How to run another bothread command the way this one was launched. */
+function selfCommand(sub: string): string {
+  const channel = process.env.BOTHREAD_CHANNEL;
+  if (channel === "global") return `bothread ${sub}`;
+  if (channel === "dev-clone") return `node bin/bothread.mjs ${sub}`;
+  return `npx bothread ${sub}`;
+}
+
+interface StartScreen {
+  readyMs: number;
+  base: string;
+  mcpUrl: string;
+  authRequired: boolean;
+  token: string;
+  uiBuilt: boolean;
+  agents: DetectedAgent[];
+  /** The parent CLI handles o / s / c / q keys (interactive terminal). */
+  keys: boolean;
+}
+
+/**
+ * The startup screen: a compact title box, each URL alone on its own line (so a
+ * double-click copies it cleanly, and it's an OSC 8 link where supported), the
+ * agents found on this machine, and next steps tailored to what's set up.
+ */
+function renderStartScreen(s: StartScreen, stream: { isTTY?: boolean } = process.stdout): string {
+  const tty = !!stream.isTTY;
+  const c = palette(colorEnabled(stream));
+  const links = hyperlinksEnabled(stream);
+  const url = (u: string) => c.cyan(link(u, u, links));
+  const out: string[] = tty ? [] : [""];
+  const title = `${c.bold(c.accent("✦ Bothread"))} ${c.accent(`v${VERSION}`)}  ${c.dim("ready in")} ${c.bold(String(s.readyMs))} ${c.dim("ms")}`;
+  if (tty) out.push(...box([title], { border: c.accent }).map((l) => `  ${l}`));
+  else out.push(`  ${title}`);
+  out.push("");
+  const arrow = tty ? `${c.green("➜")}  ` : "";
+  out.push(`  ${arrow}${c.bold("Room:")}  ${url(`${s.base}/`)}`);
+  out.push(`  ${arrow}${c.bold("MCP:")}   ${url(s.mcpUrl)}`);
+  if (s.authRequired) out.push(`  ${arrow}${c.bold("Auth:")}  Authorization: Bearer ${s.token}`);
+  if (!s.uiBuilt) out.push(`  ${c.yellow("!")}  ${c.yellow("Room UI not built — run: npm run build:ui")}`);
+
+  const found = s.agents.filter((a) => a.detected || a.configured);
+  const connected = found.filter((a) => a.configured);
+  const waiting = found.filter((a) => !a.configured);
+  out.push("", `  ${c.bold("Agents")}`);
+  if (!found.length) out.push(`    ${c.dim("No AI coding agents found on this machine yet.")}`);
+  const width = Math.max(0, ...found.map((a) => a.label.length)) + 2;
+  for (const a of connected) out.push(`    ${c.green("✓")} ${a.label.padEnd(width)}${c.dim("connected")}`);
+  for (const a of waiting)
+    out.push(`    ${c.yellow("!")} ${a.label.padEnd(width)}${c.dim(a.canAutoSetup ? "found, not connected" : "found, needs manual setup")}`);
+
+  const setupCmd = c.bold(selfCommand("setup"));
+  const orKey = s.keys ? c.dim(" (or press s)") : "";
+  const join = `${c.dim("say:")} This is a Bothread session: <id>`;
+  const steps: string[] = [];
+  if (!found.length) {
+    steps.push(`Install an AI coding agent (Claude Code, Cursor, Codex, …), then run ${setupCmd}`);
+    steps.push(`Any other MCP client: ${c.bold(selfCommand("connect"))} prints the config`);
+  } else if (!connected.length) {
+    steps.push(`Run ${setupCmd} in a new terminal${orKey}`);
+    steps.push(`Open the room${s.keys ? c.dim(" (press o)") : ""} and create a room`);
+    steps.push(`In each agent, ${join}`);
+  } else {
+    steps.push(`Open the room${s.keys ? c.dim(" (press o)") : ""} and create a room`);
+    steps.push(`In each agent, ${join}  ${c.dim("(or use the room's Connect panel)")}`);
+    if (waiting.some((a) => a.canAutoSetup)) steps.push(`Connect the rest: ${setupCmd}${orKey}`);
+  }
+  out.push("", `  ${c.bold("Next")}`, ...steps.map((t, i) => `    ${c.accent(`${i + 1}.`)} ${t}`), "");
+  if (s.keys) {
+    const k = (key: string, what: string) => `${c.cyan(key)} ${c.dim(what)}`;
+    const sep = c.dim(" · ");
+    out.push(`  ${c.dim("press")} ${[k("o", "to open the room"), k("s", "to set up agents"), k("c", "to copy the MCP URL"), k("q", "to quit")].join(sep)}`, "");
+  }
+  else out.push(`  ${c.dim("Stop with Ctrl-C.")}`, "");
+  return out.join("\n");
 }
 
 async function main(): Promise<void> {
@@ -140,20 +220,26 @@ async function main(): Promise<void> {
 
   server.listen(config.port, config.host, () => {
     const base = `http://${config.host}:${config.port}`;
-    /* eslint-disable no-console */
-    console.log("");
-    console.log("  \x1b[1m\x1b[38;5;208m✦ Bothread is running\x1b[0m");
-    console.log("  ─────────────────────────────────────────────");
-    console.log(`  \x1b[1mOpen the room:\x1b[0m   ${base}`);
-    console.log(`  Agents connect to: ${base}/mcp   (MCP · Streamable HTTP)`);
-    if (config.authRequired) console.log(`  Agent auth header: Authorization: Bearer ${token}`);
-    else console.log("  Agent auth:        open on 127.0.0.1 (add a token with BOTHREAD_AUTH=on)");
-    console.log("");
-    console.log("  Next: open the room → create a room → click \x1b[1m“Connect an agent”\x1b[0m for copy-paste setup.");
-    if (!config.uiDir) console.log("  \x1b[33m(room UI not built — run: npm run build:ui)\x1b[0m");
-    console.log("  Stop with Ctrl-C.");
-    console.log("");
-    logger.info({ port: config.port }, "Bothread hub listening");
+    const agentHost = ["0.0.0.0", "::"].includes(config.host) ? "127.0.0.1" : config.host;
+    let agents: DetectedAgent[] = [];
+    try {
+      agents = detectAgents({ mcpUrl: `http://${agentHost}:${config.port}/mcp`, token: config.authRequired ? token : null });
+    } catch {
+      /* detection is best-effort; the screen just shows no agents */
+    }
+    console.log(
+      renderStartScreen({
+        readyMs: Math.round(performance.now()),
+        base,
+        mcpUrl: `${base}/mcp`,
+        authRequired: config.authRequired,
+        token,
+        uiBuilt: !!config.uiDir,
+        agents,
+        keys: process.env.BOTHREAD_KEYS === "1",
+      })
+    );
+    logger.debug({ port: config.port }, "Bothread hub listening");
     sendTelemetry("bothread_start", {
       channel: process.env.BOTHREAD_CHANNEL,
       version: process.env.BOTHREAD_VERSION,
@@ -179,7 +265,7 @@ async function main(): Promise<void> {
   }
 
   const shutdown = async () => {
-    logger.info("shutting down");
+    logger.debug("shutting down");
     engine.drainApprovals();
     await hub.closeAll();
     server.close();

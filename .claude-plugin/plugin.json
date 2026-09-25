@@ -1,7 +1,7 @@
 {
   "name": "bothread",
   "displayName": "Bothread",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Teaches an AI coding agent how to join a Bothread room — a local, human-governed MCP hub where multiple agents collaborate on one codebase under file-level locks, hand-offs, and a human overseer.",
   "author": {
     "name": "Adam Ahmed"

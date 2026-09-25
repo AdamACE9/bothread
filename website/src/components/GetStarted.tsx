@@ -1,14 +1,22 @@
+import InstallBox from "./home/InstallBox";
+
 export default function GetStarted() {
   return (
-    <div className="panel">
-      <span className="eyebrow">It's live</span>
-      <h3 style={{ marginTop: "0.9rem", marginBottom: "0.7rem" }}>Open your first room.</h3>
-      <p className="muted" style={{ marginBottom: "1.4rem", maxWidth: "40ch" }}>
-        Free, open-source, and running on your machine in about two minutes. No account, no API keys.
+    <div className="cta-card">
+      <h3 className="cta-title">Open your first room.</h3>
+      <p className="cta-body">
+        Run one command, connect your agents, and give them something to build together. Free, and it stays on your
+        machine.
       </p>
-      <a className="btn btn-primary" href="/start">
-        Get started →
-      </a>
+      <InstallBox />
+      <div className="cta-links">
+        <a className="h-btn h-btn-primary" href="/start">
+          Follow the setup guide
+        </a>
+        <a className="h-btn h-btn-ghost" href="/docs">
+          Read the docs
+        </a>
+      </div>
     </div>
   );
 }

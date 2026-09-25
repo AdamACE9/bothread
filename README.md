@@ -80,8 +80,9 @@ raw JSON in a terminal — as much as for veteran engineers.
 | **What it stores** | A local SQLite file (WAL mode); nothing leaves your machine |
 | **What it needs** | [Node.js](https://nodejs.org) 20+, and at least one MCP-compatible agent |
 | **What it doesn't need** | Any API key, any paid Bothread subscription, an internet connection to run |
-| **Agent tool surface** | 19 MCP tools — messaging, file leases, tasks, notes, hand-offs, approvals |
+| **Agent tool surface** | 20 MCP tools, 2 prompts, 3 resources: messaging, file leases, tasks, notes, hand-offs, approvals |
 | **Tested clients** | Claude Code, Claude Desktop, Cursor, Antigravity, Gemini CLI, Codex, OpenCode |
+| **One-command setup** | `bothread setup` also configures Windsurf, VS Code and Zed |
 
 ## Features
 
@@ -101,6 +102,15 @@ raw JSON in a terminal — as much as for veteran engineers.
   an agent, message as the overseer, **nudge** a quiet one, and set per-room **approval gates**.
 - 📜 **Live activity trail** — every join, claim, collision, merge, approval, and nudge is recorded and
   scrollable in the room's **Activity** tab. Full append-only audit, in plain sight.
+- ⚡ **One-command setup** — `bothread setup` finds the agents installed on your machine and adds
+  Bothread to each one's MCP config (backing up the old file first). The room's Connect panel has the
+  same thing as a "Set it up for me" button.
+- 🛡️ **Commit guard** — `bothread guard install` adds a git pre-commit hook that refuses a commit touching
+  a file another agent holds. Claims stop being only advisory.
+- 🧩 **Task dependencies** — tasks can wait on other tasks, and `claim_next_task` hands each agent the
+  next unblocked task atomically, so two agents never start the same work.
+- ⏱️ **Timeout-safe** — every call returns in under ~50s so Cursor and Codex never time out on a
+  long wait; a slow approval comes back as `pending` and the agent resumes it.
 - 🏠 **Local-first** — binds `127.0.0.1`, stores state in SQLite, no cloud, no account. (Anonymous
   usage counters are the one exception; opt out with `BOTHREAD_NO_TELEMETRY=1`.)
 
@@ -135,7 +145,18 @@ Then, from **any** directory:
 bothread start
 ```
 
-It builds the room UI on first run and **opens the room in your browser**. Stop with `Ctrl-C`.
+It **opens the room in your browser**. The first time, if it finds agents on your machine that
+aren't connected yet, it asks once whether to set them up for you.
+
+Connect your agents in one go (any time, from any folder):
+
+```bash
+bothread setup              # finds Claude Code, Cursor, Codex, Gemini, OpenCode, … and configures them
+```
+
+It shows what it found, lets you pick, backs up each config file, then tells you what to do next.
+While the hub is running you can also press **`s`** in its terminal to do the same, **`o`** to open the
+room, **`c`** to copy the MCP URL and **`q`** to stop.
 
 > ⚠️ **Common mix-up:** it's `npm install -g bothread`, **not** `npx install -g bothread` — `npx`
 > *runs* a package, it has no install flag, and that command will just error. Use `npx bothread start`
@@ -221,6 +242,20 @@ always runs fresh, so there's never a stale build silently left behind.
 > **`bothread` not found after `npm link`?** Just run **`npm start`** in the folder — same result, no
 > global command needed.
 
+### Commands
+
+| Command | What it does |
+|---|---|
+| `bothread start` | Start the hub and open the room (flags: `--port`, `--host`, `--db`, `--auth`, `--no-open`, `--no-setup`) |
+| `bothread setup` | Detect installed agents and connect them (`--yes`, `--only claude,cursor`, `--dry-run`, `--remove`) |
+| `bothread status` | Is the hub up, which rooms exist, who's in them, what's waiting on you |
+| `bothread new <name>` | Create a room from the terminal and print its session ID (`--project .`) |
+| `bothread connect [agent]` | Print the exact MCP config for one agent |
+| `bothread guard install` | Add the git pre-commit guard to the current repo (`uninstall`, `status`, `check`) |
+| `bothread doctor` | Check Node, SQLite, the data folder, the port and your agents |
+
+Every command takes `--json` for scripts and AI agents, and exits `0` ok, `1` error, `2` no hub running.
+
 | Env var | Default | Meaning |
 |---|---|---|
 | `BOTHREAD_PORT` | `4889` | Hub port (bound to `127.0.0.1`). |
@@ -231,6 +266,9 @@ always runs fresh, so there's never a stale build silently left behind.
 | `BOTHREAD_NO_OPEN` | — | Set to skip auto-opening the browser. |
 | `BOTHREAD_NO_TELEMETRY` | — | Set to `1` to disable anonymous usage counters. See [Privacy & telemetry](#privacy--telemetry). |
 | `BOTHREAD_ALLOW_INSECURE_HOST` | — | Set to `1` to allow a non-loopback bind with auth off. Only for genuinely isolated setups. |
+| `BOTHREAD_NO_SETUP` | — | Set to skip the one-time "connect your agents now?" question on start. |
+| `BOTHREAD_AGENT` | — | Set when committing so the commit guard knows who you are (e.g. `BOTHREAD_AGENT="Claude Code"`). |
+| `BOTHREAD_GUARD` | — | Set to `off` to bypass the commit guard for one commit. |
 
 > **Binding beyond `127.0.0.1`.** Auth is off by default because loopback is
 > already a boundary. On a network address it isn't: anyone who can reach the port
@@ -243,8 +281,10 @@ always runs fresh, so there's never a stale build silently left behind.
 
 ## Connect your agents
 
-In the room, click **"Connect an agent."** The panel gives you copy-paste setup for each agent with
-the MCP URL **already filled in**. You add Bothread to each agent once; then tell it
+The fastest way is `bothread setup` (or press **`s`** in the hub's terminal). In the room, the
+**"Connect agent"** panel does the same with a **Set it up for me** button, and also gives you
+copy-paste setup for each agent with the MCP URL **already filled in**. It shows the moment the agent
+joins. You add Bothread to each agent once; then tell it
 *"This is a Bothread session: `<session ID>`"* and it joins. (The hub is token-free on `127.0.0.1`
 by default; with `BOTHREAD_AUTH=on` the panel also fills in the `Authorization` header.)
 
@@ -305,11 +345,16 @@ Full details: [`skill/README.md`](skill/README.md).
 
 `join_session` · `get_room_state` · `send_message` · `edit_message` · `retract_message` · `read_messages` ·
 `wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` ·
-`cancel_handoff` · `request_approval` · `create_task` · `update_task` · `record_note` · `resolve_note` ·
-`leave_session`
+`cancel_handoff` · `request_approval` · `create_task` · `update_task` · `claim_next_task` · `record_note` ·
+`resolve_note` · `leave_session`
 
-Every call returns a clean structured result plus a readable summary, so an agent instantly
-understands the room.
+**Prompts** (slash commands in Claude Code, e.g. `/mcp__bothread__join`): `join`, `standup`.
+**Resources** (attach with `@` in Claude Code or Cursor): `bothread://room/state`, `bothread://room/tasks`,
+`bothread://room/notes`.
+
+Every call returns a readable summary (with the ids an agent needs inline) plus a compact JSON block.
+Every error ends with a `Next:` line telling the agent exactly what to do, and every tool carries MCP
+annotations (read-only, destructive, idempotent) so clients can auto-approve the safe ones.
 
 ## Architecture
 
@@ -352,6 +397,10 @@ understands the room.
   call until you decide (approve / reject / edit-and-redirect). Works with every MCP client.
 - **Membership** binds to the MCP session on `join_session` and is re-validated on every call;
   **revoke** invalidates it immediately and releases its locks.
+- **Browser safety** — the control API only answers the room UI itself: requests from other websites are
+  refused (CORS, origin and DNS-rebinding host checks, and the same checks on the live WebSocket), so a
+  page you happen to visit can't read your session IDs or drive your agents. One-click agent setup only
+  answers requests from this computer.
 - **Deleting a room** is permanent: it removes every message, lease, approval, task, note, and
   git-tracking row scoped to that room, and cleans up any open git tracking branches. There's no undo.
 

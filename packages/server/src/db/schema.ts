@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS approvals (
   decided_by         TEXT,
   edited_instruction TEXT,
   created_at         INTEGER NOT NULL,
-  decided_at         INTEGER
+  decided_at         INTEGER,
+  delivered_at       INTEGER   -- when the requester was told the decision (request_approval / wait_for_update)
 );
 CREATE INDEX IF NOT EXISTS idx_appr_room_status ON approvals(room_id, status);
 
@@ -139,6 +140,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   owner_id   TEXT,
   owner_name TEXT,
   note       TEXT,
+  blocked_by TEXT,                          -- JSON array of task ids this task waits on (NULL = none)
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

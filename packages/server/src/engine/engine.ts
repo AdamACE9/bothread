@@ -1,6 +1,7 @@
 import type {
   AgentBranch,
   Approval,
+  ApprovalDecisionView,
   ApprovalResult,
   ApprovalStatus,
   AuditEvent,
@@ -33,7 +34,8 @@ import type {
   WaitForUpdateResult,
 } from "@bothread/shared";
 import {
-  DEFAULT_WAIT_MS,
+  APPROVAL_WAIT_MS,
+  effectiveWaitMs,
   ETIQUETTE,
   OVERSEER_THREAD_LIMIT,
   RECENT_THREAD_LIMIT,
@@ -58,7 +60,18 @@ import type { DB } from "../db/database";
 import type { RoomBus } from "../realtime";
 import { BothreadError } from "./errors";
 import { newId, newSessionId } from "./ids";
+
+/** Room-list row: the room plus the few numbers worth showing at a glance. */
+export interface RoomSummary {
+  room: Room;
+  agents: { name: string; brand: string | null }[];
+  messageCount: number;
+  lastActivityAt: number;
+  pendingApprovals: number;
+  activeClaims: number;
+}
 import { globsOverlap, leasesConflict } from "./leases";
+import { canonicalDir, fileInRoom, isBothreadPath, leasePatternInRoom, roomPrefixWithin, toPosixRel } from "./guard";
 
 /* ----- Raw row shapes ----- */
 interface RoomRow {
@@ -124,6 +137,7 @@ interface ApprovalRow {
   edited_instruction: string | null;
   created_at: number;
   decided_at: number | null;
+  delivered_at?: number | null;
 }
 interface BranchRow {
   id: string;
@@ -171,6 +185,7 @@ interface TaskRow {
   owner_id: string | null;
   owner_name: string | null;
   note: string | null;
+  blocked_by?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -190,6 +205,19 @@ interface NoteRow {
 export interface Caller {
   room: Room;
   participant: Participant;
+}
+
+/** Engine tuning knobs (mostly for tests). */
+export interface EngineOptions {
+  /** How long request_approval blocks before returning "pending". Default APPROVAL_WAIT_MS
+   *  (45s), or the BOTHREAD_APPROVAL_WAIT_MS env var when set. */
+  approvalWaitMs?: number;
+}
+
+/** One parked request_approval call: its resolver plus the "still pending" timer. */
+interface ApprovalWaiter {
+  resolve: (r: ApprovalResult) => void;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 export interface CreateRoomOptions {
@@ -225,8 +253,10 @@ export class Engine {
   private db: DB;
   private bus: RoomBus;
 
-  /** Pending blocking approvals: approvalId -> resolver. */
-  private approvalWaiters = new Map<string, (r: ApprovalResult) => void>();
+  /** Parked request_approval calls: approvalId -> waiters (a resumed wait can overlap an old one). */
+  private approvalWaiters = new Map<string, Set<ApprovalWaiter>>();
+  /** How long one request_approval call blocks before returning "pending". */
+  private readonly approvalWaitMs: number;
 
   /** Participants currently parked in wait_for_update (actively listening). */
   private parkedWaiters = new Set<string>();
@@ -249,9 +279,12 @@ export class Engine {
   /** How long without activity before an agent participant is considered idle (may have dropped off). */
   private static readonly IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 
-  constructor(db: DB, bus: RoomBus) {
+  constructor(db: DB, bus: RoomBus, opts: EngineOptions = {}) {
     this.db = db;
     this.bus = bus;
+    const envWait = Number(process.env.BOTHREAD_APPROVAL_WAIT_MS);
+    this.approvalWaitMs =
+      opts.approvalWaitMs ?? (process.env.BOTHREAD_APPROVAL_WAIT_MS && Number.isFinite(envWait) && envWait >= 0 ? envWait : APPROVAL_WAIT_MS);
   }
 
   /* ===================== Sequencing + audit ===================== */
@@ -410,7 +443,10 @@ export class Engine {
       payload: a.payload ? (JSON.parse(a.payload) as Record<string, unknown>) : undefined,
     };
   }
-  private mapTask(t: TaskRow): RoomTask {
+  /** `statuses` (task id -> status for the room) is optional; it's looked up when needed. */
+  private mapTask(t: TaskRow, statuses?: Map<string, string>): RoomTask {
+    const blockedBy = this.parseBlockedBy(t.blocked_by ?? null);
+    const blocked = blockedBy.length > 0 && this.openBlockers(blockedBy, statuses ?? this.taskStatusMap(t.room_id)).length > 0;
     return {
       id: t.id,
       roomId: t.room_id,
@@ -421,6 +457,8 @@ export class Engine {
       note: t.note ?? undefined,
       createdAt: t.created_at,
       updatedAt: t.updated_at,
+      blockedBy: blockedBy.length ? blockedBy : undefined,
+      blocked,
     };
   }
   private mapNote(n: NoteRow): RoomNote {
@@ -501,6 +539,34 @@ export class Engine {
     );
   }
 
+  /**
+   * Lightweight per-room stats for the room list: who's in it, how busy it is,
+   * and whether anything is waiting on the human. One pass of COUNT queries —
+   * never builds a full snapshot per room.
+   */
+  roomSummaries(): RoomSummary[] {
+    const agents = this.db.prepare(
+      `SELECT name, brand FROM participants WHERE room_id = ? AND kind = 'agent' AND status NOT IN ('left', 'revoked') ORDER BY joined_at ASC`
+    );
+    const lastMsg = this.db.prepare(`SELECT MAX(created_at) AS at, COUNT(*) AS n FROM messages WHERE room_id = ?`);
+    const pending = this.db.prepare(`SELECT COUNT(*) AS n FROM approvals WHERE room_id = ? AND status = 'pending'`);
+    const leases = this.db.prepare(
+      `SELECT COUNT(*) AS n FROM leases WHERE room_id = ? AND status = 'active' AND expires_at > ?`
+    );
+    const at = now();
+    return this.listRooms().map((room) => {
+      const m = lastMsg.get(room.id) as { at: number | null; n: number };
+      return {
+        room,
+        agents: agents.all(room.id) as { name: string; brand: string | null }[],
+        messageCount: m.n,
+        lastActivityAt: m.at ?? room.createdAt,
+        pendingApprovals: (pending.get(room.id) as { n: number }).n,
+        activeClaims: (leases.get(room.id, at) as { n: number }).n,
+      };
+    });
+  }
+
   setRoomStatus(roomId: string, status: Room["status"], by = "You"): Room {
     const r = this.roomRow(roomId);
     if (!r) throw new BothreadError("no_room", "Room not found.");
@@ -564,11 +630,7 @@ export class Engine {
     // Reject any request_approval calls still parked on this room so the
     // caller's promise resolves instead of hanging forever once the row is gone.
     for (const a of this.pendingApprovals(roomId)) {
-      const waiter = this.approvalWaiters.get(a.id);
-      if (waiter) {
-        this.approvalWaiters.delete(a.id);
-        waiter({ status: "rejected", decidedBy: "system" });
-      }
+      this.settleApprovalWaiters(a.id, { status: "rejected", decidedBy: "system" });
     }
 
     // Best-effort: drop any still-open git tracking branches before the DB
@@ -994,12 +1056,19 @@ export class Engine {
   }
 
   /** Privileged overseer message — bypasses pause/mute, high importance. */
-  overseerMessage(roomId: string, text: string, importance: Importance = "steering", mentions: string[] = []): Message {
+  overseerMessage(
+    roomId: string,
+    text: string,
+    importance: Importance = "steering",
+    mentions: string[] = [],
+    opts: { threadId?: string; replyToSeq?: number } = {}
+  ): Message {
+    if (!this.roomRow(roomId)) throw new BothreadError("no_room", "Room not found.");
     const overseer = this.getOverseer(roomId);
     const author = overseer
       ? { id: overseer.id, name: overseer.name }
       : { id: "overseer", name: "You" };
-    const msg = this.insertMessage(roomId, author, "human", importance, text, mentions);
+    const msg = this.insertMessage(roomId, author, "human", importance, text, mentions, opts.threadId, opts.replyToSeq);
     this.audit(roomId, "message.overseer", author, { seq: msg.seq });
     return msg;
   }
@@ -1035,7 +1104,8 @@ export class Engine {
   ): Promise<WaitForUpdateResult> {
     const roomId = caller.room.id;
     const since = input.since ?? this.latestSeq(roomId);
-    const maxWaitMs = input.maxWaitMs ?? DEFAULT_WAIT_MS;
+    // Clamped (default 45s, cap 50s) so the call always returns before a client's ~60s tool timeout.
+    const maxWaitMs = effectiveWaitMs(input.maxWaitMs);
     const me = caller.participant.id;
 
     const build = (): WaitForUpdateResult => {
@@ -1044,17 +1114,24 @@ export class Engine {
       const handoffsForYou = this.pendingHandoffs(roomId)
         .filter((h) => h.holderId === me)
         .map((h) => ({ id: h.id, path: h.path, requestedBy: h.requesterName, heldBy: h.holderName, message: h.message }));
+      const approvalDecisions = this.undeliveredApprovalDecisions(roomId, me);
       return {
-        changed: latestSeq > since || handoffsForYou.length > 0,
+        changed: latestSeq > since || handoffsForYou.length > 0 || approvalDecisions.length > 0,
         latestSeq,
         newMessages,
         pendingApprovals: this.pendingApprovalViews(roomId),
         handoffsForYou,
+        approvalDecisions,
       };
+    };
+    // Decisions are reported once: mark them delivered only when we actually return them.
+    const deliver = (res: WaitForUpdateResult): WaitForUpdateResult => {
+      this.markApprovalsDelivered(res.approvalDecisions.map((d) => d.approvalId));
+      return res;
     };
 
     const immediate = build();
-    if (immediate.changed) return immediate;
+    if (immediate.changed) return deliver(immediate);
 
     // Mark this agent as actively listening for the duration of the long-poll.
     this.parkedWaiters.add(me);
@@ -1073,7 +1150,7 @@ export class Engine {
     } finally {
       this.parkedWaiters.delete(me);
     }
-    return build();
+    return deliver(build());
   }
 
   /** Is this participant actively listening (parked in wait_for_update, or very recently)? */
@@ -1271,6 +1348,67 @@ export class Engine {
     });
   }
 
+  /**
+   * Commit guard (`bothread guard`'s pre-commit hook → POST /api/guard/check).
+   * Which of these staged files (repo-relative, forward slashes) are held
+   * EXCLUSIVELY, by someone other than `agent`, in any non-closed room pointed
+   * at this repo (or a subfolder of it)? Same overlap semantics as claimFiles.
+   * With no `agent` (a human or unidentified committer) every exclusive hold
+   * blocks. Read-only on leases; a block is audited and posted to the room.
+   */
+  guardCheck(input: { projectPath: string; files: string[]; agent?: string }): {
+    checked: number;
+    rooms: string[];
+    blocked: { file: string; heldByName: string; roomName: string; pattern: string; exclusive: boolean }[];
+  } {
+    const at = now();
+    const agent = input.agent?.trim() || undefined;
+    const who = agent?.toLowerCase();
+    const files = Array.from(new Set(input.files.map(toPosixRel))).filter((f) => f && !isBothreadPath(f));
+    const repoCanon = canonicalDir(input.projectPath);
+    const rooms = (
+      this.db
+        .prepare(`SELECT * FROM rooms WHERE status != 'closed' AND project_path IS NOT NULL ORDER BY created_at ASC`)
+        .all() as RoomRow[]
+    )
+      .map((r) => ({ row: r, prefix: roomPrefixWithin(repoCanon, r.project_path!) }))
+      .filter((r): r is { row: RoomRow; prefix: string } => r.prefix !== null);
+
+    const blocked: { file: string; heldByName: string; roomName: string; pattern: string; exclusive: boolean }[] = [];
+    for (const { row, prefix } of rooms) {
+      const leases = this.activeLeaseRows(row.id).filter(
+        (l) => !!l.exclusive && l.expires_at > at && (!who || l.participant_name.trim().toLowerCase() !== who)
+      );
+      if (!leases.length) continue;
+      const inRoom: typeof blocked = [];
+      for (const file of files) {
+        const rel = fileInRoom(file, prefix);
+        if (rel === null || isBothreadPath(rel)) continue;
+        for (const l of leases) {
+          const pattern = leasePatternInRoom(l.path_pattern, row.project_path!);
+          if (globsOverlap(pattern, rel)) {
+            inRoom.push({ file, heldByName: l.participant_name, roomName: row.name, pattern: l.path_pattern, exclusive: true });
+            break;
+          }
+        }
+      }
+      if (!inRoom.length) continue;
+      blocked.push(...inRoom);
+      const first = inRoom[0]!;
+      const more = inRoom.length > 1 ? ` (and ${inRoom.length - 1} more file${inRoom.length === 2 ? "" : "s"})` : "";
+      this.audit(row.id, "guard.blocked", { name: agent ?? "commit" }, {
+        agent: agent ?? null,
+        files: inRoom.map((b) => ({ file: b.file, holder: b.heldByName, pattern: b.pattern })),
+      });
+      this.postSystemMessage(
+        row.id,
+        `Commit blocked: ${agent ?? "someone"} tried to commit ${first.file}${more} while ${first.heldByName} holds it.`,
+        "advisory"
+      );
+    }
+    return { checked: files.length, rooms: rooms.map((r) => r.row.name), blocked };
+  }
+
   releaseFiles(caller: Caller, input: { paths?: string[]; leaseIds?: string[] }): { released: number } {
     const roomId = caller.room.id;
     let released = 0;
@@ -1342,10 +1480,24 @@ export class Engine {
 
   /* ===================== Approvals (blocking) ===================== */
 
+  /**
+   * Ask the human to approve a risky action. Blocks until they decide — but at most
+   * `approvalWaitMs` (~45s, under client tool-call timeouts); after that it resolves
+   * `{ status: "pending", approvalId }` and the agent resumes with `input.approvalId`
+   * (or picks the decision up from wait_for_update). The approval row itself stays pending
+   * until the human acts; only this call's wait ends.
+   */
   requestApproval(
     caller: Caller,
-    input: { action: RiskAction; details: string; files?: string[] }
+    input: { action?: RiskAction; details?: string; files?: string[]; approvalId?: string }
   ): Promise<ApprovalResult> {
+    if (input.approvalId) return this.resumeApproval(caller, input.approvalId);
+    if (!input.action || !input.details) {
+      throw new BothreadError(
+        "invalid_arguments",
+        "A new request_approval needs both `action` and `details` (or pass `approvalId` to keep waiting on an earlier request)."
+      );
+    }
     this.assertWritable(caller);
     const roomId = caller.room.id;
     const id = newId("appr");
@@ -1368,9 +1520,90 @@ export class Engine {
     );
     this.publish(roomId, "approval", { approval: this.mapApproval(this.approvalRow(id)!) });
 
+    return this.awaitApprovalDecision(id);
+  }
+
+  /** Keep waiting on one of the caller's own earlier approvals (or return its decision right away). */
+  private resumeApproval(caller: Caller, approvalId: string): Promise<ApprovalResult> {
+    const row = this.approvalRow(approvalId);
+    if (!row || row.room_id !== caller.room.id) {
+      throw new BothreadError("no_approval", `No approval with id ${approvalId} in this room.`);
+    }
+    if (row.requested_by_id !== caller.participant.id) {
+      throw new BothreadError("not_your_approval", "That approval was requested by someone else — you can only wait on your own.");
+    }
+    if (row.status !== "pending") {
+      this.markApprovalsDelivered([row.id]);
+      return Promise.resolve(this.approvalDecisionResult(row));
+    }
+    return this.awaitApprovalDecision(approvalId);
+  }
+
+  /** Park until the approval is decided, or resolve "pending" after the wait window. */
+  private awaitApprovalDecision(approvalId: string): Promise<ApprovalResult> {
     return new Promise<ApprovalResult>((resolve) => {
-      this.approvalWaiters.set(id, resolve);
+      const waiter: ApprovalWaiter = { resolve };
+      let set = this.approvalWaiters.get(approvalId);
+      if (!set) {
+        set = new Set();
+        this.approvalWaiters.set(approvalId, set);
+      }
+      set.add(waiter);
+      waiter.timer = setTimeout(() => {
+        const current = this.approvalWaiters.get(approvalId);
+        current?.delete(waiter);
+        if (current && current.size === 0) this.approvalWaiters.delete(approvalId);
+        resolve({ status: "pending", approvalId });
+      }, this.approvalWaitMs);
+      waiter.timer.unref?.();
     });
+  }
+
+  /** Resolve (and clear the timers of) every call parked on this approval. True if any were. */
+  private settleApprovalWaiters(approvalId: string, result: ApprovalResult): boolean {
+    const set = this.approvalWaiters.get(approvalId);
+    if (!set) return false;
+    this.approvalWaiters.delete(approvalId);
+    for (const w of set) {
+      if (w.timer) clearTimeout(w.timer);
+      w.resolve(result);
+    }
+    return set.size > 0;
+  }
+
+  private approvalDecisionResult(row: ApprovalRow): ApprovalResult {
+    return {
+      status: row.status as ApprovalStatus,
+      editedInstruction: row.edited_instruction ?? undefined,
+      decidedBy: row.decided_by ?? undefined,
+      approvalId: row.id,
+    };
+  }
+
+  private markApprovalsDelivered(ids: string[]): void {
+    if (!ids.length) return;
+    const stmt = this.db.prepare(`UPDATE approvals SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL`);
+    const at = now();
+    for (const id of ids) stmt.run(at, id);
+  }
+
+  /** Decisions on this participant's approvals that no request_approval / wait_for_update has reported yet. */
+  private undeliveredApprovalDecisions(roomId: string, participantId: string): ApprovalDecisionView[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM approvals WHERE room_id = ? AND requested_by_id = ? AND status != 'pending' AND delivered_at IS NULL
+         ORDER BY decided_at ASC`
+      )
+      .all(roomId, participantId) as ApprovalRow[];
+    return rows.map((r) => ({
+      approvalId: r.id,
+      action: r.action as RiskAction,
+      details: r.details,
+      status: r.status as ApprovalDecisionView["status"],
+      decidedBy: r.decided_by ?? undefined,
+      editedInstruction: r.edited_instruction ?? undefined,
+      decidedAt: r.decided_at ?? undefined,
+    }));
   }
 
   private approvalRow(id: string): ApprovalRow | undefined {
@@ -1392,6 +1625,12 @@ export class Engine {
       .run(decision, decidedBy, editedInstruction ?? null, now(), approvalId);
     const approval = this.mapApproval(this.approvalRow(approvalId)!);
 
+    // Hand the decision to any request_approval call still blocked on it; if one was, the
+    // agent has been told — so wait_for_update shouldn't report it again.
+    if (this.settleApprovalWaiters(approvalId, { status: decision, editedInstruction, decidedBy, approvalId })) {
+      this.markApprovalsDelivered([approvalId]);
+    }
+
     this.audit(roomId, `approval.${decision}`, { name: decidedBy }, { approvalId });
     this.postSystemMessage(
       roomId,
@@ -1400,12 +1639,6 @@ export class Engine {
       "steering"
     );
     this.publish(roomId, "approval", { approval });
-
-    const waiter = this.approvalWaiters.get(approvalId);
-    if (waiter) {
-      this.approvalWaiters.delete(approvalId);
-      waiter({ status: decision, editedInstruction, decidedBy });
-    }
     return approval;
   }
 
@@ -1652,28 +1885,110 @@ export class Engine {
     return this.db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(id) as TaskRow | undefined;
   }
 
+  private parseBlockedBy(raw: string | null): string[] {
+    if (!raw) return [];
+    try {
+      const v: unknown = JSON.parse(raw);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** task id -> status for every task in the room (to compute `blocked`). */
+  private taskStatusMap(roomId: string): Map<string, string> {
+    const rows = this.db.prepare(`SELECT id, status FROM tasks WHERE room_id = ?`).all(roomId) as { id: string; status: string }[];
+    return new Map(rows.map((r) => [r.id, r.status]));
+  }
+
+  /** The blockers that still hold a task back (open / in progress). Unknown ids never block. */
+  private openBlockers(blockedBy: string[], statuses: Map<string, string>): string[] {
+    return blockedBy.filter((id) => {
+      const st = statuses.get(id);
+      return st === "open" || st === "in_progress";
+    });
+  }
+
+  /**
+   * Validate a blockedBy list: de-duplicated, every id a task in this room, no
+   * self-dependency, and (for an existing task) no cycle — a cycle would leave
+   * every task in it blocked forever.
+   */
+  private validateBlockers(roomId: string, ids: string[], selfId?: string): string[] {
+    const unique = [...new Set(ids)];
+    if (selfId && unique.includes(selfId)) {
+      throw new BothreadError("bad_blocker", "A task can't be blocked by itself.");
+    }
+    const rows = this.db.prepare(`SELECT id, blocked_by FROM tasks WHERE room_id = ?`).all(roomId) as {
+      id: string;
+      blocked_by: string | null;
+    }[];
+    const deps = new Map(rows.map((r) => [r.id, this.parseBlockedBy(r.blocked_by)]));
+    for (const id of unique) {
+      if (!deps.has(id)) {
+        throw new BothreadError("no_task", `No task ${id} in this room — blockedBy must list task ids from the board.`);
+      }
+    }
+    if (selfId) {
+      // Would any new blocker (transitively) wait on this task?
+      const seen = new Set<string>();
+      const stack = [...unique];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        if (cur === selfId) {
+          throw new BothreadError("bad_blocker", `That would create a dependency cycle through ${selfId}.`);
+        }
+        if (seen.has(cur)) continue;
+        seen.add(cur);
+        stack.push(...(deps.get(cur) ?? []));
+      }
+    }
+    return unique;
+  }
+
+  /** After `resolvedId` became done/cancelled: announce each task it was holding back that is now fully unblocked. */
+  private announceUnblocked(roomId: string, resolvedId: string): void {
+    const rows = this.db
+      .prepare(`SELECT * FROM tasks WHERE room_id = ? AND blocked_by IS NOT NULL AND status IN ('open', 'in_progress')`)
+      .all(roomId) as TaskRow[];
+    if (!rows.length) return;
+    const statuses = this.taskStatusMap(roomId);
+    for (const r of rows) {
+      const deps = this.parseBlockedBy(r.blocked_by ?? null);
+      if (!deps.includes(resolvedId) || this.openBlockers(deps, statuses).length) continue;
+      this.postSystemMessage(
+        roomId,
+        `Task ${r.id} "${r.title}" is unblocked (was waiting on ${resolvedId}).`,
+        "advisory",
+        r.owner_name ? [r.owner_name] : []
+      );
+      this.publish(roomId, "task", { task: this.mapTask(r, statuses) });
+    }
+  }
+
   /** All non-terminal-forever tasks for the snapshot/UI, newest first. Cancelled tasks stay
    *  visible too (short list, no reason to hide history) but done/cancelled sort last. */
   listTasks(roomId: string): RoomTask[] {
-    return (
-      this.db
-        .prepare(
-          `SELECT * FROM tasks WHERE room_id = ?
-           ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 WHEN 'done' THEN 2 ELSE 3 END, updated_at DESC`
-        )
-        .all(roomId) as TaskRow[]
-    ).map((t) => this.mapTask(t));
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks WHERE room_id = ?
+         ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 WHEN 'done' THEN 2 ELSE 3 END, updated_at DESC`
+      )
+      .all(roomId) as TaskRow[];
+    const statuses = new Map(rows.map((r) => [r.id, r.status]));
+    return rows.map((t) => this.mapTask(t, statuses));
   }
 
-  createTask(caller: Caller, input: { title: string; note?: string; claim?: boolean }): RoomTask {
+  createTask(caller: Caller, input: { title: string; note?: string; claim?: boolean; blockedBy?: string[] }): RoomTask {
     this.assertWritable(caller);
     const id = newId("task");
     const at = now();
     const claim = input.claim ?? false;
+    const blockedBy = input.blockedBy?.length ? this.validateBlockers(caller.room.id, input.blockedBy) : [];
     this.db
       .prepare(
-        `INSERT INTO tasks (id, room_id, title, status, owner_id, owner_name, note, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (id, room_id, title, status, owner_id, owner_name, note, blocked_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -1683,14 +1998,22 @@ export class Engine {
         claim ? caller.participant.id : null,
         claim ? caller.participant.name : null,
         input.note ?? null,
+        blockedBy.length ? JSON.stringify(blockedBy) : null,
         at,
         at
       );
-    const task = this.mapTask(this.taskRow(id)!);
-    this.audit(caller.room.id, "task.create", { id: caller.participant.id, name: caller.participant.name }, { taskId: id, title: input.title });
+    const statuses = this.taskStatusMap(caller.room.id);
+    const task = this.mapTask(this.taskRow(id)!, statuses);
+    const waitingOn = this.openBlockers(blockedBy, statuses);
+    this.audit(caller.room.id, "task.create", { id: caller.participant.id, name: caller.participant.name }, {
+      taskId: id,
+      title: input.title,
+      ...(blockedBy.length ? { blockedBy } : {}),
+    });
     this.postSystemMessage(
       caller.room.id,
-      `${caller.participant.name} added a task: "${input.title}"${claim ? " (claimed it)" : ""}.`,
+      `${caller.participant.name} added a task: "${input.title}"${claim ? " (claimed it)" : ""}` +
+        `${waitingOn.length ? ` — blocked by ${waitingOn.join(", ")}` : ""}.`,
       "info"
     );
     this.publish(caller.room.id, "task", { task });
@@ -1699,7 +2022,7 @@ export class Engine {
 
   updateTask(
     caller: Caller,
-    input: { taskId: string; status?: TaskStatus; note?: string; takeOwnership?: boolean }
+    input: { taskId: string; status?: TaskStatus; note?: string; takeOwnership?: boolean; blockedBy?: string[] }
   ): RoomTask {
     this.assertWritable(caller);
     const row = this.taskRow(input.taskId);
@@ -1709,15 +2032,22 @@ export class Engine {
     const nextOwnerId = input.takeOwnership ? caller.participant.id : row.owner_id;
     const nextOwnerName = input.takeOwnership ? caller.participant.name : row.owner_name;
     const nextNote = input.note !== undefined ? input.note : row.note;
+    const nextBlockedBy =
+      input.blockedBy !== undefined
+        ? input.blockedBy.length
+          ? JSON.stringify(this.validateBlockers(caller.room.id, input.blockedBy, input.taskId))
+          : null
+        : (row.blocked_by ?? null);
 
     this.db
-      .prepare(`UPDATE tasks SET status = ?, owner_id = ?, owner_name = ?, note = ?, updated_at = ? WHERE id = ?`)
-      .run(nextStatus, nextOwnerId, nextOwnerName, nextNote, now(), input.taskId);
+      .prepare(`UPDATE tasks SET status = ?, owner_id = ?, owner_name = ?, note = ?, blocked_by = ?, updated_at = ? WHERE id = ?`)
+      .run(nextStatus, nextOwnerId, nextOwnerName, nextNote, nextBlockedBy, now(), input.taskId);
 
     const task = this.mapTask(this.taskRow(input.taskId)!);
     this.audit(caller.room.id, "task.update", { id: caller.participant.id, name: caller.participant.name }, {
       taskId: input.taskId,
       status: nextStatus,
+      ...(input.blockedBy !== undefined ? { blockedBy: input.blockedBy } : {}),
     });
     if (input.status && input.status !== row.status) {
       this.postSystemMessage(
@@ -1729,7 +2059,52 @@ export class Engine {
       this.postSystemMessage(caller.room.id, `${caller.participant.name} took "${row.title}".`, "info");
     }
     this.publish(caller.room.id, "task", { task });
+    const wasActive = row.status === "open" || row.status === "in_progress";
+    if (wasActive && (nextStatus === "done" || nextStatus === "cancelled")) {
+      this.announceUnblocked(caller.room.id, input.taskId);
+    }
     return task;
+  }
+
+  /**
+   * Atomically take the oldest open, unowned, unblocked task: pick + assign run in one
+   * IMMEDIATE transaction (and the UPDATE re-checks open/unowned), so two agents racing
+   * can never both get the same task. Returns the task, or undefined plus how many open
+   * unowned tasks were skipped because they're still blocked.
+   */
+  claimNextTask(caller: Caller): { task: RoomTask | undefined; blockedCount: number } {
+    this.assertWritable(caller);
+    const roomId = caller.room.id;
+    const pickTx = this.db.transaction((): { id: string | undefined; blockedCount: number } => {
+      const candidates = this.db
+        .prepare(`SELECT * FROM tasks WHERE room_id = ? AND status = 'open' AND owner_id IS NULL ORDER BY created_at ASC, rowid ASC`)
+        .all(roomId) as TaskRow[];
+      if (!candidates.length) return { id: undefined, blockedCount: 0 };
+      const statuses = this.taskStatusMap(roomId);
+      const ready = candidates.filter((t) => this.openBlockers(this.parseBlockedBy(t.blocked_by ?? null), statuses).length === 0);
+      const blockedCount = candidates.length - ready.length;
+      const upd = this.db.prepare(
+        `UPDATE tasks SET status = 'in_progress', owner_id = ?, owner_name = ?, updated_at = ?
+         WHERE id = ? AND status = 'open' AND owner_id IS NULL`
+      );
+      for (const t of ready) {
+        if (upd.run(caller.participant.id, caller.participant.name, now(), t.id).changes === 1) {
+          return { id: t.id, blockedCount };
+        }
+      }
+      return { id: undefined, blockedCount };
+    });
+    const picked = pickTx.immediate();
+    if (!picked.id) return { task: undefined, blockedCount: picked.blockedCount };
+
+    const task = this.mapTask(this.taskRow(picked.id)!);
+    this.audit(roomId, "task.claim_next", { id: caller.participant.id, name: caller.participant.name }, {
+      taskId: task.id,
+      status: task.status,
+    });
+    this.postSystemMessage(roomId, `${caller.participant.name} took "${task.title}".`, "info");
+    this.publish(roomId, "task", { task });
+    return { task, blockedCount: picked.blockedCount };
   }
 
   /* ===================== Leave ===================== */
@@ -1902,8 +2277,8 @@ export class Engine {
 
   /** Reject any still-pending approvals (e.g. on shutdown). */
   drainApprovals(): void {
-    for (const [, resolve] of this.approvalWaiters) {
-      resolve({ status: "rejected", decidedBy: "system" });
+    for (const id of [...this.approvalWaiters.keys()]) {
+      this.settleApprovalWaiters(id, { status: "rejected", decidedBy: "system" });
     }
     this.approvalWaiters.clear();
   }

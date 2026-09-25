@@ -2,13 +2,15 @@ import { useEffect } from "react";
 import Background from "./components/Background";
 import Nav from "./components/Nav";
 import Hero from "./components/Hero";
-import Problem from "./components/Problem";
 import HowItWorks from "./components/HowItWorks";
-import WhyDifferent from "./components/WhyDifferent";
+import Showcase from "./components/home/Showcase";
+import Features from "./components/home/Features";
+import ForAgents from "./components/home/ForAgents";
+import LocalFirst from "./components/home/LocalFirst";
+import Rv from "./components/home/Rv";
 import GetStarted from "./components/GetStarted";
 import Feedback from "./components/Feedback";
 import Footer from "./components/Footer";
-import Reveal from "./components/Reveal";
 import Setup from "./components/Setup";
 import Press from "./components/Press";
 import Docs from "./components/Docs";
@@ -34,7 +36,7 @@ const ROUTE_META: Record<Route, { title: string; description: string }> = {
   home: {
     title: "Bothread — run your AI coding agents together on one codebase (local, MCP)",
     description:
-      "Bothread is a free, open-source local app where the AI coding agents you already use — Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode — work together on one codebase over MCP without overwriting each other, while you watch and approve every step. No API keys, no cloud.",
+      "Bothread is a free, open-source local app where the AI coding agents you already use (Claude Code, Cursor, Codex, Gemini CLI, Antigravity, OpenCode) work together on one codebase over MCP without overwriting each other. One command connects them all, and you review every change as a diff. No API keys, no cloud.",
   },
   start: {
     title: "Get started with Bothread — connect your AI coding agents",
@@ -88,33 +90,24 @@ function useRouteMeta(route: Route) {
 
 function Home() {
   return (
-    <main>
+    <main className="home">
       <Hero />
-      <hr className="rule container" />
-      <Problem />
       <HowItWorks />
-      <WhyDifferent />
+      <Showcase />
+      <Features />
+      <ForAgents />
+      <LocalFirst />
       <Faq />
 
-      <section id="get-started">
-        <div className="container">
-          <div className="section-head">
-            <Reveal>
-              <span className="eyebrow">Try it now</span>
-            </Reveal>
-            <Reveal i={1}>
-              <h2>
-                The <em className="thread-text">room</em> is open.
-              </h2>
-            </Reveal>
-          </div>
-          <div className="cta-grid">
-            <Reveal>
+      <section className="h-sec h-cta" id="get-started">
+        <div className="h-wrap">
+          <div className="cta-grid h-cta-grid">
+            <Rv>
               <GetStarted />
-            </Reveal>
-            <Reveal i={1}>
+            </Rv>
+            <Rv i={1}>
               <Feedback />
-            </Reveal>
+            </Rv>
           </div>
         </div>
       </section>

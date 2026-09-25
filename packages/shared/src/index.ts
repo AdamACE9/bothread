@@ -266,6 +266,10 @@ export const RoomTask = z.object({
   note: z.string().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  /** Ids of tasks that must be done (or cancelled) before this one is ready to start. */
+  blockedBy: z.array(z.string()).optional(),
+  /** Computed: true while any task in `blockedBy` is still open or in progress. */
+  blocked: z.boolean().optional(),
 });
 export type RoomTask = z.infer<typeof RoomTask>;
 
@@ -298,8 +302,16 @@ export const RoomNote = z.object({
 });
 export type RoomNote = z.infer<typeof RoomNote>;
 
+/** The optional `sessionId` accepted by every room-scoped tool. */
+const SessionIdArg = z
+  .string()
+  .optional()
+  .describe(
+    "Optional; normally omit — your connection already identifies you. If given, it must be the session ID you joined with, and the call fails (instead of acting in the wrong room) if it doesn't match."
+  );
+
 export const RecordNoteInput = z.object({
-  kind: NoteKind,
+  kind: NoteKind.describe("'decision' (a call the team should keep to), 'issue' (worth tracking, not blocking), or 'verification' (what you tested)."),
   title: z.string().min(1).max(200).describe("A short, scannable summary, e.g. 'physics.js owns collision'."),
   detail: z
     .string()
@@ -308,14 +320,14 @@ export const RecordNoteInput = z.object({
     .describe(
       "Free text with the full context. For a verification note, structure it as tested / expected / actual so it's fast to trust."
     ),
-  sessionId: z.string().optional(),
+  sessionId: SessionIdArg,
 });
 export type RecordNoteInput = z.infer<typeof RecordNoteInput>;
 
 export const ResolveNoteInput = z.object({
-  noteId: z.string(),
+  noteId: z.string().describe("The note id, shown under Notes in get_room_state."),
   resolution: z.string().max(2000).optional().describe("What was done about it, appended to the note's detail."),
-  sessionId: z.string().optional(),
+  sessionId: SessionIdArg,
 });
 export type ResolveNoteInput = z.infer<typeof ResolveNoteInput>;
 
@@ -373,22 +385,35 @@ export type RoomSnapshot = z.infer<typeof RoomSnapshot>;
  * ========================================================================== */
 
 export const JoinSessionInput = z.object({
-  sessionId: z.string().min(8).describe("The room session ID the human pasted to you. Never guess it."),
+  sessionId: z
+    .string()
+    .min(8)
+    .describe("The room session ID the human pasted to you. Never guess or reuse an old one — ask the human if you don't have it."),
   agentName: z.string().min(1).max(60).describe("A short display name for you in the room, e.g. 'Claude Code'."),
-  brand: z.string().max(40).optional().describe("Your product/brand, e.g. 'claude' | 'cursor' | 'gemini'."),
-  capabilities: z.array(z.string()).max(32).optional(),
+  brand: z.string().max(40).optional().describe("Your product/brand, lowercase, e.g. 'claude' | 'cursor' | 'gemini' | 'codex'."),
+  capabilities: z
+    .array(z.string())
+    .max(32)
+    .optional()
+    .describe(
+      "What you can do, so teammates know what to route to you, e.g. ['can-view-images', 'headless-browser', 'can-run-tests']."
+    ),
 });
 export type JoinSessionInput = z.infer<typeof JoinSessionInput>;
 
 export const GetRoomStateInput = z.object({
-  since: z.number().int().optional().describe("Only include thread messages with seq greater than this."),
-  sessionId: z.string().optional(),
+  since: z.number().int().optional().describe("Only include thread messages with seq greater than this (e.g. the latestSeq you last saw)."),
+  sessionId: SessionIdArg,
 });
 export type GetRoomStateInput = z.infer<typeof GetRoomStateInput>;
 
 export const SendMessageInput = z.object({
-  text: z.string().min(1).max(8000),
-  mentions: z.array(z.string()).max(16).optional().describe("Participant names to direct this at."),
+  text: z.string().min(1).max(8000).describe("What to say. Keep it terse — bullets, not paragraphs."),
+  mentions: z
+    .array(z.string())
+    .max(16)
+    .optional()
+    .describe("Participant display names to direct this at (they see it marked → YOU), e.g. ['Cursor']."),
   threadId: z
     .string()
     .optional()
@@ -403,20 +428,20 @@ export const SendMessageInput = z.object({
   importance: Importance.optional().describe(
     "Default 'info'. Use 'advisory' for a heads-up worth noting, 'steering' for something you want acted on, and 'interrupt' for 'I need a decision before I continue' — reserve 'interrupt' for genuine blockers so it doesn't lose meaning."
   ),
-  sessionId: z.string().optional(),
+  sessionId: SessionIdArg,
 });
 export type SendMessageInput = z.infer<typeof SendMessageInput>;
 
 export const EditMessageInput = z.object({
   seq: z.number().int().describe("The seq of your own message to edit."),
-  text: z.string().min(1).max(8000),
-  sessionId: z.string().optional(),
+  text: z.string().min(1).max(8000).describe("The replacement text."),
+  sessionId: SessionIdArg,
 });
 export type EditMessageInput = z.infer<typeof EditMessageInput>;
 
 export const RetractMessageInput = z.object({
   seq: z.number().int().describe("The seq of your own message to retract."),
-  sessionId: z.string().optional(),
+  sessionId: SessionIdArg,
 });
 export type RetractMessageInput = z.infer<typeof RetractMessageInput>;
 
@@ -433,91 +458,152 @@ export const MentionDelivery = z.object({
 export type MentionDelivery = z.infer<typeof MentionDelivery>;
 
 export const ReadMessagesInput = z.object({
-  since: z.number().int().optional().describe("Return messages after this seq (your cursor)."),
-  unreadOnly: z.boolean().optional(),
-  mentionsMe: z.boolean().optional(),
-  limit: z.number().int().min(1).max(200).optional(),
-  sessionId: z.string().optional(),
+  since: z.number().int().optional().describe("Return messages after this seq (your cursor). Omit for the most recent page."),
+  unreadOnly: z
+    .boolean()
+    .optional()
+    .describe("Reserved — currently has no effect. To get only unread messages, pass since = the last seq you saw."),
+  mentionsMe: z.boolean().optional().describe("If true, only messages that @-mention you."),
+  limit: z.number().int().min(1).max(200).optional().describe("Max messages to return (default 40, max 200)."),
+  sessionId: SessionIdArg,
 });
 export type ReadMessagesInput = z.infer<typeof ReadMessagesInput>;
 
 export const WaitForUpdateInput = z.object({
-  maxWaitMs: z.number().int().min(0).max(60000).optional().describe("Long-poll up to this long for new activity."),
-  since: z.number().int().optional(),
-  sessionId: z.string().optional(),
+  maxWaitMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(60000)
+    .optional()
+    .describe(
+      "Long-poll up to this long (ms) for new activity. Default 45000. Values above 50000 are clamped to 50000 so the call stays under client tool timeouts."
+    ),
+  since: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Return activity after this message seq — pass the latestSeq from your previous result so nothing slips between calls. Default: now."
+    ),
+  sessionId: SessionIdArg,
 });
 export type WaitForUpdateInput = z.infer<typeof WaitForUpdateInput>;
 
 export const ClaimFilesInput = z.object({
   paths: z.array(z.string().min(1)).min(1).max(64).describe("Glob paths to claim before editing, e.g. ['src/payments/**']."),
   exclusive: z.boolean().optional().describe("Default true. Exclusive blocks others; shared allows other shared holders."),
-  reason: z.string().max(300).optional(),
-  ttlSeconds: z.number().int().positive().max(86400).optional(),
-  sessionId: z.string().optional(),
+  reason: z.string().max(300).optional().describe("Why you need these files — shown to others, e.g. 'fixing webhook retries'."),
+  ttlSeconds: z
+    .number()
+    .int()
+    .positive()
+    .max(86400)
+    .optional()
+    .describe("Lease length in seconds. Default: the room's (15 min). Extend later with renew_files."),
+  sessionId: SessionIdArg,
 });
 export type ClaimFilesInput = z.infer<typeof ClaimFilesInput>;
 
 export const ReleaseFilesInput = z.object({
-  paths: z.array(z.string()).optional(),
-  leaseIds: z.array(z.string()).optional(),
-  sessionId: z.string().optional(),
+  paths: z
+    .array(z.string())
+    .optional()
+    .describe("Exact path patterns you claimed. Omit both paths and leaseIds to release ALL of yours."),
+  leaseIds: z.array(z.string()).optional().describe("Lease ids from claim_files' result, as an alternative to paths."),
+  sessionId: SessionIdArg,
 });
 export type ReleaseFilesInput = z.infer<typeof ReleaseFilesInput>;
 
 export const RenewFilesInput = z.object({
-  paths: z.array(z.string()).optional(),
-  leaseIds: z.array(z.string()).optional(),
-  ttlSeconds: z.number().int().positive().max(86400).optional(),
-  sessionId: z.string().optional(),
+  paths: z
+    .array(z.string())
+    .optional()
+    .describe("Exact path patterns you claimed. Omit both paths and leaseIds to renew ALL of yours."),
+  leaseIds: z.array(z.string()).optional().describe("Lease ids from claim_files' result, as an alternative to paths."),
+  ttlSeconds: z
+    .number()
+    .int()
+    .positive()
+    .max(86400)
+    .optional()
+    .describe("New lease length in seconds, counted from now. Default: the room's (15 min)."),
+  sessionId: SessionIdArg,
 });
 export type RenewFilesInput = z.infer<typeof RenewFilesInput>;
 
 export const RequestApprovalInput = z.object({
-  action: RiskAction,
-  details: z.string().min(1).max(2000).describe("Exactly what you want to do and why — the human reads this."),
-  files: z.array(z.string()).max(64).optional(),
-  sessionId: z.string().optional(),
+  action: RiskAction.optional().describe("The risky action you want to take. Required unless you pass approvalId."),
+  details: z
+    .string()
+    .min(1)
+    .max(2000)
+    .optional()
+    .describe("Exactly what you want to do and why — the human reads this. Required unless you pass approvalId."),
+  files: z.array(z.string()).max(64).optional().describe("Files the action touches, if any."),
+  approvalId: z
+    .string()
+    .optional()
+    .describe(
+      "Resume waiting on one of YOUR earlier requests that came back 'pending' (the id from that result). Omit to make a new request."
+    ),
+  sessionId: SessionIdArg,
 });
 export type RequestApprovalInput = z.infer<typeof RequestApprovalInput>;
 
 export const RequestHandoffInput = z.object({
   path: z.string().min(1).describe("The file/path you need that another participant currently holds."),
   message: z.string().max(500).optional().describe("A short note to the holder, e.g. why you need it."),
-  sessionId: z.string().optional(),
+  sessionId: SessionIdArg,
 });
 export type RequestHandoffInput = z.infer<typeof RequestHandoffInput>;
 
 export const CancelHandoffInput = z.object({
   handoffId: z.string().describe("The handoff id to retract — only the original requester can cancel it."),
-  sessionId: z.string().optional(),
+  sessionId: SessionIdArg,
 });
 export type CancelHandoffInput = z.infer<typeof CancelHandoffInput>;
 
+/** Task ids a task waits on — shared by create_task and update_task. */
+const BlockedByArg = z
+  .array(z.string().min(1))
+  .max(16)
+  .optional();
+
 export const CreateTaskInput = z.object({
   title: z.string().min(1).max(200).describe("A short task title, e.g. 'Wire boss into castle level'."),
-  note: z.string().max(500).optional(),
+  note: z.string().max(500).optional().describe("Optional detail or acceptance criteria."),
   claim: z.boolean().optional().describe("If true, take ownership immediately (status becomes in_progress)."),
-  sessionId: z.string().optional(),
+  blockedBy: BlockedByArg.describe(
+    "Ids of tasks (task_…) that must be done first. claim_next_task skips this task until they're all done or cancelled."
+  ),
+  sessionId: SessionIdArg,
 });
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
 export const UpdateTaskInput = z.object({
-  taskId: z.string(),
+  taskId: z.string().describe("The task id (task_…), shown on the task board in get_room_state."),
   status: TaskStatus.optional(),
-  note: z.string().max(500).optional(),
+  note: z.string().max(500).optional().describe("Replaces the task's note."),
   takeOwnership: z.boolean().optional().describe("Take ownership of this task (sets you as its owner)."),
-  sessionId: z.string().optional(),
+  blockedBy: BlockedByArg.describe("Replaces the task's blocker list (task ids that must be done first). Pass [] to clear it."),
+  sessionId: SessionIdArg,
 });
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInput>;
 
+export const ClaimNextTaskInput = z.object({
+  sessionId: SessionIdArg,
+});
+export type ClaimNextTaskInput = z.infer<typeof ClaimNextTaskInput>;
+
 export const LeaveSessionInput = z.object({
-  sessionId: z.string().optional(),
+  sessionId: SessionIdArg,
 });
 export type LeaveSessionInput = z.infer<typeof LeaveSessionInput>;
 
 export const CheckFilesInput = z.object({
   paths: z.array(z.string().min(1)).min(1).max(64).describe("Glob paths to check ownership of, e.g. ['src/payments/*']."),
-  sessionId: z.string().optional(),
+  sessionId: SessionIdArg,
 });
 export type CheckFilesInput = z.infer<typeof CheckFilesInput>;
 
@@ -553,11 +639,26 @@ export const CheckFileResult = z.object({
 export type CheckFileResult = z.infer<typeof CheckFileResult>;
 
 export const ApprovalResult = z.object({
+  /** "pending" means the human hasn't decided within the wait window — resume with request_approval({ approvalId }). */
   status: ApprovalStatus,
   editedInstruction: z.string().optional(),
   decidedBy: z.string().optional(),
+  /** The approval's id — present on "pending" (to resume waiting) and on decisions. */
+  approvalId: z.string().optional(),
 });
 export type ApprovalResult = z.infer<typeof ApprovalResult>;
+
+/** A decision on one of YOUR approval requests, delivered via wait_for_update (once). */
+export const ApprovalDecisionView = z.object({
+  approvalId: z.string(),
+  action: RiskAction,
+  details: z.string(),
+  status: z.enum(["approved", "rejected", "edited"]),
+  decidedBy: z.string().optional(),
+  editedInstruction: z.string().optional(),
+  decidedAt: z.number().optional(),
+});
+export type ApprovalDecisionView = z.infer<typeof ApprovalDecisionView>;
 
 export const WaitForUpdateResult = z.object({
   changed: z.boolean(),
@@ -566,6 +667,8 @@ export const WaitForUpdateResult = z.object({
   pendingApprovals: z.array(PendingApprovalView),
   /** Open requests for files YOU hold — release them or reply so the waiter can proceed. */
   handoffsForYou: z.array(HandoffView).default([]),
+  /** Decisions on YOUR approval requests that you haven't been told about yet (e.g. after request_approval returned "pending"). */
+  approvalDecisions: z.array(ApprovalDecisionView).default([]),
 });
 export type WaitForUpdateResult = z.infer<typeof WaitForUpdateResult>;
 
@@ -651,6 +754,20 @@ export const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1000;
 /** Default wait_for_update long-poll length. Bumped from 25s->45s (schema max stays 60s) to
  *  meaningfully cut the number of "no new activity" round-trips during quiet stretches. */
 export const DEFAULT_WAIT_MS = 45_000;
+/** Hard server-side cap on one wait_for_update long-poll. Cursor/Codex time out MCP tool calls at
+ *  ~60s (Cursor's isn't configurable), so we always return comfortably before that. The input
+ *  schema still accepts up to 60000 so older callers keep validating; larger values are clamped. */
+export const MAX_EFFECTIVE_WAIT_MS = 50_000;
+/** The long-poll length actually used for a requested maxWaitMs (default, then clamped to the cap). */
+export function effectiveWaitMs(requested?: number): number {
+  const ms = requested ?? DEFAULT_WAIT_MS;
+  return Math.max(0, Math.min(ms, MAX_EFFECTIVE_WAIT_MS));
+}
+/** How long request_approval blocks waiting for the human before returning status "pending"
+ *  (again: stay under client tool-call timeouts). The agent resumes with request_approval({ approvalId }). */
+export const APPROVAL_WAIT_MS = 45_000;
+/** Max blockers per task. */
+export const MAX_TASK_BLOCKERS = 16;
 /** Full thread page size for read_messages. */
 export const RECENT_THREAD_LIMIT = 40;
 /** Leaner thread length embedded in a RoomSnapshot/get_room_state — keeps agent context small;

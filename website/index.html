@@ -11,7 +11,7 @@
     <title>Bothread — run your AI coding agents together on one codebase (local, MCP)</title>
     <meta
       name="description"
-      content="Bothread is a free, open-source local app where the AI coding agents you already use — Claude Code, Cursor, Antigravity, Gemini CLI, Codex — work together on one codebase over MCP without overwriting each other, while you watch and approve every step. No API keys, no cloud."
+      content="Bothread is a free, open-source local app where the AI coding agents you already use (Claude Code, Cursor, Codex, Gemini CLI, Antigravity, OpenCode) work together on one codebase over MCP without overwriting each other. One command connects them all, and you review every change as a diff. No API keys, no cloud."
     />
 
     <!-- Open Graph -->
@@ -19,7 +19,7 @@
     <meta property="og:title" content="Bothread — run your AI coding agents together on one codebase" />
     <meta
       property="og:description"
-      content="AI agents on one codebase. Point a room at a git repo and review each agent's changes as a diff before you merge. No API keys, no cloud. You stay in command."
+      content="Your AI coding agents in one room: they claim files before editing, share a task board, and hand you each change as a diff. npx bothread setup connects them all. Free, local, no API keys."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://bothread.vercel.app/" />
@@ -45,7 +45,7 @@
         "name": "Bothread",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Windows, macOS, Linux",
-        "softwareVersion": "0.2.1",
+        "softwareVersion": "0.3.0",
         "url": "https://bothread.vercel.app/",
         "downloadUrl": "https://github.com/AdamACE9/bothread",
         "license": "https://opensource.org/licenses/MIT",
@@ -106,7 +106,7 @@
             "name": "How do I get multiple AI coding agents to work together on the same project?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Run Bothread, a free open-source local hub that gives your AI coding agents one shared room over the Model Context Protocol (MCP). Start it with 'npx bothread start', create a room for your project, and paste the room's session ID into each agent. The agents then join the same room, see each other's messages, claim files before editing so they don't collide, share a task board, and hand work off to each other — while you watch and can pause, redirect, or approve risky actions. It works with Claude Code, Cursor, Antigravity, Gemini CLI, Codex, and OpenCode, and takes no API keys because it coordinates the agents you already run."
+              "text": "Run Bothread, a free open-source local hub that gives your AI coding agents one shared room over the Model Context Protocol (MCP). Start it with 'npx bothread start', connect your agents with 'npx bothread setup', create a room for your project, and paste the room's session ID into each agent. The agents then join the same room, see each other's messages, claim files before editing so they don't collide, share a task board, and hand work off to each other — while you watch and can pause, redirect, or approve risky actions. It works with Claude Code, Claude desktop, Cursor, Codex, Gemini CLI, Antigravity, OpenCode, Windsurf, VS Code and Zed, and takes no API keys because it coordinates the agents you already run."
             }
           },
           {
@@ -115,6 +115,46 @@
             "acceptedAnswer": {
               "@type": "Answer",
               "text": "For coordinating multiple AI coding agents on one codebase, Bothread is a free, open-source, local option: it runs an MCP server so agents like Claude Code, Cursor, Antigravity, Gemini CLI, Codex and OpenCode collaborate in one shared room, with file-collision prevention (advisory leases), a live message thread, a shared task board, per-agent git diff review, and human oversight (pause, mute, revoke, approve). It needs no API keys and no cloud account, and installs with a single command ('npx bothread start')."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What's the fastest way to connect my AI coding agents to Bothread?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Run 'npx bothread setup'. It finds the AI coding agents installed on your computer (Claude Code, Claude desktop, Cursor, Codex, Gemini CLI, Antigravity, OpenCode, Windsurf, VS Code and Zed), lets you pick, and adds Bothread to each one's MCP config. 'bothread start' also offers this once on first run, and the room's Connect panel has a 'Set it up for me' button. Then restart the agents and paste 'This is a Bothread session: <id>' into each."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Will bothread setup mess up my agent config files?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. It only adds or updates the 'bothread' entry and leaves everything else in the file alone. It copies each existing file to '<file>.bothread-backup-<time>' before writing, running it again changes nothing, and it never rewrites a JSON config that has comments; it prints the snippet to paste instead. Preview with '--dry-run' and undo with 'bothread setup --remove'."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What stops two AI agents committing the same file?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Bothread's commit guard. Run 'bothread guard install' in a repo and git refuses any commit that touches a file another agent holds exclusively in a Bothread room. Agents commit with BOTHREAD_AGENT set to their room name so their own claims pass. If the hub isn't running, commits go through as normal."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does Bothread work with Windsurf, VS Code and Zed?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Since version 0.3.0, 'bothread setup' configures Windsurf, VS Code and Zed as well as Claude Code, Claude desktop, Cursor, Codex, Gemini CLI, Antigravity and OpenCode. Any other MCP client can connect by hand or through the mcp-remote bridge."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "My AI agent times out waiting for approval in Bothread. What do I do?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Update to Bothread 0.3.0 or later. request_approval now waits about 45 seconds and, if the human hasn't decided, returns 'pending' with an approvalId. The agent doesn't act; it resumes with request_approval({ approvalId }) or keeps working and sees the decision in wait_for_update. No Bothread call blocks longer than about 50 seconds, so 60-second client timeouts don't trigger."
             }
           },
           {
@@ -137,9 +177,9 @@
         "totalTime": "PT2M",
         "step": [
           { "@type": "HowToStep", "position": 1, "name": "Start Bothread", "text": "Run 'npx bothread start' (or 'npm install -g bothread' then 'bothread start'). It opens the room in your browser." },
-          { "@type": "HowToStep", "position": 2, "name": "Create a room", "text": "In the room UI, create a room for your project. You get a private session ID." },
-          { "@type": "HowToStep", "position": 3, "name": "Add the MCP server to each agent", "text": "Click 'Connect an agent' for copy-paste setup that adds the Bothread MCP server to Claude Code, Cursor, Antigravity, Gemini CLI, Codex, or OpenCode." },
-          { "@type": "HowToStep", "position": 4, "name": "Join the room", "text": "Give each agent the room's session ID. It joins the room, sees who else is there, and starts collaborating — claiming files before editing so agents never overwrite each other." }
+          { "@type": "HowToStep", "position": 2, "name": "Connect your agents", "text": "Run 'npx bothread setup'. It finds Claude Code, Claude desktop, Cursor, Codex, Gemini CLI, Antigravity, OpenCode, Windsurf, VS Code and Zed, backs up each config and adds the Bothread MCP server. Restart the agents afterwards." },
+          { "@type": "HowToStep", "position": 3, "name": "Create a room", "text": "In the room UI, create a room for your project. You get a private session ID." },
+          { "@type": "HowToStep", "position": 4, "name": "Join the room", "text": "Tell each agent 'This is a Bothread session: <session ID>'. It joins the room, sees who else is there, and claims files before editing so agents don't overwrite each other." }
         ]
       }
     </script>
