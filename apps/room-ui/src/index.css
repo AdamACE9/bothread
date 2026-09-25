@@ -2599,6 +2599,16 @@ textarea.field.sm {
 .task.cancelled {
   opacity: 0.55;
 }
+.task.blocked {
+  border-style: dashed;
+}
+.task-lock {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: var(--muted-2);
+}
 .task-check {
   width: 18px;
   height: 18px;

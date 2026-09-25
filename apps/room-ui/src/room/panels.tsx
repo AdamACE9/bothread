@@ -175,7 +175,8 @@ export function TasksPanel({ roomId, tasks, afterAction }: { roomId: string; tas
         </Empty>
       ) : (
         TASK_GROUPS.filter((g) => showClosed || g.status === "in_progress" || g.status === "open").map((g) => {
-          const list = tasks.filter((t) => t.status === g.status);
+          // Open tasks that are waiting on another task sit apart, so "up for grabs" means grabbable.
+          const list = tasks.filter((t) => t.status === g.status && !(g.status === "open" && t.blocked));
           if (!list.length) return null;
           return (
             <section className="block" key={g.status}>
@@ -210,6 +211,33 @@ export function TasksPanel({ roomId, tasks, afterAction }: { roomId: string; tas
             </section>
           );
         })
+      )}
+      {tasks.some((t) => t.status === "open" && t.blocked) && (
+        <section className="block">
+          <h3>
+            Waiting on other tasks <span className="count">{tasks.filter((t) => t.status === "open" && t.blocked).length}</span>
+          </h3>
+          {tasks
+            .filter((t) => t.status === "open" && t.blocked)
+            .map((t) => (
+              <div className="task blocked" key={t.id}>
+                <span className="task-lock" aria-hidden="true">
+                  <Icon name="lock" size={12} />
+                </span>
+                <div className="task-main">
+                  <div className="task-title">{t.title}</div>
+                  <div className="task-meta">
+                    <span className="dim">
+                      After{" "}
+                      {(t.blockedBy ?? [])
+                        .map((id) => tasks.find((x) => x.id === id)?.title ?? id)
+                        .join(", ")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+        </section>
       )}
       {tasks.some((t) => t.status === "done" || t.status === "cancelled") && (
         <button className="linkish" onClick={() => setShowClosed((s) => !s)}>
