@@ -1,1128 +1,391 @@
-import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import type { AgentBranch, Approval, AuditEvent, DiffHunkView, NoteKind, RiskAction, RoomNote, RoomTask, TaskStatus, ThreadEntry } from "@bothread/shared";
-import { OVERSEER_THREAD_LIMIT } from "@bothread/shared";
-import { applyHunks, createTask, decideApproval, discardBranch, getAudit, getMessagesBefore, listBranches, mergeBranch, nudgeParticipant, recordNote, renameRoom, resolveNote, sendOverseer, setParticipantStatus, setRoomStatus, updateRoomSettings, updateTask } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentBranch, Approval, AuditEvent, ServerEvent, ThreadEntry } from "@bothread/shared";
+import { getAudit, listBranches, setRoomStatus } from "./api";
 import ConnectPanel from "./ConnectPanel";
+import { useMedia, usePref, useNow } from "./hooks";
+import { Icon, type IconName } from "./icons";
+import { useHotkeys, usePaletteActions } from "./palette";
+import { useToast } from "./toast";
+import { Empty } from "./ui";
 import { useRoom } from "./useRoom";
-import { Avatar, brandClass, fmtTime, richText } from "./ui";
+import ApprovalDock, { ACTION_LABEL } from "./room/ApprovalDock";
+import Composer, { type ComposerHandle } from "./room/Composer";
+import Header from "./room/Header";
+import People from "./room/People";
+import SettingsModal from "./room/SettingsModal";
+import Thread, { WaitingForAgents } from "./room/Thread";
+import { AUDIT_LABELS, ActivityPanel, ChangesPanel, ClaimsPanel, NotesPanel, TasksPanel, auditDetail } from "./room/panels";
 
-export default function RoomView({ roomId, onBack }: { roomId: string; onBack: () => void }) {
-  const { detail, connected, refresh } = useRoom(roomId);
+type Tab = "claims" | "tasks" | "changes" | "notes" | "activity";
+const TABS: { id: Tab; label: string; icon: IconName }[] = [
+  { id: "claims", label: "Claims", icon: "lock" },
+  { id: "tasks", label: "Tasks", icon: "tasks" },
+  { id: "changes", label: "Changes", icon: "diff" },
+  { id: "notes", label: "Notes", icon: "note" },
+  { id: "activity", label: "Activity", icon: "activity" },
+];
+
+function notify(title: string, body: string, enabled: boolean) {
+  if (!enabled || !document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    const n = new Notification(title, { body, icon: "/favicon.svg", tag: title });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+  } catch {
+    /* some browsers only allow notifications from a service worker */
+  }
+}
+
+export default function RoomView({
+  roomId,
+  onBack,
+  theme,
+  onToggleTheme,
+}: {
+  roomId: string;
+  onBack: () => void;
+  onOpenRoom?: (id: string) => void;
+  theme: "dark" | "light";
+  onToggleTheme: () => void;
+}) {
+  const toast = useToast();
+  const now = useNow(10_000);
+  const [tab, setTab] = usePref<Tab>("tab", "claims");
+  const [panelPref, setPanelPref] = usePref<"open" | "closed">("panel", "open");
+  // Narrow screens get a drawer that starts closed and isn't remembered, so a
+  // desktop preference never leaves a phone staring at a panel over the thread.
+  const narrow = useMedia("(max-width: 1080px)");
+  const [drawer, setDrawer] = useState<"open" | "closed">("closed");
+  const panel = narrow ? drawer : panelPref;
+  const setPanel = narrow ? setDrawer : setPanelPref;
+  const [notifyPref, setNotifyPref] = usePref<"on" | "off">("notify", "off");
   const [showConnect, setShowConnect] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [rightTab, setRightTab] = useState<"locks" | "tasks" | "changes" | "notes" | "activity">("locks");
+  const [replyTo, setReplyTo] = useState<ThreadEntry | null>(null);
+  const [branches, setBranches] = useState<AgentBranch[]>([]);
+  const [showAllBranches, setShowAllBranches] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [unread, setUnread] = useState(0);
+  const composer = useRef<ComposerHandle>(null);
+  const knownAgents = useRef<Set<string> | null>(null);
 
-  if (!detail) {
+  const loadBranches = useCallback(() => {
+    listBranches(roomId, showAllBranches).then(setBranches).catch(() => null);
+  }, [roomId, showAllBranches]);
+  useEffect(loadBranches, [loadBranches]);
+
+  const onEvent = useCallback(
+    (ev: ServerEvent) => {
+      setTick((t) => t + 1);
+      const d = ev.data as Record<string, unknown>;
+      if (ev.type === "branch" || ev.type === "lease") loadBranches();
+      if (ev.type === "participant") {
+        const p = d.participant as { id: string; name: string; kind: string; status: string } | undefined;
+        if (p && p.kind === "agent" && p.status === "active" && knownAgents.current && !knownAgents.current.has(p.id)) {
+          knownAgents.current.add(p.id);
+          toast.show({ tone: "success", title: `${p.name} joined the room` });
+        }
+      }
+      if (ev.type === "collision") {
+        const c = (d.conflicts as { path: string; heldByName: string }[] | undefined)?.[0];
+        if (c) toast.show({ tone: "warn", title: "Collision prevented", body: `${d.by} tried to claim ${c.path}, which ${c.heldByName} holds.` });
+      }
+      if (ev.type === "approval") {
+        const a = d.approval as Approval | undefined;
+        if (a?.status === "pending") {
+          toast.show({ tone: "warn", title: `${a.requestedByName} needs your OK`, body: `Wants to ${ACTION_LABEL[a.action] ?? a.action}.` });
+          notify(`${a.requestedByName} needs your OK`, a.details.slice(0, 140), notifyPref === "on");
+        }
+      }
+      if (ev.type === "branch") {
+        const b = d.branch as AgentBranch | undefined;
+        if (b?.status === "ready")
+          toast.show({
+            tone: "info",
+            title: `${b.participantName}'s changes are ready`,
+            action: { label: "Review", run: () => (setPanel("open"), setTab("changes")) },
+          });
+      }
+      if (ev.type === "message") {
+        const m = d.message as { kind: string; importance: string; authorName: string; text: string; seq: number } | undefined;
+        if (m && m.kind !== "system" && document.hidden) setUnread((u) => u + 1);
+        if (m && m.kind === "agent" && m.importance === "interrupt") notify(`${m.authorName} needs a decision`, m.text.slice(0, 140), notifyPref === "on");
+      }
+    },
+    [toast, loadBranches, notifyPref, setPanel, setTab]
+  );
+
+  const { detail, connected, refresh, error } = useRoom(roomId, onEvent);
+
+  // "What is each agent doing right now": the newest meaningful audit event per actor.
+  const [doing, setDoing] = useState<Map<string, { label: string; ts: number }>>(new Map());
+  useEffect(() => {
+    let alive = true;
+    const t = setTimeout(() => {
+      getAudit(roomId, 120)
+        .then((events: AuditEvent[]) => {
+          if (!alive) return;
+          const m = new Map<string, { label: string; ts: number }>();
+          for (const e of events) {
+            if (!e.actorName || m.has(e.actorName) || e.type === "participant.nudge") continue;
+            const base = AUDIT_LABELS[e.type] ?? e.type;
+            const d = auditDetail(e);
+            m.set(e.actorName, { label: d && e.type !== "message.send" ? `${base} ${d}` : base, ts: e.ts });
+          }
+          setDoing(m);
+        })
+        .catch(() => null);
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [roomId, tick]);
+
+  useEffect(() => {
+    if (detail && !knownAgents.current) knownAgents.current = new Set(detail.snapshot.participants.map((p) => p.id));
+  }, [detail]);
+  useEffect(() => {
+    knownAgents.current = null;
+    setReplyTo(null);
+  }, [roomId]);
+
+  useEffect(() => {
+    const onVis = () => !document.hidden && setUnread(0);
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  const snapshot = detail?.snapshot;
+  const pendingApprovals = detail?.pendingApprovals ?? [];
+  const agents = useMemo(() => (snapshot?.participants ?? []).filter((p) => p.kind === "agent"), [snapshot]);
+  const liveAgents = agents.filter((a) => a.status !== "left" && a.status !== "revoked");
+  const overseer = snapshot?.participants.find((p) => p.kind === "human");
+  const readyChanges = branches.filter((b) => b.status === "ready").length;
+
+  // Tab title carries what needs you: approvals first, then unread while away.
+  useEffect(() => {
+    if (!snapshot) return;
+    const badge = pendingApprovals.length ? `(${pendingApprovals.length}!) ` : unread ? `(${unread}) ` : "";
+    document.title = `${badge}${snapshot.room.name} | Bothread`;
+  }, [snapshot, pendingApprovals.length, unread]);
+
+  const togglePause = async () => {
+    if (!snapshot) return;
+    const paused = snapshot.room.status === "paused";
+    try {
+      await setRoomStatus(roomId, paused ? "active" : "paused");
+      toast.show({ tone: paused ? "success" : "warn", title: paused ? "Room resumed" : "Room paused", body: paused ? undefined : "Agents can read but can't act until you resume." });
+      refresh();
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+
+  const openTab = (t: Tab) => {
+    setTab(t);
+    setPanel("open");
+  };
+
+  useHotkeys({
+    "/": () => composer.current?.focus(),
+    c: () => setShowConnect(true),
+    "shift+p": togglePause,
+    "1": () => openTab("claims"),
+    "2": () => openTab("tasks"),
+    "3": () => openTab("changes"),
+    "4": () => openTab("notes"),
+    "5": () => openTab("activity"),
+    "]": () => setPanel(panel === "open" ? "closed" : "open"),
+  });
+
+  usePaletteActions("room", [
+    { id: "connect", group: "Room", label: "Connect an agent", icon: "plus", hint: "C", run: () => setShowConnect(true) },
+    {
+      id: "pause",
+      group: "Room",
+      label: snapshot?.room.status === "paused" ? "Resume the room" : "Pause the room",
+      icon: snapshot?.room.status === "paused" ? "play" : "pause",
+      hint: "Shift P",
+      run: togglePause,
+    },
+    { id: "write", group: "Room", label: "Write to the room", icon: "send", hint: "/", run: () => composer.current?.focus() },
+    { id: "settings", group: "Room", label: "Room settings", icon: "gear", keywords: "approval gates ttl notifications delete", run: () => setShowSettings(true) },
+    { id: "panel", group: "View", label: panel === "open" ? "Hide side panel" : "Show side panel", icon: "panel", hint: "]", run: () => setPanel(panel === "open" ? "closed" : "open") },
+    {
+      id: "theme-room",
+      group: "View",
+      label: theme === "dark" ? "Light theme" : "Dark theme",
+      icon: theme === "dark" ? "sun" : "moon",
+      run: onToggleTheme,
+    },
+    ...TABS.map((t, i) => ({ id: `tab-${t.id}`, group: "View", label: `Show ${t.label}`, icon: t.icon, hint: String(i + 1), run: () => openTab(t.id) })),
+    ...liveAgents.map((a) => ({
+      id: `mention-${a.id}`,
+      group: "Agents",
+      label: `Message ${a.name}`,
+      icon: "reply" as const,
+      run: () => composer.current?.mention(a.name),
+    })),
+  ]);
+
+  if (error) {
     return (
-      <div className="room-app">
-        <header className="rhead">
-          <button className="back" onClick={onBack} aria-label="Back to rooms">
-            ‹
-          </button>
-          <h1>Loading room…</h1>
-        </header>
-        <div />
-        <div />
+      <div className="room-missing">
+        <Empty icon={<Icon name="alert" size={24} />} title="Room not found">
+          {error}
+        </Empty>
+        <button className="btn" onClick={onBack}>
+          <Icon name="back" size={14} /> All rooms
+        </button>
       </div>
     );
   }
 
-  const { snapshot, sessionId, pendingApprovals } = detail;
+  if (!detail || !snapshot) {
+    return (
+      <div className="room loading" aria-busy="true">
+        <div className="rhead skeleton-bar" />
+        <div className="room-body">
+          <div className="people skeleton" />
+          <div className="stage skeleton" />
+          <div className="side skeleton" />
+        </div>
+      </div>
+    );
+  }
+
+  const paused = snapshot.room.status === "paused";
   const brandByName = new Map(snapshot.participants.map((p) => [p.name, p.brand]));
-  const pending = pendingApprovals[0];
+  const names = snapshot.participants.map((p) => p.name);
+  const counts: Record<Tab, number> = {
+    claims: snapshot.locks.length,
+    tasks: snapshot.tasks.filter((t) => t.status === "open" || t.status === "in_progress").length,
+    changes: readyChanges,
+    notes: snapshot.notes.filter((n) => n.status === "open").length,
+    activity: 0,
+  };
 
   return (
-    <div className="room-app">
+    <div className={`room${panel === "open" ? "" : " panel-closed"}`}>
       <Header
         roomId={roomId}
         name={snapshot.room.name}
         status={snapshot.room.status}
-        sessionId={sessionId}
+        sessionId={detail.sessionId}
         connected={connected}
-        agents={snapshot.participants.filter((p) => p.kind === "agent" && p.status !== "left").length}
+        agents={agents}
         onBack={onBack}
         afterAction={refresh}
         onConnect={() => setShowConnect(true)}
         onSettings={() => setShowSettings(true)}
+        panelOpen={panel === "open"}
+        onTogglePanel={() => setPanel(panel === "open" ? "closed" : "open")}
       />
 
-      <div className="rmain">
-        <aside className="rail">
-          <h2>Participants</h2>
-          {snapshot.participants.map((p) => (
-            <div className="part" key={p.id}>
-              <Avatar name={p.name} brand={p.brand} kind={p.kind} />
-              <div>
-                <div className="nm">
-                  {p.name}
-                  <span className={`statusdot ${p.status}`} title={p.status} />
-                </div>
-                <div className="meta">
-                  {p.kind === "human" ? "overseer" : p.brand ?? "agent"} · {p.status}
-                  {p.kind === "agent" && p.listening && (
-                    <span className="listening" title="Actively listening (parked in wait_for_update)">
-                      <span className="pulse" /> listening
-                    </span>
-                  )}
-                </div>
-                {p.claimedFiles.length > 0 && (
-                  <div className="files">
-                    {p.claimedFiles.map((f) => (
-                      <code key={f}>{f}</code>
-                    ))}
-                  </div>
-                )}
-                {p.capabilities && p.capabilities.length > 0 && (
-                  <div className="capabilities" title="Self-declared capabilities from join time">
-                    {p.capabilities.map((c) => (
-                      <span key={c}>{c}</span>
-                    ))}
-                  </div>
-                )}
-                {p.kind === "agent" && p.status !== "revoked" && (
-                  <div className="acts">
-                    <button
-                      className="btn sm"
-                      title={p.listening ? "Agent is listening — it'll see this at once" : "Agent isn't listening; this lands for when its app next runs it"}
-                      onClick={() => nudgeParticipant(roomId, p.id).then(refresh)}
-                    >
-                      Nudge
-                    </button>
-                    {p.status === "muted" ? (
-                      <button
-                        className="btn sm"
-                        onClick={() => setParticipantStatus(roomId, p.id, "active").then(refresh)}
-                      >
-                        Unmute
-                      </button>
-                    ) : (
-                      <button
-                        className="btn sm"
-                        onClick={() => setParticipantStatus(roomId, p.id, "muted").then(refresh)}
-                      >
-                        Mute
-                      </button>
-                    )}
-                    <button
-                      className="btn sm danger"
-                      onClick={() => setParticipantStatus(roomId, p.id, "revoked").then(refresh)}
-                    >
-                      Revoke
-                    </button>
-                  </div>
-                )}
-              </div>
+      <div className="room-body">
+        <People
+          roomId={roomId}
+          participants={snapshot.participants}
+          now={now}
+          afterAction={refresh}
+          onConnect={() => setShowConnect(true)}
+          onMention={(n) => composer.current?.mention(n)}
+          doing={doing}
+        />
+
+        <main className="stage">
+          {paused && (
+            <div className="banner paused" role="status">
+              <Icon name="pause" size={15} />
+              <span>
+                <strong>Paused.</strong> Agents can read the room but every action waits until you resume.
+              </span>
+              <button className="btn sm" onClick={togglePause}>
+                <Icon name="play" size={12} /> Resume
+              </button>
             </div>
-          ))}
-        </aside>
-
-        <Thread roomId={roomId} thread={snapshot.thread} brandByName={brandByName} channels={snapshot.channels} />
-
-        <aside className="rail right">
-          <div className="rail-tabs" role="tablist">
-            <button
-              className={`rail-tab${rightTab === "locks" ? " active" : ""}`}
-              onClick={() => setRightTab("locks")}
-              title="Locks"
-              aria-label="Locks"
-            >
-              <span className="tab-icon">◆</span>
-            </button>
-            <button
-              className={`rail-tab${rightTab === "tasks" ? " active" : ""}`}
-              onClick={() => setRightTab("tasks")}
-              title="Tasks"
-              aria-label="Tasks"
-            >
-              <span className="tab-icon">☰</span>
-            </button>
-            <button
-              className={`rail-tab${rightTab === "changes" ? " active" : ""}`}
-              onClick={() => setRightTab("changes")}
-              title="Changes"
-              aria-label="Changes"
-            >
-              <span className="tab-icon">⇄</span>
-            </button>
-            <button
-              className={`rail-tab${rightTab === "notes" ? " active" : ""}`}
-              onClick={() => setRightTab("notes")}
-              title="Notes"
-              aria-label="Notes"
-            >
-              <span className="tab-icon">✎</span>
-            </button>
-            <button
-              className={`rail-tab${rightTab === "activity" ? " active" : ""}`}
-              onClick={() => setRightTab("activity")}
-              title="Activity"
-              aria-label="Activity"
-            >
-              <span className="tab-icon">◷</span>
-            </button>
-          </div>
-
-          {rightTab === "locks" ? (
-            <>
-              {snapshot.handoffs.length > 0 && (
-                <div className="handoffs">
-                  <div className="branch-group-label">Waiting on each other</div>
-                  {snapshot.handoffs.map((h) => (
-                    <div className="handoff" key={h.id}>
-                      <span className="who">{h.requestedBy}</span> wants <code>{h.path}</code>
-                      <div className="held">held by {h.heldBy}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {snapshot.locks.length === 0 ? (
-                <Empty icon="◆">No files claimed.</Empty>
-              ) : (
-                snapshot.locks.map((l) => {
-                  const idleMs = Date.now() - l.heldByLastSeen;
-                  const stale = !l.heldByListening && idleMs > 120_000;
-                  return (
-                    <div className={`lock${stale ? " stale" : ""}`} key={`${l.path}:${l.heldBy}`}>
-                      <div className="path">{l.path}</div>
-                      <div className="holder">
-                        <span className={`av ${brandClass(brandByName.get(l.heldByName) ?? "")}`} style={{ width: 18, height: 18, fontSize: ".55rem" }}>
-                          {l.heldByName.slice(0, 1)}
-                        </span>
-                        {l.heldByName}
-                        <span className="ex" style={{ marginLeft: "auto" }}>
-                          {l.exclusive ? "excl" : "shared"}
-                        </span>
-                      </div>
-                      <div className="staleness">
-                        {l.heldByListening ? (
-                          <span className="fresh">● listening</span>
-                        ) : stale ? (
-                          <span className="warn">idle ~{Math.round(idleMs / 60000)}m — may be stale</span>
-                        ) : (
-                          <span>seen {Math.max(1, Math.round(idleMs / 1000))}s ago</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </>
-          ) : rightTab === "tasks" ? (
-            <TaskBoard roomId={roomId} tasks={snapshot.tasks} afterAction={refresh} />
-          ) : rightTab === "changes" ? (
-            <BranchPanel roomId={roomId} afterAction={refresh} />
-          ) : rightTab === "notes" ? (
-            <NotesPanel roomId={roomId} notes={snapshot.notes} afterAction={refresh} />
-          ) : (
-            <AuditPanel roomId={roomId} connected={connected} />
           )}
+          <Thread
+            roomId={roomId}
+            thread={snapshot.thread}
+            brandByName={brandByName}
+            names={names}
+            overseerName={overseer?.name ?? "You"}
+            channels={snapshot.channels}
+            hasAgents={agents.length > 0}
+            empty={<WaitingForAgents sessionId={detail.sessionId} onConnect={() => setShowConnect(true)} />}
+            onReply={setReplyTo}
+          />
+          {pendingApprovals.length > 0 && <ApprovalDock key={pendingApprovals[0]!.id} roomId={roomId} approvals={pendingApprovals} now={now} afterDecide={refresh} />}
+          <Composer
+            ref={composer}
+            roomId={roomId}
+            paused={paused}
+            agents={liveAgents.map((a) => ({ name: a.name, brand: a.brand }))}
+            channels={snapshot.channels}
+            replyTo={replyTo}
+            onClearReply={() => setReplyTo(null)}
+            afterSend={refresh}
+          />
+        </main>
+
+        {narrow && panel === "open" && <div className="scrim" onClick={() => setPanel("closed")} aria-hidden="true" />}
+        <aside className="side" aria-label="Room details">
+          <div className="tabs" role="tablist">
+            {TABS.map((t, i) => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`tab${tab === t.id ? " on" : ""}`}
+                onClick={() => setTab(t.id)}
+                title={`${t.label} (${i + 1})`}
+              >
+                <Icon name={t.icon} size={14} />
+                <span className={`tab-label${tab === t.id ? "" : " inactive"}`}>{t.label}</span>
+                {counts[t.id] > 0 && <span className={`tab-count${t.id === "changes" ? " hot" : ""}`}>{counts[t.id]}</span>}
+              </button>
+            ))}
+          </div>
+          <div className="side-scroll" role="tabpanel">
+            {tab === "claims" && <ClaimsPanel locks={snapshot.locks} leases={detail.leases} handoffs={snapshot.handoffs} brandByName={brandByName} now={now} />}
+            {tab === "tasks" && <TasksPanel roomId={roomId} tasks={snapshot.tasks} afterAction={refresh} />}
+            {tab === "changes" && (
+              <ChangesPanel
+                roomId={roomId}
+                branches={branches}
+                hasProject={!!detail.room?.projectPath}
+                showAll={showAllBranches}
+                onToggleAll={() => setShowAllBranches((s) => !s)}
+                afterAction={() => {
+                  loadBranches();
+                  refresh();
+                }}
+              />
+            )}
+            {tab === "notes" && <NotesPanel roomId={roomId} notes={snapshot.notes} afterAction={refresh} />}
+            {tab === "activity" && <ActivityPanel roomId={roomId} tick={tick} />}
+          </div>
         </aside>
       </div>
 
-      <CommandBar roomId={roomId} paused={snapshot.room.status === "paused"} afterSend={refresh} />
-
-      {pending && <ApprovalDock roomId={roomId} approval={pending} afterDecide={refresh} />}
-
-      {showConnect && <ConnectPanel sessionId={sessionId} onClose={() => setShowConnect(false)} />}
+      {showConnect && <ConnectPanel sessionId={detail.sessionId} participants={snapshot.participants} onClose={() => setShowConnect(false)} />}
 
       {showSettings && (
         <SettingsModal
           roomId={roomId}
+          roomName={snapshot.room.name}
           requireApprovalFor={snapshot.room.requireApprovalFor}
+          leaseTtlMs={detail.room?.settings.defaultLeaseTtlMs}
+          notify={notifyPref}
+          onNotifyChange={setNotifyPref}
           onClose={() => setShowSettings(false)}
           afterSave={refresh}
+          onDeleted={onBack}
         />
-      )}
-    </div>
-  );
-}
-
-function Empty({ icon = "·", children }: { icon?: string; children: ReactNode }) {
-  return (
-    <div className="empty-state">
-      <span className="empty-icon">{icon}</span>
-      <p>{children}</p>
-    </div>
-  );
-}
-
-function Header(props: {
-  roomId: string;
-  name: string;
-  status: string;
-  sessionId: string;
-  connected: boolean;
-  agents: number;
-  onBack: () => void;
-  afterAction: () => void;
-  onConnect: () => void;
-  onSettings: () => void;
-}) {
-  const [reveal, setReveal] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState(props.name);
-  const paused = props.status === "paused";
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(props.sessionId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const startEditingName = () => {
-    setNameDraft(props.name);
-    setEditingName(true);
-  };
-  const saveName = async () => {
-    const next = nameDraft.trim();
-    setEditingName(false);
-    if (!next || next === props.name) return;
-    await renameRoom(props.roomId, next);
-    props.afterAction();
-  };
-
-  return (
-    <header className="rhead">
-      <div className="rhead-left">
-        <button className="back" onClick={props.onBack} aria-label="Back to rooms">
-          ‹
-        </button>
-        {editingName ? (
-          <input
-            className="field room-name-edit"
-            autoFocus
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onBlur={saveName}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                saveName();
-              } else if (e.key === "Escape") {
-                setEditingName(false);
-              }
-            }}
-          />
-        ) : (
-          <h1 className="room-name" title="Click to rename" onClick={startEditingName}>
-            {props.name}
-          </h1>
-        )}
-        <span className={`pill ${props.status}`}>
-          <span className="dot" />
-          {props.status}
-        </span>
-      </div>
-
-      <div className="rhead-divider" />
-
-      <div className="rhead-mid">
-        <span className="conn" title={props.connected ? "Live" : "Reconnecting…"} aria-live="polite">
-          <span className={props.connected ? "dot on" : "dot"} style={{ width: 7, height: 7, borderRadius: "50%" }} />
-          {props.connected ? "live" : "reconnecting"}
-        </span>
-        <span className="rhead-meta">
-          {props.agents} agent{props.agents === 1 ? "" : "s"}
-        </span>
-      </div>
-
-      <span className="spacer" />
-
-      <div className="rhead-right">
-        <button className="btn primary" onClick={props.onConnect}>
-          + Connect an agent
-        </button>
-
-        <span className="sid">
-          session
-          <code>{reveal ? props.sessionId : "•".repeat(16)}</code>
-          <button className="btn sm" onClick={() => setReveal((r) => !r)}>
-            {reveal ? "Hide" : "Reveal"}
-          </button>
-          <button className="btn sm" onClick={copy}>
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </span>
-
-        <button
-          className="btn"
-          onClick={() => setRoomStatus(props.roomId, paused ? "active" : "paused").then(props.afterAction)}
-        >
-          {paused ? "Resume" : "Pause"}
-        </button>
-        <button className="btn icon" title="Room settings" aria-label="Room settings" onClick={props.onSettings}>
-          ⚙
-        </button>
-      </div>
-    </header>
-  );
-}
-
-function Thread({
-  roomId,
-  thread,
-  brandByName,
-  channels,
-}: {
-  roomId: string;
-  thread: ThreadEntry[];
-  brandByName: Map<string, string | undefined>;
-  channels: string[];
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [older, setOlder] = useState<ThreadEntry[]>([]);
-  // null = no explicit answer yet; fall back to a length heuristic so the button
-  // appears for long-running rooms even before the first "load earlier" click.
-  const [serverHasMore, setServerHasMore] = useState<boolean | null>(null);
-  const [loading, setLoading] = useState(false);
-  // Client-side topic filter over the existing (unused-until-now) threadId field.
-  // "" = All topics. Purely cosmetic — no server-side query, just narrows what renders.
-  const [topic, setTopic] = useState("");
-
-  // Switching rooms starts a fresh pagination state.
-  useEffect(() => {
-    setOlder([]);
-    setServerHasMore(null);
-    setTopic("");
-  }, [roomId]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [thread.length]);
-
-  const hasMore = serverHasMore ?? thread.length >= OVERSEER_THREAD_LIMIT;
-  const oldestSeq = older[0]?.seq ?? thread[0]?.seq;
-
-  const loadEarlier = async () => {
-    if (oldestSeq === undefined || loading) return;
-    setLoading(true);
-    try {
-      const { messages, hasMore: more } = await getMessagesBefore(roomId, oldestSeq, 40);
-      setOlder((o) => [...messages, ...o]);
-      setServerHasMore(more);
-    } catch {
-      /* transient — try again */
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const combined = [...older, ...thread];
-  // Server-known channels (from the room's full history) plus anything seen in the
-  // currently-loaded window, so a channel used before "load earlier" still shows up.
-  const topics = Array.from(
-    new Set([...channels, ...combined.map((m) => m.threadId).filter((t): t is string => !!t)])
-  ).sort();
-  const visible = topic ? combined.filter((m) => m.threadId === topic || m.kind === "system") : combined;
-  const bySeq = new Map(combined.map((m) => [m.seq, m]));
-
-  return (
-    <div className="thread-col">
-      {topics.length > 0 && (
-        <div className="topic-pills" role="tablist" aria-label="Filter by topic">
-          <button
-            className={`topic-pill${topic === "" ? " active" : ""}`}
-            role="tab"
-            aria-selected={topic === ""}
-            onClick={() => setTopic("")}
-          >
-            All
-          </button>
-          {topics.map((t) => (
-            <button
-              key={t}
-              className={`topic-pill${topic === t ? " active" : ""}`}
-              role="tab"
-              aria-selected={topic === t}
-              onClick={() => setTopic(t)}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="thread" ref={ref} role="log" aria-live="polite" aria-label="Room conversation">
-        {hasMore && (
-          <button className="load-earlier" onClick={loadEarlier} disabled={loading}>
-            {loading ? "Loading…" : "▲ Load earlier messages"}
-          </button>
-        )}
-        {visible.map((m) => {
-          if (m.kind === "system") {
-            const cls = m.importance === "interrupt" ? "interrupt" : m.importance === "steering" ? "steering" : "";
-            return (
-              <div className={`sysline ${cls}`} key={m.seq} role={m.importance === "interrupt" ? "alert" : undefined}>
-                <span className="bar" />
-                <span>{richText(m.text, roomId)}</span>
-              </div>
-            );
-          }
-          const importanceCls =
-            m.importance === "interrupt" ? " importance-interrupt" : m.importance === "steering" ? " importance-steering" : "";
-          const replyTo = m.replyToSeq !== undefined ? bySeq.get(m.replyToSeq) : undefined;
-          return (
-            <div className={`msg ${m.kind}${importanceCls}${m.retractedAt ? " retracted" : ""}`} key={m.seq}>
-              <Avatar name={m.author} brand={brandByName.get(m.author)} kind={m.kind === "human" ? "human" : "agent"} />
-              <div className="body">
-                <div className="head">
-                  <span className="author">{m.author}</span>
-                  {m.threadId && <span className="topic-tag">{m.threadId}</span>}
-                  {m.importance === "interrupt" && <span className="importance-tag interrupt">needs a decision</span>}
-                  {m.importance === "steering" && <span className="importance-tag steering">please act on this</span>}
-                  <span className="time">{fmtTime(m.at)}</span>
-                  {m.editedAt && <span className="edited-tag">(edited)</span>}
-                </div>
-                {m.replyToSeq !== undefined && (
-                  <div className="reply-quote">
-                    ↳ replying to {replyTo ? <>{replyTo.author}: {replyTo.text.slice(0, 80)}</> : <>message #{m.replyToSeq}</>}
-                  </div>
-                )}
-                <div className="text">{richText(m.text, roomId)}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function CommandBar({ roomId, paused, afterSend }: { roomId: string; paused: boolean; afterSend: () => void }) {
-  const [text, setText] = useState("");
-  const send = async () => {
-    const t = text.trim();
-    if (!t) return;
-    setText("");
-    await sendOverseer(roomId, t);
-    afterSend();
-  };
-  return (
-    <div className="cmdbar">
-      <textarea
-        className="field"
-        rows={1}
-        placeholder={paused ? "Room is paused. Message agents as the overseer…" : "Message the room as the overseer…"}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            send();
-          }
-        }}
-      />
-      <button className="btn primary" onClick={send}>
-        Send
-      </button>
-    </div>
-  );
-}
-
-function BranchPanel({ roomId, afterAction }: { roomId: string; afterAction: () => void }) {
-  const [branches, setBranches] = useState<AgentBranch[]>([]);
-  const [showAll, setShowAll] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const load = (all = showAll) => {
-    listBranches(roomId, all).then(setBranches).catch(() => null);
-  };
-
-  useEffect(() => { load(); }, [roomId, showAll]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const act = async (fn: () => Promise<unknown>, branchId: string) => {
-    setBusy(branchId);
-    try { await fn(); load(); afterAction(); } finally { setBusy(null); }
-  };
-
-  const readyBranches = branches.filter((b) => b.status === "ready");
-  const trackingBranches = branches.filter((b) => b.status === "tracking");
-
-  return (
-    <div className="branch-panel">
-      {!branches.length && (
-        <Empty icon="⇄">
-          No agent changes tracked yet. Changes appear here when an agent claims files in a git repo and releases them.
-        </Empty>
-      )}
-
-      {trackingBranches.length > 0 && (
-        <div className="branch-group">
-          <div className="branch-group-label">In progress</div>
-          {trackingBranches.map((b) => (
-            <div className="branch-card tracking" key={b.id}>
-              <div className="branch-agent">{b.participantName}</div>
-              <div className="branch-paths">{b.paths.slice(0, 3).join(", ")}{b.paths.length > 3 ? ` +${b.paths.length - 3}` : ""}</div>
-              <span className="branch-status">tracking…</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {readyBranches.length > 0 && (
-        <div className="branch-group">
-          <div className="branch-group-label">Ready to review</div>
-          {readyBranches.map((b) => (
-            <ReadyBranchCard key={b.id} branch={b} busy={busy === b.id} act={act} roomId={roomId} />
-          ))}
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-        <button className="btn sm" onClick={() => load()}>Refresh</button>
-        <button className="btn sm" onClick={() => { setShowAll((a) => !a); }}>
-          {showAll ? "Hide history" : "Show history"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ReadyBranchCard({
-  branch: b,
-  busy,
-  act,
-  roomId,
-}: {
-  branch: AgentBranch;
-  busy: boolean;
-  act: (fn: () => Promise<unknown>, branchId: string) => Promise<void>;
-  roomId: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const hunks = b.hunks ?? [];
-  // Selection: hunk id -> kept. Default: keep all.
-  const [kept, setKept] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(hunks.map((h) => [h.id, true]))
-  );
-  const keptIds = hunks.filter((h) => kept[h.id]).map((h) => h.id);
-  const allKept = keptIds.length === hunks.length;
-  const noneKept = keptIds.length === 0;
-
-  const toggle = (id: string) => setKept((k) => ({ ...k, [id]: !k[id] }));
-
-  return (
-    <div className="branch-card ready">
-      <div className="branch-head">
-        <span className="branch-agent">{b.participantName}</span>
-        <span className="branch-paths">
-          {hunks.length > 0
-            ? `${hunks.length} change${hunks.length !== 1 ? "s" : ""}`
-            : `${b.paths.length} path${b.paths.length !== 1 ? "s" : ""}`}
-        </span>
-      </div>
-
-      {hunks.length > 0 ? (
-        <>
-          <button className="diff-toggle" onClick={() => setOpen((o) => !o)}>
-            {open ? "▲ hide changes" : `▼ review ${hunks.length} change${hunks.length !== 1 ? "s" : ""}`}
-          </button>
-          {open && (
-            <div className="hunks">
-              {hunks.map((h) => (
-                <HunkBlock key={h.id} hunk={h} kept={!!kept[h.id]} onToggle={() => toggle(h.id)} />
-              ))}
-            </div>
-          )}
-        </>
-      ) : (
-        <p className="empty" style={{ fontSize: ".72rem", margin: "4px 0" }}>No textual changes detected.</p>
-      )}
-
-      <div className="branch-acts">
-        <button className="btn sm danger" disabled={busy} onClick={() => act(() => discardBranch(roomId, b.id), b.id)}>
-          Discard all
-        </button>
-        {allKept || hunks.length === 0 ? (
-          <button className="btn sm primary" disabled={busy} onClick={() => act(() => mergeBranch(roomId, b.id), b.id)}>
-            {busy ? "…" : "Merge all"}
-          </button>
-        ) : (
-          <button
-            className="btn sm primary"
-            disabled={busy || noneKept}
-            onClick={() => act(() => applyHunks(roomId, b.id, keptIds), b.id)}
-            title={noneKept ? "Select at least one change, or use Discard all" : ""}
-          >
-            {busy ? "…" : `Apply ${keptIds.length} selected`}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function HunkBlock({ hunk, kept, onToggle }: { hunk: DiffHunkView; kept: boolean; onToggle: () => void }) {
-  return (
-    <div className={`hunk${kept ? "" : " dropped"}`}>
-      <label className="hunk-head">
-        <input type="checkbox" checked={kept} onChange={onToggle} />
-        <span className="hunk-file">{hunk.file}</span>
-        <span className="hunk-stat">
-          <span className="add">+{hunk.additions}</span> <span className="del">−{hunk.deletions}</span>
-        </span>
-      </label>
-      <pre className="diff-view">
-        {hunk.lines.map((ln, i) => {
-          const cls = ln.startsWith("+") ? "line-add" : ln.startsWith("-") ? "line-del" : ln.startsWith("@@") ? "line-hdr" : "";
-          return (
-            <div key={i} className={cls}>
-              {ln || " "}
-            </div>
-          );
-        })}
-      </pre>
-    </div>
-  );
-}
-
-const NOTE_KIND_LABELS: Record<NoteKind, string> = {
-  decision: "Decision",
-  issue: "Issue",
-  verification: "Verification",
-};
-
-function NotesPanel({
-  roomId,
-  notes,
-  afterAction,
-}: {
-  roomId: string;
-  notes: RoomNote[];
-  afterAction: () => void;
-}) {
-  const [kind, setKind] = useState<NoteKind>("decision");
-  const [title, setTitle] = useState("");
-  const [detail, setDetail] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [showResolved, setShowResolved] = useState(false);
-
-  const submit = async () => {
-    const t = title.trim();
-    if (!t) return;
-    setBusy("new");
-    try {
-      await recordNote(roomId, kind, t, detail.trim() || undefined);
-      setTitle("");
-      setDetail("");
-      afterAction();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const resolve = async (n: RoomNote) => {
-    setBusy(n.id);
-    try {
-      await resolveNote(roomId, n.id);
-      afterAction();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const open = notes.filter((n) => n.status === "open");
-  const resolved = notes.filter((n) => n.status === "resolved");
-  const visible = showResolved ? notes : open;
-
-  return (
-    <div className="notes-panel">
-      <div className="notes-form">
-        <select className="field sm" value={kind} onChange={(e) => setKind(e.target.value as NoteKind)}>
-          <option value="decision">Decision</option>
-          <option value="issue">Issue</option>
-          <option value="verification">Verification</option>
-        </select>
-        <input
-          className="field"
-          placeholder="Title, e.g. 'physics.js owns collision'"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submit()}
-        />
-        <textarea
-          className="field"
-          rows={2}
-          placeholder="Detail (optional) — for verification, try tested / expected / actual"
-          value={detail}
-          onChange={(e) => setDetail(e.target.value)}
-        />
-        <button className="btn sm primary" disabled={busy === "new" || !title.trim()} onClick={submit}>
-          {busy === "new" ? "…" : "Record"}
-        </button>
-      </div>
-
-      {!notes.length ? (
-        <Empty icon="✎">No decisions, issues, or verification reports recorded yet.</Empty>
-      ) : (
-        <>
-          {visible.map((n) => (
-            <div className={`note-card ${n.kind}${n.status === "resolved" ? " resolved" : ""}`} key={n.id}>
-              <div className="note-head">
-                <span className={`note-kind ${n.kind}`}>{NOTE_KIND_LABELS[n.kind]}</span>
-                <span className="note-title">{n.title}</span>
-              </div>
-              {n.detail && <pre className="note-detail">{n.detail}</pre>}
-              <div className="note-meta">
-                <span>{n.authorName}</span>
-                <span>{fmtTime(n.createdAt)}</span>
-                {n.status === "open" ? (
-                  <button className="btn sm" disabled={busy === n.id} onClick={() => resolve(n)}>
-                    {busy === n.id ? "…" : "Resolve"}
-                  </button>
-                ) : (
-                  <span className="note-resolved-tag">resolved</span>
-                )}
-              </div>
-            </div>
-          ))}
-          {resolved.length > 0 && (
-            <button className="btn sm" style={{ marginTop: 8 }} onClick={() => setShowResolved((s) => !s)}>
-              {showResolved ? "Hide resolved" : `Show resolved (${resolved.length})`}
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-const AUDIT_LABELS: Record<string, string> = {
-  "room.create": "Room created",
-  "room.active": "Room resumed",
-  "room.paused": "Room paused",
-  "room.closed": "Room closed",
-  "room.settings": "Settings changed",
-  "participant.join": "Joined",
-  "participant.leave": "Left",
-  "participant.muted": "Muted",
-  "participant.active": "Un-muted",
-  "participant.revoked": "Revoked",
-  "participant.nudge": "Nudged",
-  "message.send": "Message",
-  "message.overseer": "Overseer message",
-  "lease.claim": "Claimed files",
-  "lease.release": "Released files",
-  "lease.renew": "Renewed claim",
-  "lease.collision": "Collision prevented",
-  "approval.request": "Approval requested",
-  "approval.approved": "Approved",
-  "approval.rejected": "Rejected",
-  "approval.edited": "Edited & redirected",
-  "branch.merge": "Changes merged",
-  "branch.discard": "Changes discarded",
-  "branch.apply": "Changes partly applied",
-  "handoff.request": "Hand-off requested",
-  "note.record": "Note recorded",
-  "note.resolve": "Note resolved",
-};
-
-function auditDetail(e: AuditEvent): string {
-  const p = (e.payload ?? {}) as Record<string, unknown>;
-  if (Array.isArray(p.paths)) return (p.paths as string[]).join(", ");
-  if (typeof p.path === "string") return p.path;
-  if (Array.isArray(p.conflicts) && p.conflicts.length) {
-    const c = p.conflicts[0] as { path?: string };
-    return c?.path ?? "";
-  }
-  if (typeof p.participant === "string") return p.participant;
-  if (typeof p.holder === "string") return `→ ${p.holder}`;
-  if (typeof p.action === "string") return p.action;
-  if (p.settings && typeof p.settings === "object") {
-    const s = p.settings as { requireApprovalFor?: string[] };
-    return s.requireApprovalFor?.length ? `approve: ${s.requireApprovalFor.join(", ")}` : "no approval gates";
-  }
-  return "";
-}
-
-const TASK_STATUS_ORDER: TaskStatus[] = ["in_progress", "open", "done", "cancelled"];
-const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
-  open: "Open",
-  in_progress: "In progress",
-  done: "Done",
-  cancelled: "Cancelled",
-};
-
-function TaskBoard({
-  roomId,
-  tasks,
-  afterAction,
-}: {
-  roomId: string;
-  tasks: RoomTask[];
-  afterAction: () => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [note, setNote] = useState("");
-  const [claim, setClaim] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const add = async () => {
-    const t = title.trim();
-    if (!t) return;
-    setBusy("new");
-    try {
-      await createTask(roomId, t, note.trim() || undefined, claim);
-      setTitle("");
-      setNote("");
-      setClaim(false);
-      afterAction();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const setStatus = async (taskId: string, status: TaskStatus) => {
-    setBusy(taskId);
-    try {
-      await updateTask(roomId, taskId, { status });
-      afterAction();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const take = async (taskId: string) => {
-    setBusy(taskId);
-    try {
-      await updateTask(roomId, taskId, { takeOwnership: true, status: "in_progress" });
-      afterAction();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const sorted = [...tasks].sort(
-    (a, b) => TASK_STATUS_ORDER.indexOf(a.status) - TASK_STATUS_ORDER.indexOf(b.status)
-  );
-
-  return (
-    <div className="task-board">
-      <div className="task-new">
-        <input
-          className="field sm"
-          placeholder="New task…"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && add()}
-        />
-        <input
-          className="field sm"
-          placeholder="Note (optional)"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && add()}
-        />
-        <label className="task-claim">
-          <input type="checkbox" checked={claim} onChange={(e) => setClaim(e.target.checked)} />
-          claim it myself
-        </label>
-        <button className="btn sm primary" onClick={add} disabled={busy === "new" || !title.trim()}>
-          Add
-        </button>
-      </div>
-
-      {sorted.length === 0 ? (
-        <Empty icon="☰">No tasks yet. Add one, or an agent will via create_task.</Empty>
-      ) : (
-        <div className="task-list">
-          {sorted.map((t) => (
-            <div className={`task-card ${t.status}`} key={t.id}>
-              <div className="task-head">
-                <span className={`task-status ${t.status}`}>{TASK_STATUS_LABEL[t.status]}</span>
-                <span className="task-owner">{t.ownerName ?? "unassigned"}</span>
-              </div>
-              <div className="task-title">{t.title}</div>
-              {t.note && <div className="task-note">{t.note}</div>}
-              <div className="task-acts">
-                {!t.ownerName && t.status !== "done" && t.status !== "cancelled" && (
-                  <button className="btn sm" disabled={busy === t.id} onClick={() => take(t.id)}>
-                    Take
-                  </button>
-                )}
-                {t.status !== "done" && (
-                  <button className="btn sm" disabled={busy === t.id} onClick={() => setStatus(t.id, "done")}>
-                    Done
-                  </button>
-                )}
-                {t.status !== "cancelled" && t.status !== "done" && (
-                  <button className="btn sm danger" disabled={busy === t.id} onClick={() => setStatus(t.id, "cancelled")}>
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AuditPanel({ roomId, connected }: { roomId: string; connected: boolean }) {
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const load = () => getAudit(roomId, 200).then(setEvents).catch(() => null);
-  useEffect(() => {
-    load();
-    const iv = setInterval(load, 4000);
-    return () => clearInterval(iv);
-  }, [roomId, connected]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!events.length) return <Empty icon="◷">No activity recorded yet.</Empty>;
-
-  return (
-    <div className="audit">
-      {events.map((e) => {
-        const detail = auditDetail(e);
-        const tone = e.type.startsWith("lease.collision")
-          ? "alert"
-          : e.type.startsWith("approval") || e.type.startsWith("room.") || e.type === "participant.revoked"
-            ? "steer"
-            : "";
-        return (
-          <div className={`audit-row ${tone}`} key={e.id}>
-            <span className="audit-dot" />
-            <div className="audit-body">
-              <div className="audit-line">
-                <span className="audit-type">{AUDIT_LABELS[e.type] ?? e.type}</span>
-                {e.actorName && <span className="audit-actor">{e.actorName}</span>}
-                <span className="audit-time">{fmtTime(e.ts)}</span>
-              </div>
-              {detail && <div className="audit-detail">{detail}</div>}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-const RISK_ACTIONS: RiskAction[] = ["delete", "deploy", "shell", "git_push", "install", "migration", "network", "other"];
-const RISK_LABELS: Record<RiskAction, string> = {
-  delete: "Delete files/folders",
-  deploy: "Deploy",
-  shell: "Run shell commands",
-  git_push: "git push",
-  install: "Install packages",
-  migration: "Run DB migrations",
-  network: "Network calls",
-  other: "Other risky actions",
-};
-
-function SettingsModal({
-  roomId,
-  requireApprovalFor,
-  onClose,
-  afterSave,
-}: {
-  roomId: string;
-  requireApprovalFor: RiskAction[];
-  onClose: () => void;
-  afterSave: () => void;
-}) {
-  const [sel, setSel] = useState<Set<RiskAction>>(new Set(requireApprovalFor));
-  const [busy, setBusy] = useState(false);
-  const toggle = (a: RiskAction) =>
-    setSel((s) => {
-      const n = new Set(s);
-      n.has(a) ? n.delete(a) : n.add(a);
-      return n;
-    });
-  const save = async () => {
-    setBusy(true);
-    try {
-      await updateRoomSettings(roomId, { requireApprovalFor: [...sel] });
-      afterSave();
-      onClose();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal settings-modal" role="dialog" aria-label="Room settings" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h2>Room settings</h2>
-          <button className="btn sm" onClick={onClose} aria-label="Close">✕</button>
-        </div>
-        <p className="settings-intro">
-          Choose which risky actions an agent must get your <strong>approval</strong> for before doing.
-          Agents see this the moment it changes and will call <code>request_approval</code> first. Off by
-          default — each agent's own app already gates risky actions.
-        </p>
-        <div className="risk-grid">
-          {RISK_ACTIONS.map((a) => (
-            <label key={a} className={`risk${sel.has(a) ? " on" : ""}`}>
-              <input type="checkbox" checked={sel.has(a)} onChange={() => toggle(a)} />
-              <span>{RISK_LABELS[a]}</span>
-            </label>
-          ))}
-        </div>
-        <div className="modal-actions">
-          <button className="btn" onClick={() => setSel(new Set())} disabled={busy}>Clear all</button>
-          <button className="btn primary" onClick={save} disabled={busy} style={{ marginLeft: "auto" }}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ApprovalDock({ roomId, approval, afterDecide }: { roomId: string; approval: Approval; afterDecide: () => void }) {
-  const [editing, setEditing] = useState(false);
-  const [instruction, setInstruction] = useState("");
-
-  const decide = async (decision: "approved" | "rejected" | "edited", note?: string) => {
-    await decideApproval(roomId, approval.id, decision, note);
-    setEditing(false);
-    setInstruction("");
-    afterDecide();
-  };
-
-  return (
-    <div className="dock" role="alertdialog" aria-label="Approval required">
-      <div className="label">Approval needed</div>
-      <p className="what">
-        <span className="who">{approval.requestedByName}</span> wants to{" "}
-        <strong>{approval.action}</strong>: {richText(approval.details, roomId)}
-      </p>
-      {editing ? (
-        <div className="acts">
-          <input
-            className="field"
-            autoFocus
-            placeholder="Do this instead…"
-            value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && instruction.trim() && decide("edited", instruction.trim())}
-          />
-          <button className="btn primary" onClick={() => instruction.trim() && decide("edited", instruction.trim())}>
-            Send
-          </button>
-          <button className="btn" onClick={() => setEditing(false)}>
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <div className="acts">
-          <button className="btn danger" onClick={() => decide("rejected")}>
-            Deny
-          </button>
-          <button className="btn" onClick={() => setEditing(true)}>
-            Edit & redirect
-          </button>
-          <button className="btn primary" onClick={() => decide("approved")} style={{ marginLeft: "auto" }}>
-            Approve
-          </button>
-        </div>
       )}
     </div>
   );

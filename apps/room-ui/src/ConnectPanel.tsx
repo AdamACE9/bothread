@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
-import { getConnectInfo, type ConnectInfo } from "./api";
+import { useEffect, useRef, useState } from "react";
+import type { ParticipantView } from "@bothread/shared";
+import { getConnectInfo, listAgents, setupAgent, type ConnectInfo, type DetectedAgent } from "./api";
+import { useToast } from "./toast";
+import { Icon } from "./icons";
+import { Avatar, CopyButton, brandClass } from "./ui";
 
 const AGENTS = [
   { id: "claude", label: "Claude Code", where: "Run once in your terminal:" },
@@ -120,36 +124,57 @@ function joinPrompt(agent: AgentId, sessionId: string): string {
 
 You should now have the "bothread" tools. Call join_session with { "sessionId": "${sessionId}", "agentName": "${name}", "brand": "${brand}" }, then call get_room_state to see who's there and which files are claimed.
 
-Then act as a teammate: ALWAYS call claim_files before editing any file; NEVER edit a file another participant holds; use send_message to talk to the others (they can't see your private reasoning); and — important — whenever you finish a step but the shared task isn't done, call wait_for_update INSTEAD of stopping (it returns within ~25s with any new activity; loop it) so you stay listening to the others rather than going dormant. (Your own app handles approvals for risky actions — only call request_approval if I ask for a room-level sign-off.) Work toward whatever task I give the room.`;
+Then act as a teammate: ALWAYS call claim_files before editing any file; NEVER edit a file another participant holds; use send_message to talk to the others (they can't see your private reasoning); and — important — whenever you finish a step but the shared task isn't done, call wait_for_update INSTEAD of stopping (it returns within ~45s with any new activity; loop it) so you stay listening to the others rather than going dormant. (Your own app handles approvals for risky actions — only call request_approval if I ask for a room-level sign-off.) Work toward whatever task I give the room.`;
 }
 
-function Copy({ text, label = "Copy" }: { text: string; label?: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      className="btn sm"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setDone(true);
-          setTimeout(() => setDone(false), 1400);
-        } catch {
-          /* ignore */
-        }
-      }}
-    >
-      {done ? "Copied ✓" : label}
-    </button>
-  );
-}
-
-export default function ConnectPanel({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+export default function ConnectPanel({
+  sessionId,
+  participants,
+  onClose,
+}: {
+  sessionId: string;
+  participants: ParticipantView[];
+  onClose: () => void;
+}) {
   const [info, setInfo] = useState<ConnectInfo | null>(null);
   const [agent, setAgent] = useState<AgentId>("claude");
+  const [step, setStep] = useState<1 | 2>(1);
+  // Everyone already here when the panel opened; anyone new is "the agent you just connected".
+  const initial = useRef(new Set(participants.map((p) => p.id)));
+  const joined = participants.filter((p) => p.kind === "agent" && p.status === "active" && !initial.current.has(p.id));
+
+  const toast = useToast();
+  const [detected, setDetected] = useState<Record<string, DetectedAgent>>({});
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoDone, setAutoDone] = useState<Record<string, string>>({});
 
   useEffect(() => {
     getConnectInfo().then(setInfo).catch(() => {});
+    // Older hubs don't have detection; the panel simply falls back to copy-paste.
+    listAgents()
+      .then((list) => {
+        const map = Object.fromEntries(list.map((a) => [a.id, a]));
+        setDetected(map);
+        const first = list.find((a) => a.detected && AGENTS.some((x) => x.id === a.id));
+        if (first) setAgent(first.id as AgentId);
+      })
+      .catch(() => {});
   }, []);
+
+  const det = detected[agent];
+  const runAutoSetup = async () => {
+    setAutoBusy(true);
+    try {
+      const r = await setupAgent(agent);
+      if (!r.ok) throw new Error(r.message);
+      setAutoDone((d) => ({ ...d, [agent]: r.message }));
+      setDetected((d) => (d[agent] ? { ...d, [agent]: { ...d[agent]!, configured: true } } : d));
+    } catch (err) {
+      toast.error(err, "Automatic setup didn't work");
+    } finally {
+      setAutoBusy(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -163,70 +188,150 @@ export default function ConnectPanel({ sessionId, onClose }: { sessionId: string
   const join = joinPrompt(agent, sessionId);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Connect an agent">
+    <div className="overlay" onMouseDown={onClose}>
+      <div className="modal connect" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="Connect an agent">
         <div className="modal-head">
           <h2>Connect an agent</h2>
-          <button className="btn sm" onClick={onClose} aria-label="Close">
-            ✕
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <Icon name="x" />
           </button>
         </div>
 
-        <p className="modal-sub">
-          Pick your agent, then paste <strong>two prompts</strong>: one to set it up, then — after it
-          reloads — one to join. The agent does the config itself; you just approve &amp; reload.
-        </p>
+        {joined.length > 0 && (
+          <div className="joined-banner" role="status">
+            {joined.map((p) => (
+              <Avatar key={p.id} name={p.name} brand={p.brand} size={26} ring="live" />
+            ))}
+            <span>
+              <strong>{joined.map((p) => p.name).join(", ")}</strong> joined the room.
+            </span>
+            <span className="spacer" />
+            <button className="btn sm" onClick={() => (setStep(1), (initial.current = new Set(participants.map((p) => p.id))))}>
+              Connect another
+            </button>
+            <button className="btn sm primary" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        )}
 
-        <div className="agent-tabs">
+        <div className="agent-grid" role="radiogroup" aria-label="Which agent?">
           {AGENTS.map((a) => (
-            <button key={a.id} className={`agent-tab${a.id === agent ? " on" : ""}`} onClick={() => setAgent(a.id)}>
-              {a.label}
+            <button
+              key={a.id}
+              role="radio"
+              aria-checked={a.id === agent}
+              className={`agent-pick ${brandClass(a.id)}${a.id === agent ? " on" : ""}`}
+              onClick={() => (setAgent(a.id), setStep(1))}
+            >
+              <span className="agent-dot" />
+              <span className="agent-name">{a.label}</span>
+              {detected[a.id]?.configured ? (
+                <span className="agent-badge ok" title="Bothread is already in this agent's MCP config">
+                  <Icon name="check" size={11} />
+                </span>
+              ) : detected[a.id]?.detected ? (
+                <span className="agent-badge" title="Installed on this machine">
+                  found
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
 
-        {setup ? (
-          <>
-            <div className="step-n">Step 1 · Paste to set up {meta.label}</div>
-            <p className="modal-sub">
-              Paste this in and approve the steps it runs (it adds the MCP server and installs the skill
-              via <span className="mono">npx skills add</span>), then reload {meta.label} when it’s done.
-            </p>
-            <div className="snip tall">
-              <pre>{setup}</pre>
-              <Copy text={setup} label="Copy setup prompt" />
-            </div>
-
-            <details className="manual">
-              <summary>Prefer to add the server by hand?</summary>
-              <div className="snip-where">{meta.where}</div>
-              <div className="snip">
-                <pre>{code || "…"}</pre>
-                {code && <Copy text={code} />}
+        <ol className="steps">
+          <li className={step === 1 ? "on" : "done"}>
+            <button className="step-head" onClick={() => setStep(1)}>
+              <span className="step-n">{step === 2 ? <Icon name="check" size={12} /> : 1}</span>
+              {setup ? `Let ${meta.label} set itself up` : `Add Bothread to ${meta.label}`}
+            </button>
+            {step === 1 && (
+              <div className="step-body">
+                {det?.canAutoSetup && (
+                  <div className={`auto-setup${det.configured ? " done" : ""}`}>
+                    <div className="auto-text">
+                      <strong>
+                        {det.configured ? `${meta.label} already has Bothread` : `${meta.label} is installed on this computer`}
+                      </strong>
+                      <span>
+                        {autoDone[agent] ??
+                          (det.configured
+                            ? "Restart it if it was open while you set this up, then go to step 2."
+                            : `Bothread can add itself to ${det.target ?? "its MCP config"} for you. Your current config is backed up first.`)}
+                      </span>
+                    </div>
+                    {det.configured ? (
+                      <button className="btn primary" onClick={() => setStep(2)}>
+                        Go to step 2
+                      </button>
+                    ) : (
+                      <button className="btn primary" onClick={runAutoSetup} disabled={autoBusy}>
+                        <Icon name="zap" size={14} /> {autoBusy ? "Setting up" : "Set it up for me"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {setup ? (
+                  <>
+                    <p className="modal-sub">
+                      Paste this into {meta.label} and approve what it runs. It adds the MCP server and installs the room
+                      etiquette skill. Then restart {meta.label} so the new tools load.
+                    </p>
+                    <div className="snip tall">
+                      <pre>{setup}</pre>
+                      <CopyButton text={setup} label="Copy setup prompt" />
+                    </div>
+                    <details className="manual">
+                      <summary>Rather add the server yourself?</summary>
+                      <div className="snip-where">{meta.where}</div>
+                      <div className="snip">
+                        <pre>{code || "Loading"}</pre>
+                        {code && <CopyButton text={code} />}
+                      </div>
+                    </details>
+                  </>
+                ) : (
+                  <>
+                    <div className="snip-where">{meta.where}</div>
+                    <div className="snip">
+                      <pre>{code || "Loading"}</pre>
+                      {code && <CopyButton text={code} />}
+                    </div>
+                  </>
+                )}
+                <div className="step-next">
+                  <button className="btn primary" onClick={() => setStep(2)}>
+                    It's set up, next step
+                  </button>
+                </div>
               </div>
-            </details>
-          </>
-        ) : (
-          <>
-            <div className="step-n">Step 1 · Add the server</div>
-            <div className="snip-where">{meta.where}</div>
-            <div className="snip">
-              <pre>{code || "…"}</pre>
-              {code && <Copy text={code} />}
-            </div>
-          </>
-        )}
-
-        <div className="step-n">Step 2 · After it reloads, paste to join</div>
-        <p className="modal-sub">This carries your room’s live session ID — it joins and starts collaborating.</p>
-        <div className="snip tall">
-          <pre>{join}</pre>
-          <Copy text={join} label="Copy join prompt" />
-        </div>
+            )}
+          </li>
+          <li className={step === 2 ? "on" : ""}>
+            <button className="step-head" onClick={() => setStep(2)}>
+              <span className="step-n">2</span>
+              Send it into this room
+            </button>
+            {step === 2 && (
+              <div className="step-body">
+                <p className="modal-sub">This prompt carries the room's session ID. The agent joins and starts working with the others.</p>
+                <div className="snip tall">
+                  <pre>{join}</pre>
+                  <CopyButton text={join} label="Copy join prompt" />
+                </div>
+                {joined.length === 0 && (
+                  <div className="listening-for">
+                    <span className="pulse" aria-hidden="true" /> Watching for {meta.label} to join
+                  </div>
+                )}
+              </div>
+            )}
+          </li>
+        </ol>
 
         <p className="modal-foot">
-          The session ID is the room credential — share it only with agents you want in this room. New here?
-          See the full guide at <span className="mono">bothread.vercel.app/start</span>.
+          The session ID works like a password for this room. Only give it to agents you want inside. In Claude Code you can
+          also run <code>/mcp__bothread__join</code> once the server is added.
         </p>
       </div>
     </div>
