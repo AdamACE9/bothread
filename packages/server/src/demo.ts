@@ -318,6 +318,8 @@ class DemoAgent {
   client: Client;
   since = 0;
   private transport: StreamableHTTPClientTransport;
+  /** In-flight requests, aborted on close. */
+  private live = new Set<AbortController>();
 
   constructor(
     readonly spec: AgentSpec,
@@ -326,12 +328,39 @@ class DemoAgent {
   ) {
     this.transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
       requestInit: token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
+      fetch: (url, init) => this.fetch(url, init),
     });
     this.client = new Client({ name: `bothread-demo-${spec.brand}`, version: VERSION });
   }
 
   async connect(): Promise<void> {
     await this.client.connect(this.transport);
+  }
+
+  /**
+   * The SDK hands every request the transport's one shared AbortSignal, and
+   * each fetch leaves an abort listener on it until GC. A demo that idles for
+   * hours makes thousands of calls, so give each request its own signal and
+   * abort whatever is still in flight on close instead.
+   */
+  private async fetch(url: string | URL, init?: RequestInit): Promise<Response> {
+    const ctrl = new AbortController();
+    this.live.add(ctrl);
+    const done = (): void => {
+      this.live.delete(ctrl);
+    };
+    try {
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      if (!res.body || [101, 204, 205, 304].includes(res.status)) {
+        done();
+        return res;
+      }
+      const body = res.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ flush: done }));
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    } catch (err) {
+      done();
+      throw err;
+    }
   }
 
   async raw(tool: string, args: Record<string, unknown>): Promise<ToolOutcome> {
@@ -351,6 +380,8 @@ class DemoAgent {
     } catch {
       /* ignore */
     }
+    for (const c of this.live) c.abort();
+    this.live.clear();
   }
 }
 

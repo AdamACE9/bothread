@@ -57,12 +57,11 @@ jobs:
 
       - run: npm run typecheck
 
-      # Some suites (fake `claude` shebang scripts, POSIX git hooks) are not yet
-      # Windows-clean, so on Windows the test step reports but does not gate.
-      # Typecheck, build and the packaging smoke test still gate every OS.
+      # Tests gate every OS. The few that need a POSIX shell (a fake `claude`
+      # script on PATH, a /bin/sh git hook) are skipped on Windows in the test
+      # files themselves, so a Windows failure here is a real one.
       - name: npm test
         run: npm test
-        continue-on-error: ${{ runner.os == 'Windows' }}
 
       - run: npm run build:publish
 

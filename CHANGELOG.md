@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 ### Demo mode
 - **`bothread demo`** (or **See a live demo** on the home screen) opens a room where three simulated

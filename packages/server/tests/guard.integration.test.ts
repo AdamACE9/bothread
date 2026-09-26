@@ -367,7 +367,8 @@ describe("bothread guard (real git repo, real pre-commit hook)", { timeout: 60_0
     expect((await git(["commit", "-q", "-m", "bypass"], { BOTHREAD_GUARD: "off" })).status).toBe(0);
   });
 
-  it("chains a foreign hook only with --force, and uninstall restores it", async () => {
+  // The foreign hook is a /bin/sh script; Git for Windows runs hooks differently.
+  it.skipIf(process.platform === "win32")("chains a foreign hook only with --force, and uninstall restores it", async () => {
     const hooks = path.join(repo, ".git", "hooks");
     expect((await cli(["guard", "uninstall"])).status).toBe(0);
     expect(fs.existsSync(path.join(hooks, "pre-commit"))).toBe(false);
