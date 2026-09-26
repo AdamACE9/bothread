@@ -323,7 +323,7 @@ describe("bothread guard (real git repo, real pre-commit hook)", { timeout: 60_0
 
     const st = JSON.parse((await cli(["guard", "status", "--json"])).stdout);
     expect(st).toMatchObject({ installed: true, foreignHook: false, hub: { running: true, port: hub.port } });
-    expect(fs.realpathSync(st.hookPath)).toBe(fs.realpathSync(hookPath));
+    expect(fs.realpathSync.native(st.hookPath)).toBe(fs.realpathSync.native(hookPath));
 
     const check = await cli(["guard", "check", "--json", "src/a.ts"]);
     expect(check.status).toBe(1);
