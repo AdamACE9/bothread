@@ -496,6 +496,7 @@ export default function Setup() {
           </ul>
         </div>
 
+        <h2 className="sr-only">The three steps</h2>
         <ol className="steps-list">
           {/* ---------------- Step 1 ---------------- */}
           <li id="step-start">

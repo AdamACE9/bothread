@@ -317,7 +317,8 @@ describe("setupAgent", () => {
     expect(fs.existsSync(path.join(home, ".cursor", "mcp.json"))).toBe(false);
   });
 
-  it("claude: runs `claude mcp add --scope user` (and only when needed)", async () => {
+  // Uses a fake `claude` shell script on PATH, which Windows can't execute.
+  it.skipIf(process.platform === "win32")("claude: runs `claude mcp add --scope user` (and only when needed)", async () => {
     const home = fakeHome([".claude"]);
     const binDir = fakeClaudeBin();
     const o = opts(home, { pathEnv: binDir });
@@ -375,7 +376,8 @@ function cli(args: string[], home: string, binDir = tmpDir("bothread-emptybin-")
 }
 
 describe("bothread setup (CLI)", () => {
-  it("--yes --json connects every detected agent that isn't connected", async () => {
+  // Uses a fake `claude` shell script on PATH, which Windows can't execute.
+  it.skipIf(process.platform === "win32")("--yes --json connects every detected agent that isn't connected", async () => {
     const home = fakeHome([".cursor", ".codex", ".claude", ".config/zed"]);
     write(path.join(home, ".config", "zed", "settings.json"), `{\n  // comment\n}\n`);
     write(path.join(home, ".codex", "config.toml"), `model = "o3"\n`);
@@ -420,7 +422,8 @@ describe("bothread setup (CLI)", () => {
     expect(fs.existsSync(path.join(home, ".codeium", "windsurf", "mcp_config.json"))).toBe(false);
   });
 
-  it("--only and --remove, plus a helpful error for an unknown agent", async () => {
+  // Uses a fake `claude` shell script on PATH, which Windows can't execute.
+  it.skipIf(process.platform === "win32")("--only and --remove, plus a helpful error for an unknown agent", async () => {
     const home = fakeHome([".cursor", ".codex"]);
     const port = String(await freePort());
     const only = JSON.parse(cli(["setup", "--only", "cursor", "--json", "--port", port], home, fakeClaudeBin()).stdout);

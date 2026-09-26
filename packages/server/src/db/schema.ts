@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS participants (
   mcp_session_id TEXT,
   joined_at      INTEGER NOT NULL,
   last_seen_at   INTEGER NOT NULL,
+  read_seq       INTEGER NOT NULL DEFAULT 0,  -- read cursor: newest message seq this participant has been shown
   FOREIGN KEY (room_id) REFERENCES rooms(id)
 );
 CREATE INDEX IF NOT EXISTS idx_part_room ON participants(room_id);

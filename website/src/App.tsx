@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import Background from "./components/Background";
 import Nav from "./components/Nav";
 import Hero from "./components/Hero";
@@ -11,12 +11,20 @@ import Rv from "./components/home/Rv";
 import GetStarted from "./components/GetStarted";
 import Feedback from "./components/Feedback";
 import Footer from "./components/Footer";
-import Setup from "./components/Setup";
-import Press from "./components/Press";
-import Docs from "./components/Docs";
-import Compare from "./components/Compare";
 import Faq from "./components/Faq";
-import Admin from "./components/Admin";
+
+// Secondary routes load on demand so the home page's first paint does not pay
+// for react-markdown, the docs corpus, the setup wizard or the admin dashboard.
+const Setup = lazy(() => import("./components/Setup"));
+const Press = lazy(() => import("./components/Press"));
+const Docs = lazy(() => import("./components/Docs"));
+const Compare = lazy(() => import("./components/Compare"));
+const Admin = lazy(() => import("./components/Admin"));
+
+/** Keeps the page height stable while a lazy route chunk loads. */
+function RouteFallback() {
+  return <main className="route-loading" aria-busy="true" style={{ minHeight: "100vh" }} />;
+}
 
 type Route = "home" | "start" | "press" | "docs" | "compare" | "admin";
 
@@ -34,29 +42,29 @@ function currentRoute(): Route {
  *  (a real SEO signal; the raw HTML already carries the home-page tags for crawlers). */
 const ROUTE_META: Record<Route, { title: string; description: string }> = {
   home: {
-    title: "Bothread — run your AI coding agents together on one codebase (local, MCP)",
+    title: "Bothread: run your AI coding agents together on one codebase (local, MCP)",
     description:
       "Bothread is a free, open-source local app where the AI coding agents you already use (Claude Code, Cursor, Codex, Gemini CLI, Antigravity, OpenCode) work together on one codebase over MCP without overwriting each other. One command connects them all, and you review every change as a diff. No API keys, no cloud.",
   },
   start: {
-    title: "Get started with Bothread — connect your AI coding agents",
+    title: "Get started with Bothread: connect your AI coding agents",
     description:
       "Install Bothread and connect your AI coding agents (Claude Code, Cursor, Antigravity, Gemini CLI, Codex, OpenCode) to one shared room in about two minutes. Free, local, no API keys.",
   },
   press: {
-    title: "Bothread — press & media kit",
+    title: "Bothread press and media kit",
     description:
       "Press kit for Bothread: the one-liner, boilerplate, fast facts, links, and logo assets. Free, open-source local coordination for multiple AI coding agents on one codebase.",
   },
   docs: {
-    title: "Bothread docs — run multiple AI coding agents on one codebase",
+    title: "Bothread docs: run multiple AI coding agents on one codebase",
     description:
       "Documentation for Bothread: quickstart, connecting your AI coding agents, file-collision prevention, git diff review, the full MCP tool reference, configuration, and troubleshooting.",
   },
   compare: {
-    title: "Bothread vs git worktrees vs Claude Squad — running multiple AI coding agents on one repo",
+    title: "Bothread vs git worktrees vs Claude Squad: running multiple AI coding agents on one repo",
     description:
-      "An honest comparison of the ways to run multiple AI coding agents on one codebase — raw terminals, git worktrees, Claude Squad, and Bothread — with the tradeoffs of each and when to reach for a shared coordination room vs hard isolation.",
+      "An honest comparison of the ways to run multiple AI coding agents on one codebase (raw terminals, git worktrees, Claude Squad, and Bothread), with the tradeoffs of each and when to reach for a shared coordination room vs hard isolation.",
   },
   admin: {
     title: "Bothread admin",
@@ -99,8 +107,11 @@ function Home() {
       <LocalFirst />
       <Faq />
 
-      <section className="h-sec h-cta" id="get-started">
+      <section className="h-sec h-cta" id="get-started" aria-labelledby="get-started-h">
         <div className="h-wrap">
+          <h2 id="get-started-h" className="sr-only">
+            Get started
+          </h2>
           <div className="cta-grid h-cta-grid">
             <Rv>
               <GetStarted />
@@ -125,25 +136,34 @@ export default function App() {
       <>
         <Background />
         <div className="grain" aria-hidden="true" />
-        <Docs />
+        <Suspense fallback={<RouteFallback />}>
+          <Docs />
+        </Suspense>
       </>
     );
   }
-  if (route === "admin") return <Admin />;
+  if (route === "admin")
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <Admin />
+      </Suspense>
+    );
   return (
     <>
       <Background />
       <div className="grain" aria-hidden="true" />
       <Nav />
-      {route === "start" ? (
-        <Setup />
-      ) : route === "press" ? (
-        <Press />
-      ) : route === "compare" ? (
-        <Compare />
-      ) : (
-        <Home />
-      )}
+      <Suspense fallback={<RouteFallback />}>
+        {route === "start" ? (
+          <Setup />
+        ) : route === "press" ? (
+          <Press />
+        ) : route === "compare" ? (
+          <Compare />
+        ) : (
+          <Home />
+        )}
+      </Suspense>
       <Footer />
     </>
   );

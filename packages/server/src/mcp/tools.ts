@@ -634,7 +634,7 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
     {
       title: "Read room messages",
       description:
-        "Pull messages from the thread, optionally only those after a given seq (your cursor), or only those mentioning you. Robust everywhere — use this to catch up.",
+        "Pull messages from the thread: after a given seq, only unread ones (unreadOnly: true — everything newer than what the hub last showed you, minus your own), or only those mentioning you. Robust everywhere — use this to catch up.",
       inputSchema: ReadMessagesInput.shape,
       annotations: hints({ readOnly: true, idempotent: true }),
     },
@@ -645,7 +645,7 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
         const me = caller.participant.name;
         const lines = res.messages.map((m) => renderMessageLine(m, me));
         const summary =
-          `${res.messages.length} message(s); latest seq ${res.latestSeq}.` +
+          `${res.messages.length} ${args.unreadOnly ? "unread " : ""}message(s); latest seq ${res.latestSeq}.` +
           (lines.length ? `\n${lines.join("\n")}` : "") +
           `\nNext: pass since: ${res.latestSeq} next time to get only newer messages.`;
         return ok(summary, res);

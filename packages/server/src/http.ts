@@ -13,6 +13,7 @@ import type { McpHub } from "./mcp/transport";
 import type { RoomBus } from "./realtime";
 import { sendTelemetry } from "./telemetry";
 import { VERSION } from "./version";
+import { mountDemoRoutes } from "./demo";
 import { detectAgents, removeAgent, resolveAgentId, setupAgent } from "../../../bin/lib/agents.mjs";
 
 export interface HttpDeps {
@@ -456,7 +457,7 @@ export function buildApp(deps: HttpDeps): {
   api.post(
     "/guard/check",
     wrap((req, res) => {
-      const { projectPath, files, agent } = req.body ?? {};
+      const { projectPath, files, agent, source } = req.body ?? {};
       if (typeof projectPath !== "string" || !projectPath.trim()) {
         throw new BothreadError("bad_input", "projectPath (the repo's top-level folder) is required.");
       }
@@ -467,7 +468,7 @@ export function buildApp(deps: HttpDeps): {
       if (agent !== undefined && agent !== null && typeof agent !== "string") {
         throw new BothreadError("bad_input", "agent must be a string.");
       }
-      res.json(engine.guardCheck({ projectPath, files: files as string[], agent: agent || undefined }));
+      res.json(engine.guardCheck({ projectPath, files: files as string[], agent: agent || undefined, source: source === "edit" ? "edit" : "commit" }));
     })
   );
 
@@ -522,6 +523,16 @@ export function buildApp(deps: HttpDeps): {
   };
   api.post("/agents/:id/setup", localOnly, agentAction("setup"));
   api.post("/agents/:id/remove", localOnly, agentAction("remove"));
+
+  // Agent status for the Claude Code hooks (`bothread hooks run stop|context`): unread
+  // @mentions, tasks, hand-offs waiting on the agent, in rooms bound to this project.
+  api.get("/agent-status", localOnly, wrap((req, res) => {
+    const project = typeof req.query.project === "string" ? req.query.project : "";
+    const agent = typeof req.query.agent === "string" ? req.query.agent.trim() : "";
+    if (!project || !path.isAbsolute(project)) throw new BothreadError("bad_input", "project (an absolute folder path) is required.");
+    if (!agent) throw new BothreadError("bad_input", "agent (the room display name) is required.");
+    res.json(engine.agentStatus({ projectPath: project, agent }));
+  }));
 
   // Serve files agents drop in `<projectPath>/.bothread/attachments/` — the
   // shared evidence folder (screenshots, structured results). Never part of the
@@ -578,6 +589,7 @@ export function buildApp(deps: HttpDeps): {
     })
   );
 
+  mountDemoRoutes(api, { engine, config, token }); // GET/POST /api/demo (demo.ts)
   app.use("/api", api);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 

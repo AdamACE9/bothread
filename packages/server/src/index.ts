@@ -13,6 +13,7 @@ import { McpHub } from "./mcp/transport";
 import { RoomBus } from "./realtime";
 import { sendTelemetry } from "./telemetry";
 import { VERSION } from "./version";
+import { startDemo, stopDemo } from "./demo";
 import { detectAgents, type DetectedAgent } from "../../../bin/lib/agents.mjs";
 import { box, colorEnabled, hyperlinksEnabled, link, palette } from "../../../bin/lib/term.mjs";
 
@@ -130,6 +131,7 @@ function renderStartScreen(s: StartScreen, stream: { isTTY?: boolean } = process
     steps.push(`In each agent, ${join}  ${c.dim("(or use the room's Connect panel)")}`);
     if (waiting.some((a) => a.canAutoSetup)) steps.push(`Connect the rest: ${setupCmd}${orKey}`);
   }
+  if (process.env.BOTHREAD_DEMO !== "1") steps.push(`Just looking? Run ${c.bold(selfCommand("demo"))}`);
   out.push("", `  ${c.bold("Next")}`, ...steps.map((t, i) => `    ${c.accent(`${i + 1}.`)} ${t}`), "");
   if (s.keys) {
     const k = (key: string, what: string) => `${c.cyan(key)} ${c.dim(what)}`;
@@ -244,7 +246,16 @@ async function main(): Promise<void> {
       channel: process.env.BOTHREAD_CHANNEL,
       version: process.env.BOTHREAD_VERSION,
     });
-    if (config.uiDir) openBrowser(`${base}/`);
+    if (process.env.BOTHREAD_DEMO === "1") {
+      // `bothread demo`: start the simulated agents and open straight into their room.
+      startDemo(engine, { mcpUrl: `http://${agentHost}:${config.port}/mcp`, token: config.authRequired ? token : null, dbPath: config.dbPath }).then(
+        ({ roomId }) => {
+          console.log(`  Demo room: ${base}/#/room/${roomId}\n`);
+          if (config.uiDir) openBrowser(`${base}/#/room/${roomId}`);
+        },
+        (err) => console.error(`  Couldn't start the demo: ${(err as Error).message}\n`)
+      );
+    } else if (config.uiDir) openBrowser(`${base}/`);
   });
 
   // Also answer on the IPv6 loopback so agents that resolve "localhost" to ::1
@@ -266,6 +277,7 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     logger.debug("shutting down");
+    await stopDemo(engine);
     engine.drainApprovals();
     await hub.closeAll();
     server.close();

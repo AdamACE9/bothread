@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.0
+
+### Demo mode
+- **`bothread demo`** (or **See a live demo** on the home screen) opens a room where three simulated
+  agents (Claude Code, Cursor, Codex) build a small platformer: they split tasks with dependencies,
+  hit a real file collision and hand the file off, leave real git diffs to review, record a decision
+  and a verification note, and ask you to approve a deploy, reacting when you decide. They are real
+  MCP clients on the hub's own endpoint, so presence, the audit trail and diffs are the real thing.
+- The demo's git repo lives in Bothread's data folder (a temp folder with `BOTHREAD_DB=:memory:`,
+  removed on exit) and never touches your projects. Running it again reuses or recreates it.
+- `GET /api/demo` / `POST /api/demo`, `BOTHREAD_DEMO=1` to start a hub with the demo running, and
+  `BOTHREAD_DEMO_SPEED` to change its pace. The room header shows a Demo badge.
+
+### Keep agents on task
+- **`bothread hooks install [--agent "<room name>"] [--user]`** adds Claude Code hooks to
+  `.claude/settings.json` (merged with your own, backed up, idempotent; `uninstall` removes only
+  Bothread's, `status` shows them). A `PreToolUse` hook blocks edits of a file another agent holds
+  exclusively and points Claude at `request_handoff`; a `Stop` hook keeps Claude working while it has
+  unread @mentions or interrupts, a hand-off waiting on it, or an in-progress task while teammates are
+  active (never twice in a row); `UserPromptSubmit`/`SessionStart` add a one-line "the room needs you"
+  note. All fail open. `BOTHREAD_HOOKS=off` disables them; `BOTHREAD_AGENT` overrides the name.
+  `bothread setup --hooks` (or answering yes in interactive setup) installs them too.
+- `read_messages({ unreadOnly: true })` now works: each participant has a read cursor, stored in
+  SQLite, that advances to the newest message any `read_messages`, `wait_for_update`,
+  `get_room_state` or `join_session` result has shown it. Your own messages never count as unread.
+- `GET /api/agent-status?project=<abs path>&agent=<name>` (loopback only): per room bound to the
+  project, the agent's status, unread mentions/interrupts, in-progress tasks it owns, hand-offs
+  waiting on it, and whether the room is paused.
+- Edits blocked by the hook are audited (`guard.edit_blocked`) and posted to the room once per
+  agent and file every two minutes.
+
 ## 0.3.0
 
 ### Setup in one command

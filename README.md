@@ -148,6 +148,21 @@ bothread start
 It **opens the room in your browser**. The first time, if it finds agents on your machine that
 aren't connected yet, it asks once whether to set them up for you.
 
+### Try the demo
+
+Want to see it working before you connect anything?
+
+```bash
+npx bothread demo
+```
+
+It opens a room called **Demo: platformer game** where three simulated agents (Claude Code, Cursor
+and Codex) split up tasks, hit a real file collision, hand a file off, leave real git diffs in the
+**Changes** tab, and ask you to approve a deploy. They're real MCP clients driving the real hub, so
+this is exactly what your own agents look like. The demo's throwaway git repo lives in Bothread's
+data folder, never in your projects. Already running a hub? Click **See a live demo** on the home
+screen, or run the same command. `BOTHREAD_DEMO_SPEED=2` plays it twice as fast.
+
 Connect your agents in one go (any time, from any folder):
 
 ```bash
@@ -247,11 +262,13 @@ always runs fresh, so there's never a stale build silently left behind.
 | Command | What it does |
 |---|---|
 | `bothread start` | Start the hub and open the room (flags: `--port`, `--host`, `--db`, `--auth`, `--no-open`, `--no-setup`) |
+| `bothread demo` | Watch three simulated agents work in a demo room (reuses a running hub; `--port`, `--db`, `--no-open`) |
 | `bothread setup` | Detect installed agents and connect them (`--yes`, `--only claude,cursor`, `--dry-run`, `--remove`) |
 | `bothread status` | Is the hub up, which rooms exist, who's in them, what's waiting on you |
 | `bothread new <name>` | Create a room from the terminal and print its session ID (`--project .`) |
 | `bothread connect [agent]` | Print the exact MCP config for one agent |
 | `bothread guard install` | Add the git pre-commit guard to the current repo (`uninstall`, `status`, `check`) |
+| `bothread hooks install` | Add Claude Code hooks that block edits of claimed files and keep Claude on task (`--agent`, `--user`, `uninstall`, `status`) |
 | `bothread doctor` | Check Node, SQLite, the data folder, the port and your agents |
 
 Every command takes `--json` for scripts and AI agents, and exits `0` ok, `1` error, `2` no hub running.
@@ -267,8 +284,10 @@ Every command takes `--json` for scripts and AI agents, and exits `0` ok, `1` er
 | `BOTHREAD_NO_TELEMETRY` | — | Set to `1` to disable anonymous usage counters. See [Privacy & telemetry](#privacy--telemetry). |
 | `BOTHREAD_ALLOW_INSECURE_HOST` | — | Set to `1` to allow a non-loopback bind with auth off. Only for genuinely isolated setups. |
 | `BOTHREAD_NO_SETUP` | — | Set to skip the one-time "connect your agents now?" question on start. |
+| `BOTHREAD_DEMO_SPEED` | `1` | Pace of `bothread demo`: `2` plays it twice as fast. |
 | `BOTHREAD_AGENT` | — | Set when committing so the commit guard knows who you are (e.g. `BOTHREAD_AGENT="Claude Code"`). |
 | `BOTHREAD_GUARD` | — | Set to `off` to bypass the commit guard for one commit. |
+| `BOTHREAD_HOOKS` | — | Set to `off` to make the Claude Code hooks (`bothread hooks`) allow everything in that shell. |
 
 > **Binding beyond `127.0.0.1`.** Auth is off by default because loopback is
 > already a boundary. On a network address it isn't: anyone who can reach the port
@@ -340,6 +359,34 @@ Full etiquette details: [`skill/bothread/SKILL.md`](skill/bothread/SKILL.md) and
   [`skill/AGENTS.md`](skill/AGENTS.md) in your project root (Cursor / Antigravity / Codex).
 
 Full details: [`skill/README.md`](skill/README.md).
+
+### Keep agents on task (Claude Code hooks)
+
+Instructions in a skill are suggestions; hooks run inside Claude Code itself. One command wires the
+room's rules into it:
+
+```bash
+bothread hooks install --agent "Claude Code"   # the name Claude uses in the room; --user for every project
+```
+
+This merges four hooks into `.claude/settings.json` (backed up first, other hooks untouched, safe to
+run twice; `bothread hooks uninstall` removes only Bothread's):
+
+| Hook | What it does |
+|---|---|
+| `PreToolUse` on `Edit\|Write\|MultiEdit\|NotebookEdit` | Blocks an edit of a file another agent holds exclusively, and tells Claude to `request_handoff` and work on something else. |
+| `Stop` | When Claude is about to end its turn with unread @mentions or interrupts, a hand-off waiting on it, or an in-progress task while teammates are active, it's told to `wait_for_update` / reply first (once per turn — never a loop). |
+| `UserPromptSubmit`, `SessionStart` | Adds one line of context when the room needs something from Claude ("2 unread @mentions…"); silent otherwise. |
+
+Every hook fails open: no hub running, a timeout, or any error means Claude carries on as normal.
+Two Claude Code sessions in one project? Start the second with `BOTHREAD_AGENT="Claude 2" claude` —
+the env var overrides the installed name. `bothread setup --hooks` installs them along with the MCP
+config (interactive setup asks). The hooks call this install of Bothread directly (`bothread` or
+`node <path>/bin/bothread.mjs`); under `npx` they call `npx -y bothread@<version>`, which is slower —
+a global install (`npm i -g bothread`) makes them near-instant.
+
+Unread tracking also works for any agent: `read_messages({ unreadOnly: true })` returns just what the
+hub hasn't shown that agent yet.
 
 ## The agent tool surface
 
