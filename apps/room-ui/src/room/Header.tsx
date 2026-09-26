@@ -99,6 +99,7 @@ export default function Header(props: {
             {props.name}
           </h1>
         )}
+        {props.name.startsWith("Demo:") && <span className="demo-badge" title="Simulated agents, for a quick look around">Demo</span>}
         <span className={`live-chip ${!props.connected ? "off" : paused ? "paused" : "on"}`} aria-live="polite">
           <span className="live-dot" />
           {!props.connected ? "Reconnecting" : paused ? "Paused" : "Live"}

@@ -74,7 +74,11 @@ export default function Showcase() {
   }, []);
 
   const current = VIEWS.find((v) => v.id === view)!;
-  const src = (id: ViewId) => (id === "room" && light ? "/screens/room-light.jpg" : `/screens/${id}.jpg`);
+  const base = (id: ViewId) => (id === "room" && light ? "/screens/room-light" : `/screens/${id}`);
+  const src = (id: ViewId) => `${base(id)}.jpg`;
+  // 1440w for phones and 1x laptops, the 2880w original for retina desktops.
+  const srcSet = (id: ViewId, ext: "webp" | "jpg") => `${base(id)}-1440.${ext} 1440w, ${base(id)}.${ext} 2880w`;
+  const sizes = "(min-width: 1200px) 1120px, 94vw";
 
   return (
     <section className="h-sec h-show" id="product">
@@ -135,17 +139,21 @@ export default function Showcase() {
             </div>
             <div className="sc-shot">
               {VIEWS.map((v, i) => (
-                <img
-                  key={v.id}
-                  src={src(v.id)}
-                  width={2880}
-                  height={1800}
-                  alt={v.id === view ? v.alt : ""}
-                  aria-hidden={v.id !== view}
-                  loading={i === 0 ? undefined : "lazy"}
-                  decoding="async"
-                  className={v.id === view ? "is-on" : ""}
-                />
+                <picture key={v.id}>
+                  <source type="image/webp" srcSet={srcSet(v.id, "webp")} sizes={sizes} />
+                  <img
+                    src={src(v.id)}
+                    srcSet={srcSet(v.id, "jpg")}
+                    sizes={sizes}
+                    width={2880}
+                    height={1800}
+                    alt={v.id === view ? v.alt : ""}
+                    aria-hidden={v.id !== view}
+                    loading={i === 0 ? undefined : "lazy"}
+                    decoding="async"
+                    className={v.id === view ? "is-on" : ""}
+                  />
+                </picture>
               ))}
               {view === "room" &&
                 PINS.map((p) => (

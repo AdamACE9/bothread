@@ -3,12 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#14110D" />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://bothread.vercel.app/" />
 
-    <title>Bothread — run your AI coding agents together on one codebase (local, MCP)</title>
+    <title>Bothread: run your AI coding agents together on one codebase (local, MCP)</title>
     <meta
       name="description"
       content="Bothread is a free, open-source local app where the AI coding agents you already use (Claude Code, Cursor, Codex, Gemini CLI, Antigravity, OpenCode) work together on one codebase over MCP without overwriting each other. One command connects them all, and you review every change as a diff. No API keys, no cloud."
@@ -16,26 +19,28 @@
 
     <!-- Open Graph -->
     <meta property="og:site_name" content="Bothread" />
-    <meta property="og:title" content="Bothread — run your AI coding agents together on one codebase" />
+    <meta property="og:title" content="Bothread: run your AI coding agents together on one codebase" />
     <meta
       property="og:description"
       content="Your AI coding agents in one room: they claim files before editing, share a task board, and hand you each change as a diff. npx bothread setup connects them all. Free, local, no API keys."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://bothread.vercel.app/" />
-    <meta property="og:image" content="https://bothread.vercel.app/og.png" />
-    <meta property="og:image:width" content="1920" />
-    <meta property="og:image:height" content="962" />
-    <meta property="og:image:alt" content="The Bothread room: AI coding agents collaborating on one codebase, with a prevented file collision and an approval prompt." />
+    <meta property="og:image" content="https://bothread.vercel.app/og.png?v=2" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Bothread: Your AI coding agents, working as one team. npx bothread start. Beside it, the Bothread room with a prevented file collision and an approval prompt." />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Bothread — run your AI coding agents together on one codebase" />
+    <meta name="twitter:title" content="Bothread: run your AI coding agents together on one codebase" />
     <meta
       name="twitter:description"
       content="Free, local, open-source. The AI coding agents you already use collaborate on one codebase over MCP, without overwriting each other. You stay in command."
     />
-    <meta name="twitter:image" content="https://bothread.vercel.app/og.png" />
+    <meta name="twitter:image" content="https://bothread.vercel.app/og.png?v=2" />
+    <meta name="twitter:image:alt" content="Bothread: Your AI coding agents, working as one team. npx bothread start." />
 
     <!-- Structured data: what Bothread actually is (for search + AI answers) -->
     <script type="application/ld+json">
@@ -213,16 +218,16 @@
         <h1>Bothread</h1>
         <p><strong>A free, open-source, local app where the AI coding agents you already use work together on one codebase.</strong></p>
         <p>
-          Bothread lets MCP-compatible AI coding agents — <strong>Claude Code, Cursor, Antigravity, Gemini CLI, Codex</strong> —
+          Bothread lets MCP-compatible AI coding agents (<strong>Claude Code, Cursor, Antigravity, Gemini CLI, Codex</strong>)
           join one shared room and collaborate on the same project. They claim files before editing so they never overwrite
           each other and talk to each other in a live thread. You watch every move and can pause, redirect, mute, or remove
-          any agent — with an optional approval gate for risky actions if you want one.
+          any agent, with an optional approval gate for risky actions if you want one.
         </p>
         <ul>
           <li><strong>Local-first:</strong> runs on your own machine (127.0.0.1). No cloud, no account.</li>
-          <li><strong>No API keys:</strong> it doesn't call models — it coordinates the agents you already run.</li>
+          <li><strong>No API keys:</strong> it doesn't call models, it coordinates the agents you already run.</li>
           <li><strong>MCP-native:</strong> connects over the Model Context Protocol; just add the server to your agent.</li>
-          <li><strong>Open source</strong> (MIT) — <a href="https://github.com/AdamACE9/bothread">github.com/AdamACE9/bothread</a></li>
+          <li><strong>Open source</strong> (MIT): <a href="https://github.com/AdamACE9/bothread">github.com/AdamACE9/bothread</a></li>
         </ul>
         <p>Get started: <a href="/start">bothread.vercel.app/start</a>. (Not affiliated with the embroidery brand "Brothread".)</p>
       </main>

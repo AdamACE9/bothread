@@ -102,6 +102,8 @@ export const listRoomSummaries = () =>
   );
 export const createRoom = (name: string, projectPath?: string) =>
   jpost<{ room: Room; sessionId: string }>("/api/rooms", { name, projectPath });
+/** Start (or reuse) the simulated-agents demo room. */
+export const startDemo = () => jpost<{ roomId: string; started: boolean }>("/api/demo", {});
 export const getRoom = (id: string) => jget<RoomDetail>(`/api/rooms/${id}`);
 export const deleteRoom = (id: string) => jdelete(`/api/rooms/${id}`);
 export const getMessagesBefore = (id: string, beforeSeq: number, limit = 40) =>

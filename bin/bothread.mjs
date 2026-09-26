@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 import { AGENTS, detectAgents, removeAgent, resolveAgentId, setupAgent, snippetFor, tildify } from "./lib/agents.mjs";
 import { CANCEL, createUi, splitKeys } from "./lib/prompts.mjs";
 import { colorEnabled, listJoin, palette } from "./lib/term.mjs";
+import { DEMO_COMMAND, runDemo } from "./lib/demo.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -178,6 +179,8 @@ const FLAGS = {
   remove: { value: false, usage: "--remove", desc: "Take Bothread back out of agent configs (backups kept)" },
   skill: { value: false, usage: "--skill", desc: "Also install the room-etiquette skill (npx skills add …)" },
   "no-skill": { value: false, usage: "--no-skill", desc: "Don't offer to install the skill" },
+  user: { value: false, usage: "--user", desc: "Use your user settings (~/.claude/settings.json), not the project's" },
+  hooks: { value: false, usage: "--hooks", desc: "Also install the Claude Code hooks (bothread hooks install)" },
   help: { value: false, usage: "-h, --help", desc: "Show help" },
   version: { value: false, usage: "-v, --version", desc: "Print the installed version" },
 };
@@ -205,7 +208,7 @@ const COMMANDS = {
   setup: {
     args: "[agents...]",
     summary: "Find your AI agents and connect them all (with backups)",
-    flags: ["yes", "only", "dry-run", "remove", "skill", "no-skill", "port", "auth", "json"],
+    flags: ["yes", "only", "dry-run", "remove", "skill", "no-skill", "hooks", "port", "auth", "json"],
     details:
       "Looks for Claude Code, Claude (desktop), Cursor, Codex, Gemini CLI,\n" +
       "Antigravity, OpenCode, Windsurf, VS Code and Zed on this computer and adds\n" +
@@ -299,6 +302,29 @@ const COMMANDS = {
       "bothread guard uninstall",
     ],
   },
+  hooks: {
+    args: "<action>",
+    summary: "Claude Code hooks: block edits of claimed files, keep Claude on task",
+    flags: ["agent", "user", "path", "port", "dry-run", "json"],
+    details:
+      "Actions:\n" +
+      "  install [--agent <room name>] [--user | --path <project>]   add the hooks (merged, backed up)\n" +
+      "  uninstall [--user | --path <project>]                       remove only Bothread's hooks\n" +
+      "  status [--user | --path <project>] [--json]                 installed? as whom? hub up?\n" +
+      "\n" +
+      "Writes to <project>/.claude/settings.json (--path, else this folder's repo root),\n" +
+      "or with --user to ~/.claude/settings.json. Other hooks are left alone.\n" +
+      "  PreToolUse (Edit|Write|MultiEdit|NotebookEdit)  blocks an edit of a file another\n" +
+      "      agent holds exclusively, and tells Claude to request_handoff instead\n" +
+      "  Stop       keeps Claude working while it has unread @mentions or interrupts, a\n" +
+      "      hand-off waiting on it, or an in-progress task while teammates are active\n" +
+      "  UserPromptSubmit, SessionStart  add a one-line \"the room needs you\" note\n" +
+      "--agent is your Claude Code's display name in the room (default \"Claude Code\");\n" +
+      "BOTHREAD_AGENT overrides it per session. Every hook fails open (hub down = allow).\n" +
+      "Turn them off for a shell with BOTHREAD_HOOKS=off.",
+    examples: ['bothread hooks install --agent "Claude Code"', "bothread hooks install --user", "bothread hooks status --json", "bothread hooks uninstall"],
+  },
+  demo: DEMO_COMMAND,
   help: {
     args: "[command]",
     summary: "Show help for bothread or one command",
@@ -1135,7 +1161,12 @@ async function cmdSetup({ flags, positionals }) {
   const only = parseOnly(flags, positionals);
   if (flags.skill && flags["no-skill"]) throw new CliError("Pick one of --skill or --no-skill.");
   if (flags.json && !flags["dry-run"]) flags = { ...flags, yes: true };
-  return setupFlow({ flags, only });
+  const code = await setupFlow({ flags, only });
+  // Claude Code connected? Offer the hooks (logic in lib/hooks.mjs).
+  const claudeConnected = () => !!detectAgents({ mcpUrl: mcpUrlFor(resolvePort(flags)) }).find((a) => a.id === "claude")?.hasEntry;
+  const { offerHooksAfterSetup } = await import("./lib/hooks.mjs");
+  await offerHooksAfterSetup({ flags, claudeConnected, ui: createUi(), ctx: { CliError, root, channel: detectChannel(), version: pkgVersion() } });
+  return code;
 }
 
 /** Best-effort copy to the system clipboard. */
@@ -1677,16 +1708,19 @@ function mainHelp() {
     ["BOTHREAD_NO_TELEMETRY=1", "Disable anonymous usage counters"],
     ["BOTHREAD_AGENT=<name>", "Commit guard: who is committing (room display name)"],
     ["BOTHREAD_GUARD=off", "Commit guard: skip the pre-commit check once"],
+    ["BOTHREAD_HOOKS=off", "Claude Code hooks: do nothing in this shell"],
     ["NO_COLOR=1", "Plain output (FORCE_COLOR=1 forces color)"],
   ].map(([k, v]) => `    ${k.padEnd(26)}${c.dim(v)}`);
   const examples = [
     ["bothread setup", "Connect every AI agent on this computer"],
+    ["bothread demo", "Just looking? Watch 3 simulated agents work"],
     ["bothread", "Start on 4889, open the room"],
     ["bothread start --port 4890 --no-open", "Another port, no browser"],
     ['bothread new "auth refactor" --project .', "Create a room for this folder"],
     ["bothread connect claude", "MCP setup for Claude Code"],
     ["bothread status", "What's running, who's in each room"],
     ["bothread guard install", "Block commits of files another agent holds"],
+    ['bothread hooks install --agent "Claude Code"', "Claude Code hooks: respect claims, stay on task"],
   ].map(([k, v]) => `    ${k.padEnd(42)}${c.dim(v)}`);
   console.log(`
   ${c.bold("bothread")} ${c.dim(`v${pkgVersion()}`)} — a local room where your AI agents work together.
@@ -2054,6 +2088,9 @@ const HANDLERS = {
   setup: cmdSetup,
   doctor: cmdDoctor,
   guard: cmdGuard,
+  hooks: async (args) =>
+    (await import("./lib/hooks.mjs")).cmdHooks(args, { CliError, printJson, c, root, channel: detectChannel(), version: pkgVersion() }),
+  demo: (a) => runDemo(a, { cmdStart, probeHub, hubRequest, resolvePort, openBrowser, roomUrlFor, CliError, c }),
   help: cmdHelp,
   version: cmdVersion,
 };

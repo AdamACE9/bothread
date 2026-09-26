@@ -94,6 +94,7 @@ interface PartRow {
   mcp_session_id: string | null;
   joined_at: number;
   last_seen_at: number;
+  read_seq?: number;
 }
 interface MsgRow {
   id: string;
@@ -202,6 +203,30 @@ interface NoteRow {
   updated_at: number;
 }
 
+/** One room's answer in Engine.agentStatus / GET /api/agent-status. */
+export interface AgentRoomStatus {
+  roomId: string;
+  roomName: string;
+  roomStatus: Room["status"];
+  paused: boolean;
+  /** Is there a (not-left) agent with this display name in the room? */
+  joined: boolean;
+  participant: { id: string; name: string; status: ParticipantStatus; lastSeenAt: number } | null;
+  readCursor: number;
+  latestSeq: number;
+  /** Messages after the read cursor, not written by the agent, not retracted. */
+  unreadMessages: number;
+  unreadMentions: number;
+  unreadInterrupts: number;
+  unreadMentionSeqs: number[];
+  /** Tasks this agent owns that are in_progress. */
+  openTasks: { id: string; title: string }[];
+  /** Pending hand-off requests for files this agent holds. */
+  handoffsWaiting: { id: string; path: string; requestedBy: string }[];
+  /** Other agents seen in the last few minutes (not left / revoked / muted). */
+  activeTeammates: string[];
+}
+
 export interface Caller {
   room: Room;
   participant: Participant;
@@ -278,6 +303,9 @@ export class Engine {
   private static readonly OVERSEER_ACTIVE_WINDOW_MS = 15_000;
   /** How long without activity before an agent participant is considered idle (may have dropped off). */
   private static readonly IDLE_THRESHOLD_MS = 5 * 60 * 1000;
+  /** Editor-hook blocks (guardCheck source "edit"): last room notice per room|agent|file. */
+  private editBlockPostedAt = new Map<string, number>();
+  private static readonly EDIT_BLOCK_NOTICE_WINDOW_MS = 2 * 60 * 1000;
 
   constructor(db: DB, bus: RoomBus, opts: EngineOptions = {}) {
     this.db = db;
@@ -1086,15 +1114,49 @@ export class Engine {
     return rows.reverse();
   }
 
-  readMessages(caller: Caller, input: ReadMessagesInput): { messages: ThreadEntry[]; latestSeq: number } {
+  /* ----- Read cursor -----
+   * Each participant has one high-water mark, `participants.read_seq`: the newest message
+   * seq the hub has SHOWN that participant. It only moves forward, and it moves whenever a
+   * result puts messages in front of the agent: read_messages (the newest row returned),
+   * wait_for_update (the newest of its newMessages), and join_session / get_room_state /
+   * the room-state resource (the newest message in the snapshot's thread). Everything at or
+   * below the mark counts as read — a single watermark, not per-message receipts, so a
+   * filtered read (mentionsMe) or a snapshot that only shows the latest page also covers
+   * the older messages it skipped. `unreadOnly` and GET /api/agent-status read from it. */
+
+  /** The participant's read cursor (0 when unknown). */
+  readCursor(participantId: string): number {
+    const row = this.db.prepare(`SELECT read_seq FROM participants WHERE id = ?`).get(participantId) as { read_seq: number | null } | undefined;
+    return row?.read_seq ?? 0;
+  }
+
+  /** Move the read cursor forward to `seq` (never backwards). */
+  private advanceReadCursor(participantId: string, seq: number | undefined): void {
+    if (seq === undefined || !Number.isFinite(seq) || seq <= 0) return;
+    this.db.prepare(`UPDATE participants SET read_seq = ? WHERE id = ? AND COALESCE(read_seq, 0) < ?`).run(seq, participantId, seq);
+  }
+
+  readMessages(caller: Caller, input: ReadMessagesInput): { messages: ThreadEntry[]; latestSeq: number; readCursor: number } {
     const limit = input.limit ?? RECENT_THREAD_LIMIT;
-    let rows = this.msgRows(caller.room.id, input.since, limit);
-    if (input.mentionsMe) {
-      rows = rows.filter((r) => (JSON.parse(r.mentions) as string[]).includes(caller.participant.name));
+    const me = caller.participant;
+    let since = input.since;
+    if (input.unreadOnly) {
+      const cursor = this.readCursor(me.id);
+      since = since === undefined ? cursor : Math.max(since, cursor);
     }
+    let rows = this.msgRows(caller.room.id, since, limit);
+    // The cursor covers every row this page scanned, including ones filtered out below.
+    const newest = rows.length ? rows[rows.length - 1]!.seq : undefined;
+    if (input.unreadOnly) rows = rows.filter((r) => r.author_id !== me.id);
+    if (input.mentionsMe) {
+      const name = me.name.toLowerCase();
+      rows = rows.filter((r) => (JSON.parse(r.mentions) as string[]).some((m) => m.toLowerCase() === name));
+    }
+    this.advanceReadCursor(me.id, newest);
     return {
       messages: rows.map((r) => this.toThreadEntry(this.mapMessage(r))),
       latestSeq: this.latestSeq(caller.room.id),
+      readCursor: this.readCursor(me.id),
     };
   }
 
@@ -1127,6 +1189,7 @@ export class Engine {
     // Decisions are reported once: mark them delivered only when we actually return them.
     const deliver = (res: WaitForUpdateResult): WaitForUpdateResult => {
       this.markApprovalsDelivered(res.approvalDecisions.map((d) => d.approvalId));
+      this.advanceReadCursor(me, res.newMessages.length ? res.newMessages[res.newMessages.length - 1]!.seq : undefined);
       return res;
     };
 
@@ -1356,7 +1419,7 @@ export class Engine {
    * With no `agent` (a human or unidentified committer) every exclusive hold
    * blocks. Read-only on leases; a block is audited and posted to the room.
    */
-  guardCheck(input: { projectPath: string; files: string[]; agent?: string }): {
+  guardCheck(input: { projectPath: string; files: string[]; agent?: string; source?: "commit" | "edit" }): {
     checked: number;
     rooms: string[];
     blocked: { file: string; heldByName: string; roomName: string; pattern: string; exclusive: boolean }[];
@@ -1396,17 +1459,106 @@ export class Engine {
       blocked.push(...inRoom);
       const first = inRoom[0]!;
       const more = inRoom.length > 1 ? ` (and ${inRoom.length - 1} more file${inRoom.length === 2 ? "" : "s"})` : "";
-      this.audit(row.id, "guard.blocked", { name: agent ?? "commit" }, {
+      const edit = input.source === "edit";
+      // An agent's editor hook can retry the same blocked edit several times in a row;
+      // audit every attempt but only tell the room once per agent+file per window.
+      const noiseKey = `${row.id}|${who ?? ""}|${first.file}`;
+      const quiet = edit && at - (this.editBlockPostedAt.get(noiseKey) ?? 0) < Engine.EDIT_BLOCK_NOTICE_WINDOW_MS;
+      this.audit(row.id, edit ? "guard.edit_blocked" : "guard.blocked", { name: agent ?? (edit ? "editor" : "commit") }, {
         agent: agent ?? null,
         files: inRoom.map((b) => ({ file: b.file, holder: b.heldByName, pattern: b.pattern })),
       });
-      this.postSystemMessage(
-        row.id,
-        `Commit blocked: ${agent ?? "someone"} tried to commit ${first.file}${more} while ${first.heldByName} holds it.`,
-        "advisory"
-      );
+      if (!quiet) {
+        if (edit) this.editBlockPostedAt.set(noiseKey, at);
+        this.postSystemMessage(
+          row.id,
+          edit
+            ? `Edit blocked: ${agent ?? "someone"} tried to edit ${first.file}${more} while ${first.heldByName} holds it.`
+            : `Commit blocked: ${agent ?? "someone"} tried to commit ${first.file}${more} while ${first.heldByName} holds it.`,
+          "advisory"
+        );
+      }
     }
     return { checked: files.length, rooms: rooms.map((r) => r.row.name), blocked };
+  }
+
+  /**
+   * What does the room need from `agent` right now? Backs GET /api/agent-status, which the
+   * Claude Code hooks (`bothread hooks run stop|context`) poll. Read-only: never moves the
+   * read cursor. Rooms match the project like guardCheck (same folder, or the room is a
+   * subfolder of it) and also when the project is a subfolder of the room's folder.
+   * The agent is found by display name (case-insensitive); when several rows share the
+   * name (reconnects), the most recently seen one that hasn't left wins.
+   */
+  agentStatus(input: { projectPath: string; agent: string }): { agent: string; rooms: AgentRoomStatus[] } {
+    const at = now();
+    const who = input.agent.trim().toLowerCase();
+    const projCanon = canonicalDir(input.projectPath);
+    const rows = (
+      this.db
+        .prepare(`SELECT * FROM rooms WHERE status != 'closed' AND project_path IS NOT NULL ORDER BY created_at ASC`)
+        .all() as RoomRow[]
+    ).filter((r) => roomPrefixWithin(projCanon, r.project_path!) !== null || roomPrefixWithin(canonicalDir(r.project_path!), input.projectPath) !== null);
+
+    const rooms: AgentRoomStatus[] = [];
+    for (const r of rows) {
+      const parts = this.partRows(r.id);
+      const me = parts
+        .filter((p) => p.kind === "agent" && p.status !== "left" && p.name.trim().toLowerCase() === who)
+        .sort((a, b) => b.last_seen_at - a.last_seen_at)[0];
+      const base: AgentRoomStatus = {
+        roomId: r.id,
+        roomName: r.name,
+        roomStatus: r.status as Room["status"],
+        paused: r.status === "paused",
+        joined: !!me,
+        participant: null,
+        readCursor: 0,
+        latestSeq: this.latestSeq(r.id),
+        unreadMessages: 0,
+        unreadMentions: 0,
+        unreadInterrupts: 0,
+        unreadMentionSeqs: [],
+        openTasks: [],
+        handoffsWaiting: [],
+        activeTeammates: [],
+      };
+      if (!me) {
+        rooms.push(base);
+        continue;
+      }
+      const cursor = me.read_seq ?? 0;
+      const unread = (
+        this.db
+          .prepare(`SELECT * FROM messages WHERE room_id = ? AND seq > ? AND author_id != ? AND retracted_at IS NULL ORDER BY seq ASC`)
+          .all(r.id, cursor, me.id) as MsgRow[]
+      );
+      const myName = me.name.trim().toLowerCase();
+      const mentions = unread.filter((m) => (JSON.parse(m.mentions) as string[]).some((n) => n.trim().toLowerCase() === myName));
+      const tasks = this.hasTasksTable()
+        ? (this.db
+            .prepare(`SELECT * FROM tasks WHERE room_id = ? AND owner_id = ? AND status = 'in_progress' ORDER BY created_at ASC`)
+            .all(r.id, me.id) as TaskRow[])
+        : [];
+      const teammates = parts.filter(
+        (p) => p.id !== me.id && p.kind === "agent" && (p.status === "active" || p.status === "idle") && at - p.last_seen_at <= Engine.IDLE_THRESHOLD_MS
+      );
+      rooms.push({
+        ...base,
+        participant: { id: me.id, name: me.name, status: me.status as ParticipantStatus, lastSeenAt: me.last_seen_at },
+        readCursor: cursor,
+        unreadMessages: unread.length,
+        unreadMentions: mentions.length,
+        unreadInterrupts: unread.filter((m) => m.importance === "interrupt").length,
+        unreadMentionSeqs: mentions.map((m) => m.seq).slice(-20),
+        openTasks: tasks.map((t) => ({ id: t.id, title: t.title })),
+        handoffsWaiting: this.pendingHandoffs(r.id)
+          .filter((h) => h.holderId === me.id)
+          .map((h) => ({ id: h.id, path: h.path, requestedBy: h.requesterName })),
+        activeTeammates: Array.from(new Set(teammates.map((p) => p.name))),
+      });
+    }
+    return { agent: input.agent.trim(), rooms };
   }
 
   releaseFiles(caller: Caller, input: { paths?: string[]; leaseIds?: string[] }): { released: number } {
@@ -2221,6 +2373,8 @@ export class Engine {
    */
   snapshotForAgent(room: Room, participant: Participant, threadLimit?: number): RoomSnapshot {
     const snapshot = this.buildSnapshot(room, participant, threadLimit);
+    // The agent is shown this thread, so it counts as read (see "Read cursor").
+    this.advanceReadCursor(participant.id, snapshot.thread.length ? snapshot.thread[snapshot.thread.length - 1]!.seq : undefined);
     return { ...snapshot, ...this.overseerActivity(room.id, now()) };
   }
 

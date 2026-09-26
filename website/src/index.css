@@ -18,7 +18,7 @@
   --parchment: #ece4d3;
   --parchment-1: #d6ccb6;
   --muted: #a99f8b;
-  --muted-1: #7c735f;
+  --muted-1: #8f8570;
 
   /* --- Threads (the accent system) --- */
   --copper: #cf7a3c;
@@ -293,6 +293,9 @@ section {
   border-color: var(--copper);
   background: rgba(20, 17, 13, 0.8);
 }
+.field:focus-visible {
+  box-shadow: 0 0 0 3px rgba(207, 122, 60, 0.45);
+}
 textarea.field {
   resize: vertical;
   min-height: 120px;
@@ -318,7 +321,6 @@ label {
 :focus-visible {
   outline: 2px solid var(--copper-1);
   outline-offset: 3px;
-  border-radius: 4px;
 }
 ::selection {
   background: rgba(207, 122, 60, 0.3);

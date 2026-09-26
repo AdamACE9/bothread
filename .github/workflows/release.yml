@@ -1,0 +1,96 @@
+# Release: publish to npm and create a GitHub Release when a version tag is pushed.
+#
+# ONE-TIME SETUP (repo owner):
+#   1. On npmjs.com: avatar > Access Tokens > Generate New Token > "Classic Token",
+#      type "Automation" (bypasses 2FA for CI). A granular token with read/write
+#      on the `bothread` package also works.
+#   2. On GitHub: repo Settings > Secrets and variables > Actions > New repository
+#      secret, name NPM_TOKEN, paste the token.
+#   `--provenance` needs no extra setup: it uses this workflow's OIDC token
+#   (permissions: id-token: write) and the package.json `repository` field.
+#
+# TO CUT A RELEASE:
+#   - bump "version" in package.json (and server.json / index.html JSON-LD if you keep those in sync)
+#   - add a "## <version>" section to CHANGELOG.md (it becomes the release notes)
+#   - commit, then: git tag v<version> && git push origin v<version>
+#   The job refuses to publish if the tag and package.json disagree or the
+#   CHANGELOG has no section for the version.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # npm provenance
+
+env:
+  BOTHREAD_NO_TELEMETRY: "1"
+  BOTHREAD_NO_OPEN: "1"
+  NO_COLOR: "1"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Check the tag matches package.json
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          fi
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
+          case "$pkg" in
+            *-*) echo "dist_tag=next" >> "$GITHUB_OUTPUT"; echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "dist_tag=latest" >> "$GITHUB_OUTPUT"; echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Extract release notes from CHANGELOG.md
+        run: node .github/scripts/changelog-section.mjs "${{ steps.version.outputs.version }}" > "$RUNNER_TEMP/notes.md"
+
+      - name: Configure git
+        run: |
+          git config --global core.autocrlf false
+          git config --global user.name "Bothread CI"
+          git config --global user.email "ci@bothread.invalid"
+          git config --global init.defaultBranch main
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:publish
+
+      - name: Publish to npm
+        # prepublishOnly re-runs build:publish; cheap, and keeps local and CI publishes identical.
+        run: npm publish --provenance --access public --tag "${{ steps.version.outputs.dist_tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Bothread ${{ steps.version.outputs.version }}" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --verify-tag "${flags[@]}"

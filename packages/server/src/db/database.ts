@@ -40,5 +40,15 @@ export function openDatabase(dbPath: string): DB {
   } catch {
     /* column already exists — fine */
   }
+  // participants.read_seq: per-participant read cursor (read_messages unreadOnly, agent-status).
+  // On an older DB, start everyone at their room's latest message so history doesn't count as unread.
+  try {
+    db.exec("ALTER TABLE participants ADD COLUMN read_seq INTEGER NOT NULL DEFAULT 0");
+    db.exec(
+      "UPDATE participants SET read_seq = COALESCE((SELECT value FROM counters WHERE counters.room_id = participants.room_id AND counters.name = 'msg'), 0)"
+    );
+  } catch {
+    /* column already exists — fine */
+  }
   return db;
 }

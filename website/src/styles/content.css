@@ -538,3 +538,21 @@ main.setup .setup-back {
     min-width: 7rem;
   }
 }
+
+/* Touch targets on phones: grow the hit area of small controls to at least
+   40px without changing how they look or shifting the layout around them. */
+@media (pointer: coarse), (max-width: 720px) {
+  .copybtn::after,
+  .gs-term-btn::after {
+    content: "";
+    position: absolute;
+    inset: -9px -6px;
+  }
+  .gs-term-btn {
+    position: relative;
+  }
+  .setup-back {
+    padding-block: 10px;
+    margin-block: -10px 1.4rem;
+  }
+}

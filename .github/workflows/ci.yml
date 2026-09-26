@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch or PR cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BOTHREAD_NO_TELEMETRY: "1"
+  BOTHREAD_NO_OPEN: "1"
+  NO_COLOR: "1"
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux covers both supported Node lines; macOS and Windows run the
+          # current LTS only to save runner minutes.
+          - { os: ubuntu-latest, node: 20 }
+          - { os: ubuntu-latest, node: 22 }
+          - { os: macos-latest, node: 22 }
+          - { os: windows-latest, node: 22 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # The git-backed tests commit in throwaway repos; keep line endings as
+      # written so diffs are identical on every OS.
+      - name: Configure git
+        run: |
+          git config --global core.autocrlf false
+          git config --global user.name "Bothread CI"
+          git config --global user.email "ci@bothread.invalid"
+          git config --global init.defaultBranch main
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # Some suites (fake `claude` shebang scripts, POSIX git hooks) are not yet
+      # Windows-clean, so on Windows the test step reports but does not gate.
+      # Typecheck, build and the packaging smoke test still gate every OS.
+      - name: npm test
+        run: npm test
+        continue-on-error: ${{ runner.os == 'Windows' }}
+
+      - run: npm run build:publish
+
+      - name: Packaging smoke test (npm pack, install, run)
+        run: |
+          set -euo pipefail
+          expected="$(node -p "require('./package.json').version")"
+          tgz="$(npm pack --silent | tail -n 1)"
+          echo "Packed $tgz ($(du -h "$tgz" | cut -f1))"
+
+          # RUNNER_TEMP is a native path (D:\a\_temp on Windows): node and npm get
+          # native paths, and only PATH gets the POSIX form bash needs.
+          work="$RUNNER_TEMP/bothread-smoke"
+          mkdir -p "$work/home" "$work/cwd"
+          prefix="$work/prefix"
+          # A throwaway home so the CLI never reads or writes the runner's real one.
+          export HOME="$work/home" USERPROFILE="$work/home" BOTHREAD_HOME="$work/home/.bothread"
+
+          npm install --global --prefix "$prefix" "./$tgz"
+          if [ "$RUNNER_OS" = "Windows" ]; then bin="$(cygpath -u "$prefix")"; else bin="$prefix/bin"; fi
+          export PATH="$bin:$PATH"
+
+          cd "$work/cwd"
+          echo "which: $(command -v bothread)"
+          version="$(bothread --version)"
+          echo "$version"
+          case "$version" in
+            *"$expected"*) ;;
+            *) echo "::error::bothread --version printed '$version', expected $expected"; exit 1 ;;
+          esac
+
+          bothread doctor --json | tee doctor.json
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("doctor.json", "utf8"));
+            if (!r.ok) { console.error("doctor reported problems:", r.verdict); process.exit(1); }
+          '
+
+  website:
+    name: website build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run build

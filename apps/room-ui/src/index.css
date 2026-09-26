@@ -3316,3 +3316,57 @@ textarea.field.sm {
     margin-left: -10px;
   }
 }
+
+/* ----------------------------- Demo mode ----------------------------- */
+.create-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.create-card .create-actions .btn {
+  justify-self: auto;
+}
+.demo-link {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.demo-link:hover:not(:disabled) {
+  color: var(--text-2);
+  text-decoration-color: currentColor;
+}
+.demo-link + .filter {
+  margin-left: 0;
+}
+.demo-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  font-weight: 620;
+  letter-spacing: 0.02em;
+  color: var(--copper);
+  background: var(--wash-copper);
+  border: 1px solid rgba(210, 125, 62, 0.3);
+  flex: none;
+}
+.banner.demo {
+  background: var(--wash-copper);
+  border: 1px solid rgba(210, 125, 62, 0.28);
+  color: var(--text-2);
+}
+.banner.demo svg {
+  color: var(--copper);
+  flex: none;
+}

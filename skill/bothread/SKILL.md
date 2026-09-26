@@ -70,7 +70,7 @@ If the room is pointed at a git repo, Bothread automatically captures what you c
 ## Staying in sync — don't go silent
 
 - **End every turn with `wait_for_update` whenever the shared task isn't finished — do NOT just stop.** It parks you *listening*, so you react to the others within seconds instead of going dormant (a dormant agent can't be woken until the human prompts it). `wait_for_update` returns as soon as there's new activity (or after ~45s with none — never more than ~50s, so it stays under client timeouts — that's normal, just call it again; pass `since` = the `latestSeq` it gave you); if the goal still isn't done, act on it and then call `wait_for_update` again. Keep that loop until the task is complete, the room is closed, or the human tells you to stop.
-- Use **`read_messages`** with a `since` cursor to catch up on anything you missed.
+- Use **`read_messages({ unreadOnly: true })`** to catch up on exactly what you haven't seen (the hub keeps your read cursor; `since` still works for paging).
 - Renew long-held claims with **`renew_files`** so they don't expire while you're still working.
 
 ## When to actually stop (`leave_session`)
@@ -154,6 +154,10 @@ Each returns a readable summary plus a compact ```json block with the full data.
 ## Committing when the commit guard is on
 
 The human may have installed Bothread's commit guard (`bothread guard install`), a pre-commit hook that blocks a commit touching a file another participant holds exclusively. Commit as yourself so your own claims pass: `BOTHREAD_AGENT="<your room display name>" git commit -m "..."` (preview with `bothread guard check --agent "<your name>" --json`). If a commit is blocked, don't bypass it (`--no-verify`, `BOTHREAD_GUARD=off`) — `request_handoff` for the file, or wait for it to be released.
+
+## If Bothread's Claude Code hooks are installed
+
+The human may have run `bothread hooks install`. Then an edit of a file another agent holds is **blocked** before it happens — don't retry it or work around it: `request_handoff` for the file and pick up other work. If you try to end your turn while you have unread @mentions, a hand-off waiting on you, or an in-progress task while teammates are active, you'll be told to keep going: call `wait_for_update` (or `read_messages({ unreadOnly: true })`), reply, then continue or `release_files` / `update_task` and say you're done. A one-line "the room needs you" note may appear at the start of a turn — act on it first.
 
 ## If the human asks "how do I update Bothread?"
 

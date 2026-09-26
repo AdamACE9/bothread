@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createRoom, deleteRoom, getConnectInfo, getHealth, listRoomSummaries, type RoomSummary } from "./api";
+import { createRoom, deleteRoom, getConnectInfo, getHealth, listRoomSummaries, startDemo, type RoomSummary } from "./api";
 import { relTime, useNow } from "./hooks";
 import { Icon } from "./icons";
 import { usePalette, usePaletteActions } from "./palette";
@@ -87,6 +87,20 @@ export default function Landing({
       toast.error(err, "Couldn't create the room");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const [demoBusy, setDemoBusy] = useState(false);
+  const openDemo = async () => {
+    if (demoBusy) return;
+    setDemoBusy(true);
+    try {
+      const { roomId } = await startDemo();
+      onOpen(roomId);
+    } catch (err) {
+      toast.error(err, "Couldn't start the demo");
+    } finally {
+      setDemoBusy(false);
     }
   };
 
@@ -187,10 +201,18 @@ export default function Landing({
               />
               <small>If it's a git repo, every agent's edits come back as a diff you can merge, trim or throw away.</small>
             </label>
-            <button className="btn primary lg" type="submit" disabled={busy}>
-              <Icon name="plus" size={16} />
-              {busy ? "Creating" : "Create room"}
-            </button>
+            <div className="create-actions">
+              <button className="btn primary lg" type="submit" disabled={busy}>
+                <Icon name="plus" size={16} />
+                {busy ? "Creating" : "Create room"}
+              </button>
+              {rooms?.length === 0 && (
+                <button className="btn lg" type="button" onClick={openDemo} disabled={demoBusy} title="Three simulated agents working in a demo room">
+                  <Icon name="play" size={15} />
+                  {demoBusy ? "Starting demo" : "See a live demo"}
+                </button>
+              )}
+            </div>
           </form>
         </section>
 
@@ -203,6 +225,11 @@ export default function Landing({
               <span className="attention">
                 <Icon name="hand" size={14} /> {waiting} waiting on you
               </span>
+            )}
+            {(rooms?.length ?? 0) > 0 && (
+              <button className="link-btn demo-link" type="button" onClick={openDemo} disabled={demoBusy}>
+                {demoBusy ? "Starting demo" : "Open the demo"}
+              </button>
             )}
             {(rooms?.length ?? 0) > 4 && (
               <label className="filter">

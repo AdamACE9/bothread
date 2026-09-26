@@ -462,7 +462,9 @@ export const ReadMessagesInput = z.object({
   unreadOnly: z
     .boolean()
     .optional()
-    .describe("Reserved — currently has no effect. To get only unread messages, pass since = the last seq you saw."),
+    .describe(
+      "If true, only messages you haven't been shown yet (after your read cursor), excluding your own. The cursor is a high-water mark the hub keeps per participant: it advances to the newest message any read_messages, wait_for_update, get_room_state or join_session result has shown you."
+    ),
   mentionsMe: z.boolean().optional().describe("If true, only messages that @-mention you."),
   limit: z.number().int().min(1).max(200).optional().describe("Max messages to return (default 40, max 200)."),
   sessionId: SessionIdArg,

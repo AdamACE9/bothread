@@ -308,6 +308,15 @@ export default function RoomView({
               </button>
             </div>
           )}
+          {snapshot.room.name.startsWith("Demo:") && (
+            <div className="banner demo" role="note">
+              <Icon name="sparkle" size={15} />
+              <span>These are simulated agents. Connect your own with Connect agent.</span>
+              <button className="btn sm" onClick={() => setShowConnect(true)}>
+                Connect agent
+              </button>
+            </div>
+          )}
           <Thread
             roomId={roomId}
             thread={snapshot.thread}
