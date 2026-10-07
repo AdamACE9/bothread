@@ -4,8 +4,15 @@ import { nudgeParticipant, setParticipantStatus } from "../api";
 import { relTime } from "../hooks";
 import { Icon } from "../icons";
 import { useToast } from "../toast";
+import { Sparkline, brandColor } from "../charts";
 import { Avatar, presence } from "../ui";
 import { modelLine } from "./mentions";
+
+/** "src/levels/**" stays "levels/**"; "src/physics.ts" becomes "physics.ts". */
+function shortPath(f: string): string {
+  const parts = f.split("/").filter(Boolean);
+  return parts.slice(/\*/.test(parts[parts.length - 1] ?? "") ? -2 : -1).join("/") || f;
+}
 
 function statusLine(p: ParticipantView, now: number): string {
   if (p.status === "revoked") return "Access revoked";
@@ -27,9 +34,12 @@ export default function People({
   focused,
   onFocusAgent,
   doing,
+  activity,
 }: {
   roomId: string;
   participants: ParticipantView[];
+  /** Messages per minute over the last 10 minutes, per agent name. */
+  activity?: Map<string, number[]>;
   now: number;
   afterAction: () => void;
   onConnect: () => void;
@@ -61,7 +71,7 @@ export default function People({
       ) : (
         <ul className="people-list">
           {here.map((p) => (
-            <AgentCard key={p.id} p={p} roomId={roomId} now={now} afterAction={afterAction} onMention={onMention} onPing={onPing} focused={focused === p.name} onFocus={() => onFocusAgent(focused === p.name ? null : p.name)} doing={doing?.get(p.name)} />
+            <AgentCard key={p.id} p={p} roomId={roomId} now={now} afterAction={afterAction} onMention={onMention} onPing={onPing} focused={focused === p.name} onFocus={() => onFocusAgent(focused === p.name ? null : p.name)} doing={doing?.get(p.name)} activity={activity?.get(p.name)} />
           ))}
         </ul>
       )}
@@ -75,7 +85,7 @@ export default function People({
           {showGone && (
             <ul className="people-list dim">
               {gone.map((p) => (
-                <AgentCard key={p.id} p={p} roomId={roomId} now={now} afterAction={afterAction} onMention={onMention} onPing={onPing} focused={focused === p.name} onFocus={() => onFocusAgent(focused === p.name ? null : p.name)} doing={doing?.get(p.name)} />
+                <AgentCard key={p.id} p={p} roomId={roomId} now={now} afterAction={afterAction} onMention={onMention} onPing={onPing} focused={focused === p.name} onFocus={() => onFocusAgent(focused === p.name ? null : p.name)} doing={doing?.get(p.name)} activity={activity?.get(p.name)} />
               ))}
             </ul>
           )}
@@ -103,7 +113,9 @@ function AgentCard({
   focused,
   onFocus,
   doing,
+  activity,
 }: {
+  activity?: number[];
   onPing: (name: string) => void;
   focused: boolean;
   onFocus: () => void;
@@ -159,8 +171,10 @@ function AgentCard({
     );
 
   return (
-    <li className={`agent-card ${presence(p)}${focused ? " focused" : ""}`}>
-      <Avatar name={p.name} brand={p.brand} size={34} ring={presence(p)} />
+    <li className={`agent-card ${presence(p)}${focused ? " focused" : ""}`} style={{ ["--accent" as string]: brandColor(p.brand) }}>
+      <span className="agent-av">
+        <Avatar name={p.name} brand={p.brand} size={36} ring={presence(p)} />
+      </span>
       <div className="agent-body">
         <div className="agent-top">
           <button
@@ -240,15 +254,27 @@ function AgentCard({
         </div>
         {doing && active && (
           <div className="agent-doing" title={new Date(doing.ts).toLocaleString()}>
-            {doing.label}
-            <span>, {relTime(doing.ts, now)}</span>
+            <span className="doing-mark" aria-hidden="true" />
+            <span className="doing-text">{doing.label}</span>
+            <span className="doing-when">{relTime(doing.ts, now)}</span>
+          </div>
+        )}
+        {active && activity && (
+          <div className="agent-pulse">
+            <Sparkline values={activity} width={92} height={22} color={brandColor(p.brand)} label={`${p.name}: messages per minute, last 10 minutes`} />
+            <span className="pulse-n">
+              {activity.reduce((a, b) => a + b, 0)}
+              <small> msgs, 10 min</small>
+            </span>
           </div>
         )}
         {p.claimedFiles.length > 0 && (
           <div className="agent-files" title={p.claimedFiles.join("\n")}>
-            <Icon name="lock" size={11} />
             {p.claimedFiles.slice(0, 3).map((f) => (
-              <code key={f}>{f}</code>
+              <code key={f}>
+                <Icon name="lock" size={10} />
+                {shortPath(f)}
+              </code>
             ))}
             {p.claimedFiles.length > 3 && <span className="more">+{p.claimedFiles.length - 3}</span>}
           </div>

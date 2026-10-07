@@ -26,7 +26,10 @@ export default function ApprovalDock({
   afterDecide,
   agents = [],
   names,
+  compact = false,
 }: {
+  /** One-line bar for the Map and Timeline views, so the visual keeps its room. */
+  compact?: boolean;
   roomId: string;
   approvals: Approval[];
   now: number;
@@ -39,6 +42,7 @@ export default function ApprovalDock({
   const [editing, setEditing] = useState(false);
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const field = useRef<HTMLInputElement>(null);
   const mp = useMentionPicker({ value: instruction, setValue: setInstruction, fieldRef: field, agents });
 
@@ -66,6 +70,33 @@ export default function ApprovalDock({
     "shift+d": () => !editing && decide("rejected"),
     "shift+e": () => setEditing(true),
   });
+
+  if (compact && !expanded && !editing) {
+    return (
+      <section className="approval compact" role="alertdialog" aria-label="Approval needed" aria-describedby="approval-what">
+        <span className="approval-badge">
+          <Icon name="hand" size={14} />
+        </span>
+        <p className="approval-what" id="approval-what">
+          <strong>{approval.requestedByName}</strong> wants to <strong className="act">{ACTION_LABEL[approval.action] ?? approval.action}</strong>
+          <span className="approval-snippet">{approval.details}</span>
+        </p>
+        {approvals.length > 1 && <span className="dim">1 of {approvals.length}</span>}
+        <button className="btn sm ghost" onClick={() => setExpanded(true)}>
+          Details
+        </button>
+        <button className="btn sm danger" onClick={() => decide("rejected")} disabled={busy}>
+          Deny
+        </button>
+        <button className="btn sm" onClick={() => setEditing(true)} disabled={busy}>
+          Redirect
+        </button>
+        <button className="btn sm primary" onClick={() => decide("approved")} disabled={busy}>
+          <Icon name="check" size={13} /> Approve
+        </button>
+      </section>
+    );
+  }
 
   return (
     <section className="approval" role="alertdialog" aria-label="Approval needed" aria-describedby="approval-what">

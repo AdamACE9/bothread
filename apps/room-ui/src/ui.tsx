@@ -199,15 +199,70 @@ function inline(text: string, ctx: RichCtx, keyBase: string): ReactNode[] {
   return out;
 }
 
+/* A deliberately small highlighter: comments, strings, numbers, keywords and
+ * calls. Good enough to make agent snippets scannable, no grammar to ship. */
+const KEYWORDS = new Set(
+  (
+    "const let var function return if else for while do switch case break continue new class extends import from export default " +
+    "async await try catch finally throw typeof instanceof in of this super null undefined true false void yield interface type enum " +
+    "implements public private protected readonly static as def elif lambda pass with None True False and or not is self fn mut pub " +
+    "struct impl use mod match loop where func package go defer chan select range nil"
+  ).split(" ")
+);
+const TOKEN_RE =
+  /(\/\/[^\n]*|#(?![\da-f]{3,8}\b)[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\b\d[\d_]*(?:\.\d+)?(?:e[+-]?\d+)?\b|\b0x[\da-f]+\b)|([A-Za-z_$][\w$]*)(?=\s*\()|([A-Za-z_$][\w$]*)/gi;
+
+function highlightCode(code: string, lang: string): ReactNode[] {
+  const shellish = /^(sh|bash|zsh|shell|console|text|txt|diff)?$/i.test(lang);
+  const hashComments = /^(py|python|sh|bash|zsh|shell|rb|ruby|yaml|yml|toml)$/i.test(lang);
+  if (/^diff$/i.test(lang) || (!lang && /^[+-]/m.test(code) && /^@@/m.test(code))) {
+    return code.split("\n").map((ln, i) => (
+      <span key={i} className={ln.startsWith("+") ? "tk-add" : ln.startsWith("-") ? "tk-del" : ln.startsWith("@@") ? "tk-hunk" : undefined}>
+        {ln}
+        {"\n"}
+      </span>
+    ));
+  }
+  const out: ReactNode[] = [];
+  let last = 0;
+  let i = 0;
+  for (const m of code.matchAll(TOKEN_RE)) {
+    const idx = m.index ?? 0;
+    const [tok, comment, str, num, call, word] = m;
+    if (comment && comment.startsWith("#") && !hashComments) {
+      continue;
+    }
+    if (idx > last) out.push(code.slice(last, idx));
+    const k = `t${i++}`;
+    if (comment) out.push(<span key={k} className="tk-com">{comment}</span>);
+    else if (str) out.push(<span key={k} className="tk-str">{str}</span>);
+    else if (num) out.push(<span key={k} className="tk-num">{num}</span>);
+    else if (call) out.push(<span key={k} className={KEYWORDS.has(call) ? "tk-kw" : "tk-fn"}>{call}</span>);
+    else if (word && KEYWORDS.has(word) && !shellish) out.push(<span key={k} className="tk-kw">{word}</span>);
+    else if (word && /^[A-Z][A-Za-z0-9]+$/.test(word) && !shellish) out.push(<span key={k} className="tk-type">{word}</span>);
+    else out.push(tok);
+    last = idx + tok.length;
+  }
+  if (last < code.length) out.push(code.slice(last));
+  return out;
+}
+
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  const lines = code.split("\n").length;
   return (
     <div className="codeblock">
       <div className="codeblock-bar">
-        <span>{lang || "text"}</span>
+        <span className="cb-lang">
+          <i aria-hidden="true" />
+          {lang || "text"}
+        </span>
+        <span className="cb-lines">
+          {lines} line{lines === 1 ? "" : "s"}
+        </span>
         <CopyButton text={code} className="codeblock-copy" />
       </div>
       <pre>
-        <code>{code}</code>
+        <code>{highlightCode(code, lang)}</code>
       </pre>
     </div>
   );

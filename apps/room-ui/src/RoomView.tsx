@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { bucketize } from "./charts";
 import type { AgentBranch, Approval, AuditEvent, ServerEvent, ThreadEntry } from "@bothread/shared";
 import { chime, desktopNotify, flashTitle, setBaseTitle } from "./alerts";
 import { getAudit, listBranches, setRoomStatus } from "./api";
@@ -10,6 +11,9 @@ import { useToast } from "./toast";
 import { Empty } from "./ui";
 import { useRoom } from "./useRoom";
 import ApprovalDock, { ACTION_LABEL } from "./room/ApprovalDock";
+import Dashboard, { type StageView } from "./room/Dashboard";
+import ViewSwitch, { VIEWS } from "./room/ViewSwitch";
+import { RoomMap, Timeline } from "./room/viz";
 import Composer, { type ComposerHandle } from "./room/Composer";
 import Header from "./room/Header";
 import People from "./room/People";
@@ -80,6 +84,10 @@ export default function RoomView({
   const [showAllBranches, setShowAllBranches] = useState(false);
   const [tick, setTick] = useState(0);
   const [unread, setUnread] = useState(0);
+  const [view, setView] = usePref<StageView>("view", "thread");
+  const [events, setEvents] = useState<ServerEvent[]>([]);
+  const [audit, setAudit] = useState<AuditEvent[]>([]);
+  const gAt = useRef(0);
   const composer = useRef<ComposerHandle>(null);
   const knownAgents = useRef<Set<string> | null>(null);
 
@@ -91,6 +99,7 @@ export default function RoomView({
   const onEvent = useCallback(
     (ev: ServerEvent) => {
       setTick((t) => t + 1);
+      setEvents((list) => (list.length >= 200 ? [...list.slice(-199), ev] : [...list, ev]));
       const d = ev.data as Record<string, unknown>;
       if (ev.type === "branch" || ev.type === "lease") loadBranches();
       if (ev.type === "participant") {
@@ -141,23 +150,13 @@ export default function RoomView({
 
   const { detail, connected, refresh, error } = useRoom(roomId, onEvent);
 
-  // "What is each agent doing right now": the newest meaningful audit event per actor.
-  const [doing, setDoing] = useState<Map<string, { label: string; ts: number }>>(new Map());
+  // The audit trail feeds the visual views, the Activity tab and "what is each agent
+  // doing right now" (the newest meaningful audit event per actor). One debounced fetch.
   useEffect(() => {
     let alive = true;
     const t = setTimeout(() => {
-      getAudit(roomId, 120)
-        .then((events: AuditEvent[]) => {
-          if (!alive) return;
-          const m = new Map<string, { label: string; ts: number }>();
-          for (const e of events) {
-            if (!e.actorName || m.has(e.actorName) || e.type === "participant.nudge") continue;
-            const base = AUDIT_LABELS[e.type] ?? e.type;
-            const d = auditDetail(e);
-            m.set(e.actorName, { label: d && e.type !== "message.send" ? `${base} ${d}` : base, ts: e.ts });
-          }
-          setDoing(m);
-        })
+      getAudit(roomId, 300)
+        .then((list: AuditEvent[]) => alive && setAudit(list))
         .catch(() => null);
     }, 250);
     return () => {
@@ -165,12 +164,24 @@ export default function RoomView({
       clearTimeout(t);
     };
   }, [roomId, tick]);
+  const doing = useMemo(() => {
+    const m = new Map<string, { label: string; ts: number }>();
+    for (const e of audit) {
+      if (!e.actorName || m.has(e.actorName) || e.type === "participant.nudge") continue;
+      const base = e.type === "message.send" ? "Wrote in the thread" : AUDIT_LABELS[e.type] ?? e.type;
+      const d = auditDetail(e);
+      m.set(e.actorName, { label: d && e.type !== "message.send" ? `${base} ${d}` : base, ts: e.ts });
+    }
+    return m;
+  }, [audit]);
 
   useEffect(() => {
     if (detail && !knownAgents.current) knownAgents.current = new Set(detail.snapshot.participants.map((p) => p.id));
   }, [detail]);
   useEffect(() => {
     knownAgents.current = null;
+    setEvents([]);
+    setAudit([]);
     setReplyTo(null);
     setFocusAgent(null);
     setDeliveries(loadDeliveries(roomId));
@@ -201,6 +212,21 @@ export default function RoomView({
   overseerNameRef.current = overseer?.name ?? "You";
   const mentionAgents = useMemo(() => agents.filter((a) => a.status !== "revoked").map(toMentionAgent), [agents]);
   const readyChanges = branches.filter((b) => b.status === "ready").length;
+  const activity = useMemo(() => {
+    const m = new Map<string, number[]>();
+    const thread = snapshot?.thread ?? [];
+    for (const a of agents)
+      m.set(
+        a.name,
+        bucketize(
+          thread.filter((x) => x.author === a.name && x.kind === "agent").map((x) => x.at),
+          now,
+          10 * 60_000,
+          10
+        )
+      );
+    return m;
+  }, [agents, snapshot, now]);
 
   // Tab title carries what needs you: approvals first, then unread while away.
   useEffect(() => {
@@ -225,6 +251,21 @@ export default function RoomView({
     setTab(t);
     setPanel("open");
   };
+  const chord = (v: StageView) => {
+    if (Date.now() - gAt.current > 1500) return;
+    gAt.current = 0;
+    setView(v);
+  };
+  const focusApproval = () => {
+    const el = document.querySelector<HTMLElement>(".approval");
+    if (!el) return;
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    el.querySelector<HTMLElement>(".btn.primary")?.focus();
+  };
+  const selectAgent = (name: string) => {
+    setFocusAgent(name);
+    setView("thread");
+  };
 
   useHotkeys({
     "/": () => composer.current?.focus(),
@@ -236,6 +277,11 @@ export default function RoomView({
     "4": () => openTab("notes"),
     "5": () => openTab("activity"),
     "]": () => setPanel(panel === "open" ? "closed" : "open"),
+    // View chords: G then T (thread), M (map) or L (timeline).
+    g: () => (gAt.current = Date.now()),
+    t: () => chord("thread"),
+    m: () => chord("map"),
+    l: () => chord("timeline"),
   });
 
   usePaletteActions("room", [
@@ -258,6 +304,15 @@ export default function RoomView({
       icon: theme === "dark" ? "sun" : "moon",
       run: onToggleTheme,
     },
+    ...VIEWS.map((v) => ({
+      id: `view-${v.id}`,
+      group: "View",
+      label: `${v.label} view`,
+      icon: v.icon,
+      hint: `G ${v.key}`,
+      keywords: v.id === "map" ? "graph who holds what" : v.id === "timeline" ? "history lanes events" : "chat messages",
+      run: () => setView(v.id),
+    })),
     ...TABS.map((t, i) => ({ id: `tab-${t.id}`, group: "View", label: `Show ${t.label}`, icon: t.icon, hint: String(i + 1), run: () => openTab(t.id) })),
     ...liveAgents.map((a) => ({
       id: `mention-${a.id}`,
@@ -299,6 +354,7 @@ export default function RoomView({
     return (
       <div className="room loading" aria-busy="true">
         <div className="rhead skeleton-bar" />
+        <div className="dash dash-skeleton" />
         <div className="room-body">
           <div className="people skeleton" />
           <div className="stage skeleton" />
@@ -336,6 +392,15 @@ export default function RoomView({
         panelOpen={panel === "open"}
         onTogglePanel={() => setPanel(panel === "open" ? "closed" : "open")}
       />
+      <Dashboard
+        snapshot={snapshot}
+        branches={branches}
+        approvals={pendingApprovals}
+        now={now}
+        onOpenTab={openTab}
+        onView={setView}
+        onApprovals={focusApproval}
+      />
 
       <div className="room-body">
         <People
@@ -349,9 +414,11 @@ export default function RoomView({
           focused={focusAgent}
           onFocusAgent={setFocusAgent}
           doing={doing}
+          activity={activity}
         />
 
-        <main className="stage">
+        <main className={`stage view-${view}`}>
+          <div className="stage-weave" aria-hidden="true" />
           {paused && (
             <div className="banner paused" role="status">
               <Icon name="pause" size={15} />
@@ -372,22 +439,52 @@ export default function RoomView({
               </button>
             </div>
           )}
-          <Thread
-            roomId={roomId}
-            thread={snapshot.thread}
-            brandByName={brandByName}
-            names={names}
-            overseerName={overseer?.name ?? "You"}
-            channels={snapshot.channels}
-            hasAgents={agents.length > 0}
-            empty={<WaitingForAgents sessionId={detail.sessionId} onConnect={() => setShowConnect(true)} />}
-            onReply={setReplyTo}
-            modelByName={modelByName}
-            deliveries={deliveries}
-            focusAgent={focusAgent}
-            onClearFocus={() => setFocusAgent(null)}
-          />
-          {pendingApprovals.length > 0 && <ApprovalDock key={pendingApprovals[0]!.id} roomId={roomId} approvals={pendingApprovals} now={now} afterDecide={refresh} agents={mentionAgents} names={names} />}
+          {view !== "thread" && (
+            <div className="stage-bar">
+              <ViewSwitch view={view} onChange={setView} />
+              <span className="stage-bar-hint">{view === "map" ? "Who holds what, right now. Click an agent to read its messages." : "Every move in the room, lane by agent."}</span>
+            </div>
+          )}
+          {view !== "thread" && (
+            <div className="viz-wrap">
+              {(() => {
+                const vizProps = {
+                  roomId,
+                  snapshot,
+                  leases: detail.leases,
+                  branches,
+                  events,
+                  audit,
+                  theme,
+                  onSelectAgent: selectAgent,
+                  onOpenTab: openTab,
+                };
+                return view === "map" ? <RoomMap {...vizProps} /> : <Timeline {...vizProps} />;
+              })()}
+            </div>
+          )}
+          <div className="thread-host" hidden={view !== "thread"}>
+            <Thread
+              roomId={roomId}
+              thread={snapshot.thread}
+              brandByName={brandByName}
+              names={names}
+              overseerName={overseer?.name ?? "You"}
+              channels={snapshot.channels}
+              hasAgents={agents.length > 0}
+              empty={<WaitingForAgents sessionId={detail.sessionId} onConnect={() => setShowConnect(true)} />}
+              onReply={setReplyTo}
+              modelByName={modelByName}
+              deliveries={deliveries}
+              focusAgent={focusAgent}
+              onClearFocus={() => setFocusAgent(null)}
+              tasks={snapshot.tasks}
+              approvals={pendingApprovals}
+              active={view === "thread"}
+              toolbarStart={<ViewSwitch view={view} onChange={setView} />}
+            />
+          </div>
+          {pendingApprovals.length > 0 && <ApprovalDock key={pendingApprovals[0]!.id} roomId={roomId} approvals={pendingApprovals} now={now} afterDecide={refresh} agents={mentionAgents} names={names} compact={view !== "thread"} />}
           <Composer
             ref={composer}
             roomId={roomId}
@@ -421,13 +518,14 @@ export default function RoomView({
           </div>
           <div className="side-scroll" role="tabpanel">
             {tab === "claims" && <ClaimsPanel locks={snapshot.locks} leases={detail.leases} handoffs={snapshot.handoffs} brandByName={brandByName} now={now} />}
-            {tab === "tasks" && <TasksPanel roomId={roomId} tasks={snapshot.tasks} afterAction={refresh} />}
+            {tab === "tasks" && <TasksPanel roomId={roomId} tasks={snapshot.tasks} afterAction={refresh} brandByName={brandByName} />}
             {tab === "changes" && (
               <ChangesPanel
                 roomId={roomId}
                 branches={branches}
                 hasProject={!!detail.room?.projectPath}
                 showAll={showAllBranches}
+                brandByName={brandByName}
                 onToggleAll={() => setShowAllBranches((s) => !s)}
                 afterAction={() => {
                   loadBranches();
@@ -436,7 +534,7 @@ export default function RoomView({
               />
             )}
             {tab === "notes" && <NotesPanel roomId={roomId} notes={snapshot.notes} afterAction={refresh} />}
-            {tab === "activity" && <ActivityPanel roomId={roomId} tick={tick} />}
+            {tab === "activity" && <ActivityPanel roomId={roomId} tick={tick} events={audit} brandByName={brandByName} />}
           </div>
         </aside>
       </div>

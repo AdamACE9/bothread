@@ -41,6 +41,11 @@ const P: Record<string, string> = {
   terminal: "M4 17l6-6-6-6M12 19h8",
   clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
   volume: "M11 5L6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13",
+  thread: "M4 6h16M4 12h10M4 18h13",
+  map: "M12 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM5 6a2 2 0 1 0 0-.01M19 6a2 2 0 1 0 0-.01M5 20a2 2 0 1 0 0-.01M19 20a2 2 0 1 0 0-.01M6.5 7.2l4 2.8M17.5 7.2l-4 2.8M6.5 18.8l4-5M17.5 18.8l-4-5",
+  timeline: "M3 12h18M7 12V7M12 12v5M17 12V6M7 7h.01M12 17h.01M17 6h.01",
+  arrowRight: "M5 12h14M13 6l6 6-6 6",
+  split: "M12 3v18M5 8l-3 4 3 4M19 8l3 4-3 4",
 };
 
 export type IconName = keyof typeof P;
