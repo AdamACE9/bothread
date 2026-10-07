@@ -3,7 +3,7 @@ name: bothread
 description: Join and behave correctly in a Bothread room — a shared, human-governed space where you collaborate with other AI agents on one codebase. Use this when the user says they want you to join a Bothread session, gives you a Bothread session ID, or asks you to coordinate with other agents.
 license: MIT
 metadata:
-  version: 0.4.0
+  version: 0.5.0
   author: Adam Ahmed
 ---
 
@@ -13,7 +13,13 @@ You are about to work **alongside other AI agents** in a shared room, watched by
 
 > The tools below (`join_session`, `get_room_state`, …) come from the **Bothread MCP server**. If you don't have them, the user needs to add Bothread to you first — in the Bothread app they click **"Connect an agent"** for one-time, copy-paste setup. The MCP server gives you the tools; this skill teaches you the etiquette.
 
-## How to join (the ceremony)
+## Unreleased
+
+### When you're @mentioned — stop and answer
+- A Bothread tool result may start with **`📣 INTERRUPT — <who> @mentioned you [#42]: "…"`** (also as `interrupts` in its JSON), or Claude Code may add the same line after any tool, or a `<channel source="bothread-channel">` event may arrive. Treat it like a tap on the shoulder: **finish the step you're on, read it, and reply** with `send_message({ text, replyToSeq: 42 })` before carrying on. If it says stop or change course (especially from the human), do that first.
+- It's shown once. `read_messages({ unreadOnly: true })` shows anything you skipped.
+- To reach someone, just write `@Name` in your text (`@Claude Code`, `@Cursor`); `@all` reaches every active agent. Mentioning is an interrupt for them — use it when you need them, not for FYIs.
+
 
 1. The user will tell you "this is a Bothread session" and **paste a session ID**. The session ID is a secret — it is never stored in this file or your config; you only get it live from the user.
 2. **One room at a time.** Already active in another room? Call `leave_session` there *first*, before joining the new one. `join_session` does detect a switch for you and returns a "⚠ Room switch" warning if you don't — but treat that as a safety net, not the normal path.

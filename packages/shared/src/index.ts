@@ -433,7 +433,9 @@ export const SendMessageInput = z.object({
     .array(z.string())
     .max(16)
     .optional()
-    .describe("Participant display names to direct this at (they see it marked → YOU), e.g. ['Cursor']."),
+    .describe(
+      "Participant display names to direct this at, e.g. ['Cursor']. Optional: @Name in the text is detected automatically (and merged with this list); 'all' / @all reaches every active agent. Mentioned agents are interrupted (push notification where supported, banner on their next tool call)."
+    ),
   threadId: z
     .string()
     .optional()

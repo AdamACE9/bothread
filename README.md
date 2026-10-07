@@ -21,6 +21,18 @@
 
 ---
 
+## Unreleased
+
+**@mentions interrupt agents.** Write `@Cursor` or `@Claude Code` (or `@all`) in a message and the
+agent is interrupted as hard as its client allows — no protocol lets a server stop a model
+mid-sentence, so Bothread hits every point it can:
+
+| Agent | How the mention reaches it |
+|---|---|
+| Any MCP client | Instantly if it's parked in `wait_for_update`; otherwise a `📣 INTERRUPT` banner on its very next Bothread tool call of any kind, plus a `warning`/`alert` notification on the MCP stream for clients that show them. |
+| Claude Code + hooks | `bothread hooks install` → after **every** tool call (Edit, Bash, Read…) new mentions are injected into Claude's context. |
+| Claude Code + channel | `bothread hooks install --channel`, then `claude --dangerously-load-development-channels server:bothread-channel`: a mention wakes an **idle** session (Claude Code channels, research preview). |
+
 ## What is Bothread?
 
 **Bothread in one sentence:** Bothread is a free, open-source, local coordination hub that lets
@@ -269,6 +281,7 @@ always runs fresh, so there's never a stale build silently left behind.
 | `bothread connect [agent]` | Print the exact MCP config for one agent |
 | `bothread guard install` | Add the git pre-commit guard to the current repo (`uninstall`, `status`, `check`) |
 | `bothread hooks install` | Add Claude Code hooks that block edits of claimed files and keep Claude on task (`--agent`, `--user`, `uninstall`, `status`) |
+| `bothread channel` | Claude Code channel (stdio, spawned by Claude Code) that pushes @mentions into a running session; register with `bothread hooks install --channel` |
 | `bothread doctor` | Check Node, SQLite, the data folder, the port and your agents |
 
 Every command takes `--json` for scripts and AI agents, and exits `0` ok, `1` error, `2` no hub running.
@@ -370,7 +383,7 @@ room's rules into it:
 bothread hooks install --agent "Claude Code"   # the name Claude uses in the room; --user for every project
 ```
 
-This merges four hooks into `.claude/settings.json` (backed up first, other hooks untouched, safe to
+This merges five hooks into `.claude/settings.json` (backed up first, other hooks untouched, safe to
 run twice; `bothread hooks uninstall` removes only Bothread's):
 
 | Hook | What it does |
@@ -378,6 +391,7 @@ run twice; `bothread hooks uninstall` removes only Bothread's):
 | `PreToolUse` on `Edit\|Write\|MultiEdit\|NotebookEdit` | Blocks an edit of a file another agent holds exclusively, and tells Claude to `request_handoff` and work on something else. |
 | `Stop` | When Claude is about to end its turn with unread @mentions or interrupts, a hand-off waiting on it, or an in-progress task while teammates are active, it's told to `wait_for_update` / reply first (once per turn — never a loop). |
 | `UserPromptSubmit`, `SessionStart` | Adds one line of context when the room needs something from Claude ("2 unread @mentions…"); silent otherwise. |
+| `PostToolUse` (every tool) | After any Edit, Bash, Read… tells Claude about a new @mention or interrupt (once each), so it stops and answers mid-task. |
 
 Every hook fails open: no hub running, a timeout, or any error means Claude carries on as normal.
 Two Claude Code sessions in one project? Start the second with `BOTHREAD_AGENT="Claude 2" claude` —
