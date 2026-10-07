@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import type { AgentBranch, AuditEvent, DiffHunkView, HandoffView, Lease, LockView, NoteKind, RoomNote, RoomTask, TaskStatus } from "@bothread/shared";
 import { applyHunks, createTask, discardBranch, getAudit, mergeBranch, recordNote, resolveNote, updateTask } from "../api";
 import { relTime, untilTime } from "../hooks";
-import { Icon } from "../icons";
+import { Icon, type IconName } from "../icons";
 import { useToast } from "../toast";
+import { DiffBar, Ring, SegBar, brandColor } from "../charts";
 import { Avatar, Empty, fmtTime } from "../ui";
 
 /* ------------------------------- Claims -------------------------------- */
@@ -33,9 +34,13 @@ export function ClaimsPanel({
           {handoffs.map((h) => (
             <div className="handoff" key={h.id}>
               <div className="handoff-flow">
+                <Avatar name={h.heldBy} brand={brandByName.get(h.heldBy)} size={20} />
+                <span className="who">{h.heldBy}</span>
+                <span className="handoff-wire" aria-label="should hand off to">
+                  <Icon name="arrowRight" size={12} />
+                </span>
+                <Avatar name={h.requestedBy} brand={brandByName.get(h.requestedBy)} size={20} />
                 <span className="who">{h.requestedBy}</span>
-                <Icon name="arrowDown" size={12} style={{ transform: "rotate(-90deg)" }} />
-                <span className="who dim">{h.heldBy}</span>
               </div>
               <code>{h.path}</code>
               {h.message && <p className="handoff-msg">"{h.message}"</p>}
@@ -48,42 +53,66 @@ export function ClaimsPanel({
           Agents claim files before they edit them. Two agents can never hold the same file exclusively.
         </Empty>
       ) : (
-        [...byHolder.entries()].map(([holder, ls]) => (
-          <section className="block" key={holder}>
-            <h3 className="holder-head">
-              <Avatar name={holder} brand={brandByName.get(holder)} size={20} />
-              {holder}
-              <span className="count">{ls.length}</span>
-            </h3>
-            {ls.map((l) => {
-              const idleMs = now - l.heldByLastSeen;
-              const stale = !l.heldByListening && idleMs > 120_000;
-              const lease = leaseFor(l);
-              return (
-                <div className={`claim${stale ? " stale" : ""}`} key={`${l.path}:${l.heldBy}`}>
-                  <div className="claim-path">
-                    <code>{l.path}</code>
-                    <span className={`kind ${l.exclusive ? "ex" : "sh"}`}>{l.exclusive ? "exclusive" : "shared"}</span>
-                  </div>
-                  {lease?.reason && <p className="claim-reason">{lease.reason}</p>}
-                  <div className="claim-meta">
-                    {l.heldByListening ? (
-                      <span className="fresh">Holder listening</span>
-                    ) : stale ? (
-                      <span className="warn">
-                        <Icon name="alert" size={11} /> Holder quiet {Math.round(idleMs / 60000)}m, may be stale
+        <>
+          <div className="claims-sum">
+            <SegBar
+              height={10}
+              segments={[...byHolder.entries()].map(([h, ls]) => ({ key: h, value: ls.length, color: brandColor(brandByName.get(h)), label: h }))}
+            />
+            <span className="claims-sum-n">
+              {locks.length} file{locks.length === 1 ? "" : "s"} held by {byHolder.size} agent{byHolder.size === 1 ? "" : "s"}
+            </span>
+          </div>
+          {[...byHolder.entries()].map(([holder, ls]) => (
+            <section className="block claim-group" key={holder} style={{ ["--accent" as string]: brandColor(brandByName.get(holder)) }}>
+              <h3 className="holder-head">
+                <span className="holder-av">
+                  <Avatar name={holder} brand={brandByName.get(holder)} size={24} ring={ls[0]?.heldByListening ? "live" : undefined} />
+                </span>
+                {holder}
+                <span className="count">{ls.length}</span>
+              </h3>
+              {ls.map((l) => {
+                const idleMs = now - l.heldByLastSeen;
+                const stale = !l.heldByListening && idleMs > 120_000;
+                const lease = leaseFor(l);
+                const span = lease ? lease.expiresAt - lease.createdAt : 0;
+                const left = Math.max(0, l.expiresAt - now);
+                const frac = span > 0 ? Math.min(1, left / span) : 1;
+                return (
+                  <div className={`claim${stale ? " stale" : ""}${frac < 0.2 ? " low" : ""}`} key={`${l.path}:${l.heldBy}`}>
+                    <div className="claim-path">
+                      <Icon name="lock" size={12} />
+                      <code title={l.path}>{l.path}</code>
+                      <span className={`kind ${l.exclusive ? "ex" : "sh"}`}>{l.exclusive ? "exclusive" : "shared"}</span>
+                    </div>
+                    {lease?.reason && <p className="claim-reason">{lease.reason}</p>}
+                    <div className="ttl" role="img" aria-label={`Claim time left: ${untilTime(l.expiresAt, now)}`}>
+                      <span className="ttl-fill" style={{ width: `${frac * 100}%` }} />
+                    </div>
+                    <div className="claim-meta">
+                      {l.heldByListening ? (
+                        <span className="fresh">
+                          <span className="pulse" aria-hidden="true" /> Holder listening
+                        </span>
+                      ) : stale ? (
+                        <span className="warn">
+                          <Icon name="alert" size={11} /> Holder quiet {Math.round(idleMs / 60000)}m, may be stale
+                        </span>
+                      ) : (
+                        <span>Holder seen {relTime(l.heldByLastSeen, now)}</span>
+                      )}
+                      <span className="spacer" />
+                      <span className="ttl-left" title={new Date(l.expiresAt).toLocaleString()}>
+                        {untilTime(l.expiresAt, now)}
                       </span>
-                    ) : (
-                      <span>Holder seen {relTime(l.heldByLastSeen, now)}</span>
-                    )}
-                    <span className="spacer" />
-                    <span title={new Date(l.expiresAt).toLocaleString()}>{untilTime(l.expiresAt, now)}</span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </section>
-        ))
+                );
+              })}
+            </section>
+          ))}
+        </>
       )}
     </div>
   );
@@ -91,20 +120,38 @@ export function ClaimsPanel({
 
 /* -------------------------------- Tasks -------------------------------- */
 
-const TASK_GROUPS: { status: TaskStatus; label: string }[] = [
-  { status: "in_progress", label: "In progress" },
-  { status: "open", label: "Up for grabs" },
-  { status: "done", label: "Done" },
-  { status: "cancelled", label: "Cancelled" },
+type Lane = "doing" | "next" | "blocked" | "done";
+const LANES: { id: Lane; label: string; color: string; empty: string }[] = [
+  { id: "doing", label: "In progress", color: "var(--saffron)", empty: "Nobody is on a task" },
+  { id: "next", label: "Up next", color: "var(--sky)", empty: "Nothing ready to grab" },
+  { id: "blocked", label: "Blocked", color: "var(--clay)", empty: "Nothing waiting" },
+  { id: "done", label: "Done", color: "var(--teal)", empty: "Nothing finished yet" },
 ];
+function laneOf(t: RoomTask): Lane | null {
+  if (t.status === "in_progress") return "doing";
+  if (t.status === "open") return t.blocked ? "blocked" : "next";
+  if (t.status === "done") return "done";
+  return null;
+}
 
-export function TasksPanel({ roomId, tasks, afterAction }: { roomId: string; tasks: RoomTask[]; afterAction: () => void }) {
+export function TasksPanel({
+  roomId,
+  tasks,
+  afterAction,
+  brandByName = new Map(),
+}: {
+  roomId: string;
+  tasks: RoomTask[];
+  afterAction: () => void;
+  brandByName?: Map<string, string | undefined>;
+}) {
   const toast = useToast();
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [showClosed, setShowClosed] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const [hover, setHover] = useState<string | null>(null);
 
   const run = async (id: string, fn: () => Promise<unknown>) => {
     setBusy(id);
@@ -129,19 +176,105 @@ export function TasksPanel({ roomId, tasks, afterAction }: { roomId: string; tas
     });
   };
 
-  const done = tasks.filter((t) => t.status === "done").length;
-  const live = tasks.filter((t) => t.status !== "cancelled").length;
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const lanes = new Map<Lane, RoomTask[]>(LANES.map((l) => [l.id, []]));
+  for (const t of tasks) {
+    const l = laneOf(t);
+    if (l) lanes.get(l)!.push(t);
+  }
+  const cancelled = tasks.filter((t) => t.status === "cancelled");
+  const live = tasks.length - cancelled.length;
+  const done = lanes.get("done")!.length;
+  // Which tasks the hovered card waits on, and which wait on it: lit up together.
+  const hovered = hover ? byId.get(hover) : undefined;
+  const related = new Set<string>([...(hovered?.blockedBy ?? []), ...tasks.filter((t) => hover && t.blockedBy?.includes(hover)).map((t) => t.id)]);
+
+  const card = (t: RoomTask, lane: Lane) => {
+    const blocks = tasks.filter((x) => x.blockedBy?.includes(t.id) && x.status !== "done" && x.status !== "cancelled");
+    return (
+      <div
+        className={`kcard ${lane}${related.has(t.id) ? " related" : ""}${hover === t.id ? " lit" : ""}`}
+        key={t.id}
+        onMouseEnter={() => setHover(t.id)}
+        onMouseLeave={() => setHover(null)}
+        onFocus={() => setHover(t.id)}
+        onBlur={() => setHover(null)}
+        style={{ ["--accent" as string]: t.ownerName ? brandColor(brandByName.get(t.ownerName)) : "var(--line)" }}
+      >
+        <div className="kcard-top">
+          <button
+            className={`task-check${t.status === "done" ? " on" : ""}`}
+            aria-label={t.status === "done" ? `Reopen ${t.title}` : `Mark ${t.title} done`}
+            disabled={busy === t.id || lane === "blocked"}
+            onClick={() => run(t.id, () => updateTask(roomId, t.id, { status: t.status === "done" ? "open" : "done" }))}
+          >
+            {t.status === "done" ? <Icon name="check" size={11} /> : lane === "blocked" ? <Icon name="lock" size={10} /> : null}
+          </button>
+          <span className="kcard-title">{t.title}</span>
+        </div>
+        {t.note && lane !== "done" && <p className="kcard-note">{t.note}</p>}
+        {(t.blockedBy ?? []).length > 0 && lane === "blocked" && (
+          <div className="kdeps">
+            {(t.blockedBy ?? []).map((id) => {
+              const b = byId.get(id);
+              return (
+                <span key={id} className={`dep-chip ${b ? laneOf(b) ?? "" : ""}`} title={b ? `Waits on: ${b.title}` : id}>
+                  <Icon name="arrowRight" size={10} style={{ transform: "rotate(180deg)" }} />
+                  {b?.title ?? "another task"}
+                </span>
+              );
+            })}
+          </div>
+        )}
+        {blocks.length > 0 && lane !== "blocked" && lane !== "done" && (
+          <div className="kdeps">
+            <span className="dep-chip unblocks" title={blocks.map((b) => b.title).join("\n")}>
+              <Icon name="arrowRight" size={10} />
+              Unblocks {blocks.length}
+            </span>
+          </div>
+        )}
+        <div className="kcard-meta">
+          {t.ownerName ? (
+            <span className="kowner">
+              <Avatar name={t.ownerName} brand={brandByName.get(t.ownerName)} size={16} />
+              {t.ownerName}
+            </span>
+          ) : (
+            <span className="dim">Unassigned</span>
+          )}
+          <span className="spacer" />
+          {t.status !== "done" && (
+            <button className="icon-btn sm kcancel" aria-label={`Cancel ${t.title}`} title="Cancel task" disabled={busy === t.id} onClick={() => run(t.id, () => updateTask(roomId, t.id, { status: "cancelled" }))}>
+              <Icon name="x" size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="panel-body">
       {live > 0 && (
-        <div className="progress" title={`${done} of ${live} done`}>
-          <div className="progress-bar">
-            <span style={{ width: `${(done / live) * 100}%` }} />
+        <div className="kflow">
+          <Ring value={done} total={live} size={44} stroke={5} label={`${done} of ${live} tasks done`}>
+            <span className="kflow-pct">{Math.round((done / live) * 100)}%</span>
+          </Ring>
+          <div className="kflow-main">
+            <span className="kflow-title">
+              {done} of {live} done
+            </span>
+            <SegBar height={8} segments={LANES.map((l) => ({ key: l.id, value: lanes.get(l.id)!.length, color: l.color, label: l.label }))} />
+            <span className="kflow-legend">
+              {LANES.map((l) => (
+                <span key={l.id} className="dkey">
+                  <i style={{ background: l.color }} />
+                  {l.label} {lanes.get(l.id)!.length}
+                </span>
+              ))}
+            </span>
           </div>
-          <span>
-            {done}/{live} done
-          </span>
         </div>
       )}
       {adding ? (
@@ -174,75 +307,43 @@ export function TasksPanel({ roomId, tasks, afterAction }: { roomId: string; tas
           Add one here, or agents will create them with create_task as they split up the work.
         </Empty>
       ) : (
-        TASK_GROUPS.filter((g) => showClosed || g.status === "in_progress" || g.status === "open").map((g) => {
-          // Open tasks that are waiting on another task sit apart, so "up for grabs" means grabbable.
-          const list = tasks.filter((t) => t.status === g.status && !(g.status === "open" && t.blocked));
-          if (!list.length) return null;
-          return (
-            <section className="block" key={g.status}>
-              <h3>
-                {g.label} <span className="count">{list.length}</span>
-              </h3>
-              {list.map((t) => (
-                <div className={`task ${t.status}`} key={t.id}>
-                  <button
-                    className={`task-check${t.status === "done" ? " on" : ""}`}
-                    aria-label={t.status === "done" ? "Reopen task" : "Mark done"}
-                    disabled={busy === t.id || t.status === "cancelled"}
-                    onClick={() => run(t.id, () => updateTask(roomId, t.id, { status: t.status === "done" ? "open" : "done" }))}
-                  >
-                    {t.status === "done" && <Icon name="check" size={12} />}
-                  </button>
-                  <div className="task-main">
-                    <div className="task-title">{t.title}</div>
-                    {t.note && <div className="task-note">{t.note}</div>}
-                    <div className="task-meta">
-                      {t.ownerName ? <span className="owner">{t.ownerName}</span> : <span className="dim">Unassigned</span>}
-                      <span className="dim">{relTime(t.updatedAt)}</span>
-                      {t.status !== "done" && t.status !== "cancelled" && (
-                        <button className="linkish danger" disabled={busy === t.id} onClick={() => run(t.id, () => updateTask(roomId, t.id, { status: "cancelled" }))}>
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </section>
-          );
-        })
+        <div className="kboard">
+          {LANES.map((l) => {
+            const list = lanes.get(l.id)!;
+            return (
+              <section className={`klane ${l.id}`} key={l.id} style={{ ["--lane" as string]: l.color }} aria-label={`${l.label}, ${list.length}`}>
+                <h3 className="klane-head">
+                  <i aria-hidden="true" />
+                  {l.label}
+                  <span className="count">{list.length}</span>
+                </h3>
+                {list.length === 0 ? <p className="klane-empty">{l.empty}</p> : list.map((t) => card(t, l.id))}
+              </section>
+            );
+          })}
+        </div>
       )}
-      {tasks.some((t) => t.status === "open" && t.blocked) && (
-        <section className="block">
-          <h3>
-            Waiting on other tasks <span className="count">{tasks.filter((t) => t.status === "open" && t.blocked).length}</span>
-          </h3>
-          {tasks
-            .filter((t) => t.status === "open" && t.blocked)
-            .map((t) => (
-              <div className="task blocked" key={t.id}>
+      {cancelled.length > 0 && (
+        <>
+          <button className="linkish" onClick={() => setShowCancelled((s) => !s)}>
+            {showCancelled ? "Hide cancelled tasks" : `Show cancelled tasks (${cancelled.length})`}
+          </button>
+          {showCancelled &&
+            cancelled.map((t) => (
+              <div className="task cancelled" key={t.id}>
                 <span className="task-lock" aria-hidden="true">
-                  <Icon name="lock" size={12} />
+                  <Icon name="x" size={12} />
                 </span>
                 <div className="task-main">
                   <div className="task-title">{t.title}</div>
                   <div className="task-meta">
-                    <span className="dim">
-                      After{" "}
-                      {(t.blockedBy ?? [])
-                        .map((id) => tasks.find((x) => x.id === id)?.title ?? id)
-                        .join(", ")}
-                    </span>
+                    <span className="dim">{t.ownerName ?? "Unassigned"}</span>
+                    <span className="dim">{relTime(t.updatedAt)}</span>
                   </div>
                 </div>
               </div>
             ))}
-        </section>
-      )}
-      {tasks.some((t) => t.status === "done" || t.status === "cancelled") && (
-        <button className="linkish" onClick={() => setShowClosed((s) => !s)}>
-          {showClosed ? "Hide finished tasks" : `Show finished tasks (${tasks.filter((t) => t.status === "done" || t.status === "cancelled").length})`}
-        </button>
+        </>
       )}
     </div>
   );
@@ -257,7 +358,9 @@ export function ChangesPanel({
   showAll,
   onToggleAll,
   afterAction,
+  brandByName = new Map(),
 }: {
+  brandByName?: Map<string, string | undefined>;
   roomId: string;
   branches: AgentBranch[];
   hasProject: boolean;
@@ -309,7 +412,7 @@ export function ChangesPanel({
             Ready for review <span className="count hot">{ready.length}</span>
           </h3>
           {ready.map((b) => (
-            <ReadyBranch key={b.id} branch={b} busy={busy === b.id} roomId={roomId} act={act} />
+            <ReadyBranch key={b.id} branch={b} busy={busy === b.id} roomId={roomId} act={act} brand={brandByName.get(b.participantName)} />
           ))}
         </section>
       )}
@@ -319,8 +422,10 @@ export function ChangesPanel({
           {tracking.map((b) => (
             <div className="branch tracking" key={b.id}>
               <div className="branch-head">
+                <Avatar name={b.participantName} brand={brandByName.get(b.participantName)} size={22} />
                 <span className="agent">{b.participantName}</span>
                 <span className="pulse" aria-hidden="true" />
+                <span className="dim">editing {b.paths.length} path{b.paths.length === 1 ? "" : "s"}</span>
               </div>
               <div className="branch-files">{b.paths.slice(0, 4).map((p) => <code key={p}>{p}</code>)}</div>
             </div>
@@ -353,7 +458,9 @@ function ReadyBranch({
   busy,
   roomId,
   act,
+  brand,
 }: {
+  brand?: string;
   branch: AgentBranch;
   busy: boolean;
   roomId: string;
@@ -368,10 +475,16 @@ function ReadyBranch({
   const adds = hunks.reduce((n, h) => n + h.additions, 0);
   const dels = hunks.reduce((n, h) => n + h.deletions, 0);
   const files = Array.from(new Set(hunks.map((h) => h.file)));
+  const perFile = files.map((f) => {
+    const hs = hunks.filter((h) => h.file === f);
+    return { file: f, adds: hs.reduce((n, h) => n + h.additions, 0), dels: hs.reduce((n, h) => n + h.deletions, 0) };
+  });
+  const widest = Math.max(1, ...perFile.map((f) => f.adds + f.dels));
 
   return (
-    <div className="branch ready">
+    <div className="branch ready" style={{ ["--accent" as string]: brandColor(brand) }}>
       <div className="branch-head">
+        <Avatar name={b.participantName} brand={brand} size={22} />
         <span className="agent">{b.participantName}</span>
         <span className="diffstat">
           <span className="add">+{adds}</span>
@@ -381,6 +494,20 @@ function ReadyBranch({
           {files.length || b.paths.length} file{(files.length || b.paths.length) === 1 ? "" : "s"}
         </span>
       </div>
+      {perFile.length > 0 && (
+        <ul className="file-bars">
+          {perFile.map((f) => (
+            <li key={f.file}>
+              <code title={f.file}>{f.file}</code>
+              <span className="diffstat">
+                <span className="add">+{f.adds}</span>
+                <span className="del">−{f.dels}</span>
+              </span>
+              <DiffBar adds={f.adds} dels={f.dels} width={Math.max(10, Math.round(((f.adds + f.dels) / widest) * 80))} height={6} />
+            </li>
+          ))}
+        </ul>
+      )}
       {hunks.length > 0 ? (
         <>
           <button className="linkish" onClick={() => setOpen((o) => !o)}>
@@ -629,6 +756,9 @@ export const AUDIT_LABELS: Record<string, string> = {
   "handoff.cancel": "Withdrew a hand-off",
   "task.create": "Added a task",
   "task.update": "Updated a task",
+  "task.claim_next": "Took the next task",
+  "room.delete": "Room deleted",
+  "lease.guard": "Edit blocked",
   "note.record": "Recorded a note",
   "note.resolve": "Resolved a note",
 };
@@ -649,16 +779,45 @@ export function auditDetail(e: AuditEvent): string {
   return "";
 }
 
-export function ActivityPanel({ roomId, tick }: { roomId: string; tick: number }) {
-  const [events, setEvents] = useState<AuditEvent[] | null>(null);
+function auditIcon(type: string): { icon: IconName; tone: string } {
+  if (type === "lease.collision") return { icon: "shield", tone: "alert" };
+  if (type.startsWith("lease.")) return { icon: "lock", tone: "claim" };
+  if (type.startsWith("approval.")) return { icon: "hand", tone: "steer" };
+  if (type.startsWith("branch.")) return { icon: "diff", tone: "diff" };
+  if (type.startsWith("handoff.")) return { icon: "arrowRight", tone: "claim" };
+  if (type.startsWith("task.")) return { icon: "tasks", tone: "task" };
+  if (type.startsWith("note.")) return { icon: "note", tone: "note" };
+  if (type.startsWith("message.")) return { icon: "reply", tone: "chat" };
+  if (type === "participant.join") return { icon: "users", tone: "join" };
+  if (type.startsWith("participant.")) return { icon: "users", tone: "steer" };
+  if (type.startsWith("room.")) return { icon: type === "room.paused" ? "pause" : "gear", tone: "steer" };
+  return { icon: "sparkle", tone: "" };
+}
+
+export function ActivityPanel({
+  roomId,
+  tick,
+  events: given,
+  brandByName = new Map(),
+}: {
+  roomId: string;
+  tick: number;
+  /** When the room already holds the audit trail, the panel reuses it instead of fetching. */
+  events?: AuditEvent[];
+  brandByName?: Map<string, string | undefined>;
+}) {
+  const [fetched, setFetched] = useState<AuditEvent[] | null>(null);
   const [hideChat, setHideChat] = useState(true);
   useEffect(() => {
-    getAudit(roomId, 250).then(setEvents).catch(() => null);
-  }, [roomId, tick]);
+    if (given) return;
+    getAudit(roomId, 250).then(setFetched).catch(() => null);
+  }, [roomId, tick, given]);
+  const events = given ?? fetched;
 
   if (!events) return <div className="panel-body" />;
   const list = hideChat ? events.filter((e) => e.type !== "message.send" && e.type !== "message.overseer") : events;
 
+  let lastMinute = "";
   return (
     <div className="panel-body">
       <label className="toggle-row">
@@ -668,20 +827,29 @@ export function ActivityPanel({ roomId, tick }: { roomId: string; tick: number }
       {list.length === 0 ? (
         <Empty icon={<Icon name="activity" size={22} />} title="Nothing recorded yet" />
       ) : (
-        <ol className="audit">
+        <ol className="vt">
           {list.map((e) => {
             const detail = auditDetail(e);
-            const tone = e.type === "lease.collision" ? "alert" : e.type.startsWith("approval") || e.type.startsWith("room.") || e.type === "participant.revoked" ? "steer" : "";
+            const { icon, tone } = auditIcon(e.type);
+            const minute = fmtTime(e.ts);
+            const showTime = minute !== lastMinute;
+            lastMinute = minute;
             return (
-              <li className={`audit-row ${tone}`} key={e.id}>
-                <span className="audit-dot" />
-                <div className="audit-body">
-                  <div className="audit-line">
-                    <span className="audit-type">{AUDIT_LABELS[e.type] ?? e.type}</span>
-                    {e.actorName && <span className="audit-actor">{e.actorName}</span>}
-                    <time>{fmtTime(e.ts)}</time>
+              <li className={`vt-row${tone ? ` vt-${tone}` : ""}`} key={e.id}>
+                <span className="vt-time">{showTime ? minute : ""}</span>
+                <span className="vt-node" aria-hidden="true">
+                  <Icon name={icon} size={12} />
+                </span>
+                <div className="vt-body">
+                  <div className="vt-line">
+                    {e.actorName && (
+                      <span className="vt-actor" style={{ ["--accent" as string]: brandColor(brandByName.get(e.actorName)) }}>
+                        {e.actorName}
+                      </span>
+                    )}
+                    <span className="vt-type">{AUDIT_LABELS[e.type] ?? e.type}</span>
                   </div>
-                  {detail && <div className="audit-detail">{detail}</div>}
+                  {detail && <div className="vt-detail">{detail}</div>}
                 </div>
               </li>
             );

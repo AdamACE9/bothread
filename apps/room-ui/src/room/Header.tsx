@@ -5,8 +5,6 @@ import { copyText, modKey } from "../hooks";
 import { Icon } from "../icons";
 import { usePalette } from "../palette";
 import { useToast } from "../toast";
-import { Avatar, presence } from "../ui";
-import { modelLine } from "./mentions";
 
 export default function Header(props: {
   roomId: string;
@@ -30,7 +28,6 @@ export default function Header(props: {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(props.name);
   const paused = props.status === "paused";
-  const live = props.agents.filter((a) => a.status !== "left" && a.status !== "revoked");
 
   const copy = async () => {
     if (await copyText(props.sessionId)) {
@@ -105,16 +102,6 @@ export default function Header(props: {
           <span className="live-dot" />
           {!props.connected ? "Reconnecting" : paused ? "Paused" : "Live"}
         </span>
-      </div>
-
-      <div className="presence" aria-label={`${live.length} agents in the room`}>
-        {live.slice(0, 6).map((a) => (
-          <span key={a.id} className="presence-av" title={`${a.name}${a.listening ? " (listening)" : a.idle ? " (idle)" : " (working)"}${modelLine(a) ? `\n${modelLine(a)}` : ""}`}>
-            <Avatar name={a.name} brand={a.brand} size={28} ring={presence(a)} />
-          </span>
-        ))}
-        {live.length > 6 && <span className="presence-more">+{live.length - 6}</span>}
-        {live.length === 0 && <span className="presence-none">No agents yet</span>}
       </div>
 
       <span className="spacer" />

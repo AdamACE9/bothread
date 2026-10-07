@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ThreadEntry } from "@bothread/shared";
+import type { Approval, RoomTask, ThreadEntry } from "@bothread/shared";
 import { OVERSEER_THREAD_LIMIT } from "@bothread/shared";
 import { getMessagesBefore } from "../api";
 import { copyText, modKey } from "../hooks";
 import { Icon, type IconName } from "../icons";
 import { Avatar, CopyButton, fmtDay, fmtTime, richText } from "../ui";
+import { brandColor } from "../charts";
+import { EventCard, parseSystem, softenDashes, type ParsedEvent } from "./EventCard";
 import { deliveryLines, type Delivery } from "./mentions";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -77,6 +79,10 @@ export default function Thread({
   deliveries,
   focusAgent,
   onClearFocus,
+  tasks = [],
+  approvals = [],
+  toolbarStart,
+  active = true,
 }: {
   roomId: string;
   thread: ThreadEntry[];
@@ -93,6 +99,13 @@ export default function Thread({
   deliveries?: Map<number, Delivery[]>;
   focusAgent?: string | null;
   onClearFocus?: () => void;
+  /** For the visual event cards: task titles and what is still waiting on you. */
+  tasks?: RoomTask[];
+  approvals?: Approval[];
+  /** Rendered at the start of the filter bar (the view switcher). */
+  toolbarStart?: ReactNode;
+  /** False while another stage view is showing: the thread stays mounted but idle. */
+  active?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [older, setOlder] = useState<ThreadEntry[]>([]);
@@ -104,6 +117,9 @@ export default function Thread({
   const [unseen, setUnseen] = useState(0);
   const [flash, setFlash] = useState<number | null>(null);
   const lastSeq = useRef<number>(0);
+  // Only messages that arrive while the room is open animate in; the list on load does not.
+  const enterFloor = useRef<number | null>(null);
+  const entering = useRef<Set<number>>(new Set());
   const prevHeight = useRef<number | null>(null);
   const latest = thread[thread.length - 1]?.seq ?? 0;
 
@@ -131,6 +147,8 @@ export default function Thread({
     setSearchOpen(false);
     setQuery("");
     lastSeq.current = 0;
+    enterFloor.current = null;
+    entering.current = new Set();
     const seen = readSeen(roomId);
     setDivider(seen !== null && seen < latestRef.current ? seen : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,8 +235,21 @@ export default function Thread({
     setQuery("");
   };
 
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  // Coming back from another view: land on the latest if that's where the reader was.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (active && el && atBottom) {
+      el.scrollTop = el.scrollHeight;
+      setUnseen(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!activeRef.current) return;
       const t = e.target as HTMLElement;
       if (e.key === "j" && !e.metaKey && !e.ctrlKey && !/INPUT|TEXTAREA|SELECT/.test(t.tagName) && !document.querySelector(".overlay")) jump();
       // Ctrl/Cmd+F searches the thread. A second press inside the search box falls
@@ -298,6 +329,29 @@ export default function Thread({
 
   const onlySystem = combined.every((m) => m.kind === "system");
 
+  // New-arrival animation: everything at or below the floor seen on first paint is static.
+  if (enterFloor.current === null && latest) enterFloor.current = latest;
+  const floor = enterFloor.current ?? Infinity;
+  for (const m of thread) if (m.seq > floor) entering.current.add(m.seq);
+
+  // Parse system lines once per render; pair approval requests with their later decision.
+  const parsed = new Map<number, ParsedEvent | null>();
+  for (const m of combined) if (m.kind === "system") parsed.set(m.seq, parseSystem(m.text));
+  const decisionOf = new Map<number, "approved" | "rejected" | "edited">();
+  {
+    const open: { seq: number; key: string }[] = [];
+    for (const m of combined) {
+      const ev = parsed.get(m.seq);
+      if (ev?.kind !== "approval") continue;
+      const key = `${ev.who}|${ev.action}`;
+      if (!ev.decision) open.push({ seq: m.seq, key });
+      else {
+        const i = open.findIndex((o) => o.key === key);
+        if (i !== -1) decisionOf.set(open.splice(i, 1)[0]!.seq, ev.decision);
+      }
+    }
+  }
+
   const rows: ReactNode[] = [];
   let prev: ThreadEntry | undefined;
   for (const m of visible) {
@@ -318,12 +372,38 @@ export default function Thread({
         </div>
       );
     }
-    if (m.kind === "system") {
+    const enter = entering.current.has(m.seq) ? " enter" : "";
+    const marks = `${flash === m.seq ? " flash" : ""}${hitSet.has(m.seq) ? " hit" : ""}${curHit === m.seq ? " hit-cur" : ""}${enter}`;
+    const ev = m.kind === "system" ? parsed.get(m.seq) : null;
+    if (m.kind === "system" && ev && ev.kind !== "presence") {
+      rows.push(
+        <EventCard
+          key={m.seq}
+          ev={ev}
+          m={m}
+          brandByName={brandByName}
+          tasks={tasks}
+          approvals={approvals}
+          decisionFor={decisionOf.get(m.seq)}
+          className={marks}
+        />
+      );
+    } else if (m.kind === "system" && ev?.kind === "presence") {
+      rows.push(
+        <div className={`sysline presence-line ${ev.verb}${marks}`} key={m.seq} data-seq={m.seq} style={{ ["--accent" as string]: brandColor(brandByName.get(ev.who)) }}>
+          <Avatar name={ev.who} brand={brandByName.get(ev.who)} size={18} />
+          <span className="sys-text">
+            <strong>{q ? highlightAuthor(ev.who, q) : ev.who}</strong> {ev.verb === "joined" ? "joined the room" : "left the room"}
+          </span>
+          <time>{fmtTime(m.at)}</time>
+        </div>
+      );
+    } else if (m.kind === "system") {
       const tone = m.importance === "interrupt" ? "alert" : m.importance === "steering" ? "steer" : "";
       rows.push(
-        <div className={`sysline ${tone}${flash === m.seq ? " flash" : ""}${hitSet.has(m.seq) ? " hit" : ""}${curHit === m.seq ? " hit-cur" : ""}`} key={m.seq} data-seq={m.seq} role={m.importance === "interrupt" ? "alert" : undefined}>
+        <div className={`sysline ${tone}${marks}`} key={m.seq} data-seq={m.seq} role={m.importance === "interrupt" ? "alert" : undefined}>
           <Icon name={systemIcon(m.text)} size={13} />
-          <span className="sys-text">{richText(m.text, roomId, { names, highlight: q || undefined })}</span>
+          <span className="sys-text">{richText(softenDashes(m.text), roomId, { names, highlight: q || undefined })}</span>
           <time>{fmtTime(m.at)}</time>
         </div>
       );
@@ -349,11 +429,13 @@ export default function Thread({
         flash === m.seq ? "flash" : "",
         hitSet.has(m.seq) ? "hit" : "",
         curHit === m.seq ? "hit-cur" : "",
+        enter.trim(),
       ]
         .filter(Boolean)
         .join(" ");
+      const accent = m.kind === "human" ? "var(--copper)" : brandColor(brandByName.get(m.author));
       rows.push(
-        <article className={cls} key={m.seq} data-seq={m.seq}>
+        <article className={cls} key={m.seq} data-seq={m.seq} style={{ ["--accent" as string]: accent }}>
           <div className="msg-gutter">
             {grouped ? (
               <time className="msg-time-hover">{fmtTime(m.at)}</time>
@@ -364,6 +446,7 @@ export default function Thread({
           <div className="msg-body">
             {!grouped && (
               <header className="msg-head">
+                <span className="author-dot" aria-hidden="true" />
                 <span className="author" title={modelByName?.get(m.author) || undefined}>
                   {q ? highlightAuthor(m.author, q) : m.author}
                 </span>
@@ -423,6 +506,7 @@ export default function Thread({
   return (
     <div className="thread-col">
       <div className="thread-filters" role="toolbar" aria-label="Filter the thread">
+        {toolbarStart}
         <div className="tf-chips">
           <button className={`chip${!topic && !onlyYou && !focusAgent ? " on" : ""}`} onClick={() => (setTopic(""), setOnlyYou(false), onClearFocus?.())}>
             Everything

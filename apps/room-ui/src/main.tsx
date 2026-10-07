@@ -7,6 +7,7 @@ import "@fontsource-variable/hanken-grotesk";
 import "@fontsource-variable/jetbrains-mono";
 import App from "./App";
 import "./index.css";
+import "./loom.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -10,6 +10,9 @@ const ROWS: [string[], string][] = [
   [[modKey, "F"], "Search the thread"],
   [["Enter"], "Send  (Shift + Enter for a new line)"],
   [["1", "…", "5"], "Switch side panel tab"],
+  [["G", "T"], "Thread view"],
+  [["G", "M"], "Map view"],
+  [["G", "L"], "Timeline view"],
   [["C"], "Connect an agent"],
   [["Shift", "P"], "Pause or resume the room"],
   [["Shift", "A"], "Approve the pending request"],
@@ -40,7 +43,7 @@ export default function Shortcuts({ onClose }: { onClose: () => void }) {
           {ROWS.map(([keys, label]) => (
             <div key={label}>
               <dt>
-                {keys.map((k, i) => (k === "…" ? <span key={i}>to</span> : <Kbd key={i}>{k}</Kbd>))}
+                {keys.map((k, i) => (k === "…" ? <span key={i}>to</span> : k === "G" ? <span key={i} className="then"><Kbd>G</Kbd> then</span> : <Kbd key={i}>{k}</Kbd>))}
               </dt>
               <dd>{label}</dd>
             </div>

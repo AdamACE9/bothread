@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createRoom, deleteRoom, getConnectInfo, getHealth, listRoomSummaries, startDemo, type RoomSummary } from "./api";
+import { createRoom, deleteRoom, getAudit, getConnectInfo, getHealth, listRoomSummaries, startDemo, type RoomSummary } from "./api";
 import { relTime, useNow } from "./hooks";
 import { Icon } from "./icons";
 import { usePalette, usePaletteActions } from "./palette";
 import { useToast } from "./toast";
-import { Avatar, CopyButton, Kbd } from "./ui";
+import { Sparkline, brandColor, bucketize } from "./charts";
+import { CopyButton, Kbd, initials } from "./ui";
 import { modKey } from "./hooks";
 
 export function Wordmark() {
@@ -47,6 +48,7 @@ export default function Landing({
   const [hub, setHub] = useState<{ version?: string; sessions: number; mcpUrl?: string } | null>(null);
   const [hubDown, setHubDown] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const [pulse, setPulse] = useState<Map<string, number[]>>(new Map());
 
   const refresh = () =>
     listRoomSummaries()
@@ -69,6 +71,27 @@ export default function Landing({
   useEffect(() => {
     document.title = "Bothread";
   }, []);
+
+  // A sparkline per room: audit events per 2.5 minutes over the last hour, for the rooms on screen.
+  const roomIds = (rooms ?? []).slice(0, 12).map((s) => s.room.id).join(",");
+  useEffect(() => {
+    if (!roomIds) return;
+    let alive = true;
+    const load = () =>
+      Promise.all(
+        roomIds.split(",").map((id) =>
+          getAudit(id, 200)
+            .then((ev) => [id, bucketize(ev.map((e) => e.ts), Date.now(), 60 * 60_000, 24)] as const)
+            .catch(() => null)
+        )
+      ).then((list) => alive && setPulse(new Map(list.filter((x): x is readonly [string, number[]] => !!x).map(([k, v]) => [k, v]))));
+    load();
+    const iv = setInterval(load, 15_000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [roomIds]);
 
   const create = async () => {
     const n = name.trim();
@@ -161,59 +184,51 @@ export default function Landing({
         </button>
       </header>
 
-      <main className="home-main">
-        <section className="home-intro">
-          <h1>Your agents, one room, you in charge.</h1>
-          <p className="lede">
-            Start a room and paste its session ID into each coding agent. They claim files before editing, talk in one
-            thread, and ask you before anything risky.
-          </p>
-
-          <form
-            className="create-card"
-            onSubmit={(e) => {
-              e.preventDefault();
-              create();
-            }}
-          >
-            <label className="create-field">
-              <span>Room name</span>
-              <input
-                ref={nameRef}
-                className="field lg"
-                autoFocus
-                placeholder="payments-refactor"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={80}
-              />
-            </label>
-            <label className="create-field">
-              <span>
-                Project folder <em>optional</em>
-              </span>
-              <input
-                className="field mono"
-                placeholder="/Users/you/code/my-app  or  C:\code\my-app"
-                value={projectPath}
-                onChange={(e) => setProjectPath(e.target.value)}
-                spellCheck={false}
-              />
-              <small>If it's a git repo, every agent's edits come back as a diff you can merge, trim or throw away.</small>
-            </label>
-            <div className="create-actions">
-              <button className="btn primary lg" type="submit" disabled={busy}>
-                <Icon name="plus" size={16} />
-                {busy ? "Creating" : "Create room"}
-              </button>
-              {rooms?.length === 0 && (
-                <button className="btn lg" type="button" onClick={openDemo} disabled={demoBusy} title="Three simulated agents working in a demo room">
-                  <Icon name="play" size={15} />
+      <main className="home-main v2">
+        <section className="hero">
+          <div className="hero-copy">
+            <h1>Your agents, one room, you in charge.</h1>
+            <p className="lede">
+              Start a room and paste its session ID into each coding agent. They claim files before editing, talk in one
+              thread, and ask you before anything risky.
+            </p>
+            <form
+              className="create-card"
+              onSubmit={(e) => {
+                e.preventDefault();
+                create();
+              }}
+            >
+              <label className="create-field">
+                <span>Room name</span>
+                <input ref={nameRef} className="field lg" autoFocus placeholder="payments-refactor" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+              </label>
+              <label className="create-field">
+                <span>
+                  Project folder <em>optional</em>
+                </span>
+                <input
+                  className="field mono"
+                  placeholder="/Users/you/code/my-app  or  C:\code\my-app"
+                  value={projectPath}
+                  onChange={(e) => setProjectPath(e.target.value)}
+                  spellCheck={false}
+                />
+                <small>If it's a git repo, every agent's edits come back as a diff you can merge, trim or throw away.</small>
+              </label>
+              <div className="create-actions">
+                <button className="btn primary lg" type="submit" disabled={busy}>
+                  <Icon name="plus" size={16} />
+                  {busy ? "Creating" : "Create room"}
+                </button>
+                <button className="btn lg demo-btn" type="button" onClick={openDemo} disabled={demoBusy} title="Three simulated agents working in a demo room">
+                  <span className="demo-dot" aria-hidden="true" />
                   {demoBusy ? "Starting demo" : "See a live demo"}
                 </button>
-              )}
-            </div>
-          </form>
+              </div>
+            </form>
+          </div>
+          <LoomArt />
         </section>
 
         <section className="home-rooms" aria-label="Your rooms">
@@ -226,11 +241,7 @@ export default function Landing({
                 <Icon name="hand" size={14} /> {waiting} waiting on you
               </span>
             )}
-            {(rooms?.length ?? 0) > 0 && (
-              <button className="link-btn demo-link" type="button" onClick={openDemo} disabled={demoBusy}>
-                {demoBusy ? "Starting demo" : "Open the demo"}
-              </button>
-            )}
+            <span className="spacer" />
             {(rooms?.length ?? 0) > 4 && (
               <label className="filter">
                 <Icon name="search" size={14} />
@@ -249,75 +260,83 @@ export default function Landing({
           ) : visible.length === 0 ? (
             <p className="muted-line">No room matches "{filter}".</p>
           ) : (
-            <ul className="room-list">
-              {visible.map((s) => (
-                <li key={s.room.id}>
-                  <div
-                    className={`room-row${s.pendingApprovals ? " needs-you" : ""}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onOpen(s.room.id)}
-                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen(s.room.id))}
-                  >
-                    <div className="room-main">
-                      <div className="room-title">
-                        <span className="nm">{s.room.name}</span>
-                        {s.room.status !== "active" && <span className={`pill ${s.room.status}`}>{s.room.status}</span>}
-                      </div>
-                      {s.room.projectPath ? (
-                        <div className="room-path" title={s.room.projectPath}>
-                          <Icon name="folder" size={12} />
-                          {s.room.projectPath}
+            <ul className="room-grid">
+              {visible.map((s) => {
+                const active = now - s.lastActivityAt < 3 * 60_000 && s.room.status === "active";
+                const series = pulse.get(s.room.id);
+                return (
+                  <li key={s.room.id}>
+                    <div
+                      className={`room-card${s.pendingApprovals ? " needs-you" : ""}${active ? " active" : ""}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open ${s.room.name}`}
+                      onClick={() => onOpen(s.room.id)}
+                      onKeyDown={(e) => e.target === e.currentTarget && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen(s.room.id))}
+                    >
+                      <div className="rc-top">
+                        <Orbit agents={s.agents} active={active} count={s.messageCount} />
+                        <div className="rc-id">
+                          <div className="room-title">
+                            <span className="nm">{s.room.name}</span>
+                            {s.room.status !== "active" && <span className={`pill ${s.room.status}`}>{s.room.status}</span>}
+                          </div>
+                          {s.room.projectPath ? (
+                            <div className="room-path" title={s.room.projectPath}>
+                              <Icon name="folder" size={12} />
+                              <span>{s.room.projectPath}</span>
+                            </div>
+                          ) : (
+                            <div className="room-path dim">No project folder</div>
+                          )}
+                          <div className={`rc-when${active ? " live" : ""}`}>
+                            {active && <span className="live-dot" aria-hidden="true" />}
+                            {active ? "Active now" : `Last active ${relTime(s.lastActivityAt, now)}`}
+                          </div>
                         </div>
-                      ) : (
-                        <div className="room-path dim">No project folder</div>
-                      )}
+                        <div className="room-del" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                          {confirmDelete === s.room.id ? (
+                            <span className="confirm">
+                              <button className="btn sm danger solid" onClick={() => remove(s)}>
+                                Delete forever
+                              </button>
+                              <button className="btn sm ghost" onClick={() => setConfirmDelete(null)}>
+                                Keep
+                              </button>
+                            </span>
+                          ) : (
+                            <button className="icon-btn sm" title="Delete room" aria-label={`Delete room ${s.room.name}`} onClick={() => setConfirmDelete(s.room.id)}>
+                              <Icon name="trash" size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <dl className="rc-stats">
+                        <div>
+                          <dt>Agents</dt>
+                          <dd>{s.agents.length}</dd>
+                        </div>
+                        <div>
+                          <dt>Messages</dt>
+                          <dd>{s.messageCount}</dd>
+                        </div>
+                        <div>
+                          <dt>Claims</dt>
+                          <dd>{s.activeClaims}</dd>
+                        </div>
+                        <div className={s.pendingApprovals ? "hot" : ""}>
+                          <dt>Approvals</dt>
+                          <dd>{s.pendingApprovals}</dd>
+                        </div>
+                      </dl>
+                      <div className="rc-spark">
+                        <Sparkline values={series ?? new Array(24).fill(0)} width={300} height={34} color={s.pendingApprovals ? "var(--clay)" : "var(--copper)"} label={`${s.room.name}: activity over the last hour`} />
+                        <span className="rc-spark-cap">{series && series.some(Boolean) ? "Activity, last hour" : "Quiet for the last hour"}</span>
+                      </div>
                     </div>
-                    <div className="room-stack" aria-label={`${s.agents.length} agents`}>
-                      {s.agents.slice(0, 4).map((a) => (
-                        <span key={a.name} title={a.name}>
-                          <Avatar name={a.name} brand={a.brand} size={26} />
-                        </span>
-                      ))}
-                      {s.agents.length > 4 && <span className="more">+{s.agents.length - 4}</span>}
-                      {s.agents.length === 0 && <span className="none">no agents</span>}
-                    </div>
-                    <div className="room-stats">
-                      {s.pendingApprovals > 0 ? (
-                        <span className="stat hot">
-                          {s.pendingApprovals} approval{s.pendingApprovals === 1 ? "" : "s"}
-                        </span>
-                      ) : s.activeClaims > 0 ? (
-                        <span className="stat">
-                          {s.activeClaims} claim{s.activeClaims === 1 ? "" : "s"}
-                        </span>
-                      ) : null}
-                      <span className="stat dim">{relTime(s.lastActivityAt, now)}</span>
-                    </div>
-                    <div className="room-del" onClick={(e) => e.stopPropagation()}>
-                      {confirmDelete === s.room.id ? (
-                        <span className="confirm">
-                          <button className="btn sm danger solid" onClick={() => remove(s)}>
-                            Delete forever
-                          </button>
-                          <button className="btn sm ghost" onClick={() => setConfirmDelete(null)}>
-                            Keep
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          className="icon-btn sm"
-                          title="Delete room"
-                          aria-label={`Delete room ${s.room.name}`}
-                          onClick={() => setConfirmDelete(s.room.id)}
-                        >
-                          <Icon name="trash" size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
@@ -331,6 +350,102 @@ export default function Landing({
         <span className="spacer" />
         <span>Runs on this machine. Your code never leaves it.</span>
       </footer>
+    </div>
+  );
+}
+
+/** A room as a little orbit: its agents on a ring, a shuttle circling while it's active. */
+function Orbit({ agents, active, count }: { agents: { name: string; brand: string | null }[]; active: boolean; count: number }) {
+  const size = 84;
+  const c = size / 2;
+  const r = 30;
+  const shown = agents.slice(0, 6);
+  return (
+    <svg className={`orbit${active ? " spin" : ""}`} width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${agents.length} agents${active ? ", active now" : ""}`}>
+      <circle cx={c} cy={c} r={r} className="orbit-ring" />
+      <circle cx={c} cy={c} r={r - 11} className="orbit-ring inner" />
+      <g className="orbit-shuttle">
+        <circle cx={c + r} cy={c} r={2.6} />
+      </g>
+      <text x={c} y={c + 4} textAnchor="middle" className="orbit-count">
+        {count > 999 ? `${Math.round(count / 100) / 10}k` : count}
+      </text>
+      {shown.map((a, i) => {
+        const ang = (i / Math.max(1, shown.length)) * Math.PI * 2 - Math.PI / 2;
+        const x = c + r * Math.cos(ang);
+        const y = c + r * Math.sin(ang);
+        const col = brandColor(a.brand);
+        return (
+          <g key={a.name} className="orbit-node">
+            <title>{a.name}</title>
+            <circle cx={x} cy={y} r={9.5} className="orbit-node-bg" style={{ stroke: col }} />
+            <text x={x} y={y + 3} textAnchor="middle" style={{ fill: col }}>
+              {initials(a.name)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** The hero: warp threads, three agents riding the weft, a copper shuttle drawing the line between them. */
+function LoomArt() {
+  const warps = Array.from({ length: 13 }, (_, i) => 30 + i * 32);
+  const wefts = [
+    { y: 92, cls: "w1", agent: { x: 126, label: "CC", color: "var(--claude)" } },
+    { y: 180, cls: "w2", agent: { x: 286, label: "CU", color: "var(--cursor)" } },
+    { y: 268, cls: "w3", agent: { x: 190, label: "CO", color: "var(--codex)" } },
+  ];
+  const weave = (y: number, phase: number) => {
+    let d = `M14,${y}`;
+    for (let i = 0; i < warps.length; i++) {
+      const x = warps[i]!;
+      const dy = (i + phase) % 2 === 0 ? -7 : 7;
+      d += ` Q${x - 16},${y + dy} ${x},${y}`;
+    }
+    return `${d} T${436},${y}`;
+  };
+  return (
+    <div className="loom-art" aria-hidden="true">
+      <svg viewBox="0 0 450 360" width="100%" height="100%">
+        <defs>
+          <linearGradient id="loom-thread" x1="0" x2="1">
+            <stop offset="0" stopColor="var(--copper)" />
+            <stop offset="1" stopColor="var(--saffron)" />
+          </linearGradient>
+          <radialGradient id="loom-glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0" stopColor="var(--copper)" stopOpacity="0.22" />
+            <stop offset="1" stopColor="var(--copper)" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="225" cy="180" rx="220" ry="170" fill="url(#loom-glow)" />
+        {warps.map((x) => (
+          <line key={x} x1={x} x2={x} y1={28} y2={332} className="warp" />
+        ))}
+        {wefts.map((w, i) => (
+          <g key={w.cls}>
+            <path d={weave(w.y, i)} className={`weft ${w.cls}`} />
+            <path d={weave(w.y, i)} className={`weft-run ${w.cls}`} pathLength={100} />
+          </g>
+        ))}
+        <path d="M126,92 C190,110 230,160 286,180 S220,240 190,268" className="tie" pathLength={100} />
+        {wefts.map((w) => (
+          <g key={w.agent.label} className={`loom-agent ${w.cls}`}>
+            <circle cx={w.agent.x} cy={w.y} r={19} className="la-halo" style={{ fill: w.agent.color }} />
+            <circle cx={w.agent.x} cy={w.y} r={14} className="la-core" style={{ stroke: w.agent.color }} />
+            <text x={w.agent.x} y={w.y + 4} textAnchor="middle" style={{ fill: w.agent.color }}>
+              {w.agent.label}
+            </text>
+          </g>
+        ))}
+        <g className="loom-you">
+          <rect x="356" y="296" width="70" height="28" rx="14" />
+          <text x="391" y="314" textAnchor="middle">
+            You
+          </text>
+        </g>
+      </svg>
     </div>
   );
 }
