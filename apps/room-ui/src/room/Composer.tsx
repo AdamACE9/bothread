@@ -129,7 +129,7 @@ const Composer = forwardRef<
       )}
       <div className="composer-box">
         {mp.picker}
-        {text.trim() && agents.length > 0 && (
+        {agents.length > 0 && (recipients.all || recipients.names.length > 0 || (!mp.open && text.trim().length > 0)) && (
           <div className="recipients" aria-live="polite">
             <span className="rcp-to">To</span>
             {recipients.all && (

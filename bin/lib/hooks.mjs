@@ -4,16 +4,20 @@
  *   bothread hooks install   [--agent "<room name>"] [--user] [--path <project>] [--json]
  *   bothread hooks uninstall [--user] [--path <project>] [--json]
  *   bothread hooks status    [--user] [--path <project>] [--json]
- *   bothread hooks run <pre-edit|stop|context> --agent "<room name>"   (called BY Claude Code)
+ *   bothread hooks run <pre-edit|stop|context|notify> --agent "<room name>"   (called BY Claude Code)
  *
- * install merges four handlers into `.claude/settings.json` (project) or the user's
+ * install merges five handlers into `.claude/settings.json` (project) or the user's
  * `~/.claude/settings.json` (--user, honoring CLAUDE_CONFIG_DIR):
  *   PreToolUse  Edit|Write|MultiEdit|NotebookEdit → run pre-edit  (exit 2 = edit blocked)
+ *   PostToolUse (every tool)                      → run notify    (JSON additionalContext =
+ *                                                   new @mentions / interrupts, once each)
  *   Stop                                          → run stop      (exit 2 = keep working)
  *   UserPromptSubmit, SessionStart                → run context   (stdout = extra context)
+ * install --channel also registers `bothread channel` as "bothread-channel" in the
+ * project's .mcp.json (a Claude Code channel: push into an idle session).
  * Other hooks in the file are never touched; the file is backed up before any write;
  * running it twice changes nothing; uninstall removes only handlers whose command
- * contains "hooks run pre-edit|stop|context" and "bothread".
+ * contains "hooks run pre-edit|stop|context|notify" and "bothread".
  *
  * `run` never fails the agent: it exits 0 (allow) on any error, when the hub is down,
  * or with BOTHREAD_HOOKS=off, and 2 only for a deliberate block. It honors
@@ -32,22 +36,25 @@ import path from "node:path";
 import { backupFile } from "./agents.mjs";
 
 export const HOOK_ACTIONS = ["install", "uninstall", "status", "run"];
-export const RUN_KINDS = ["pre-edit", "stop", "context"];
+export const RUN_KINDS = ["pre-edit", "stop", "context", "notify"];
 const EDIT_MATCHER = "Edit|Write|MultiEdit|NotebookEdit";
 const DEFAULT_AGENT = "Claude Code";
+/** The .mcp.json server name `install --channel` registers (and Claude Code's server:<name>). */
+export const CHANNEL_SERVER_NAME = "bothread-channel";
+export const CHANNEL_LAUNCH = `claude --dangerously-load-development-channels server:${CHANNEL_SERVER_NAME}`;
 const DEFAULT_PORT = 4889;
 const isWin = process.platform === "win32";
 
 /* ─────────────────────────── shared helpers ─────────────────────────── */
 
-function portFromEnv(flags = {}) {
+export function portFromEnv(flags = {}) {
   const raw = String(flags.port ?? process.env.BOTHREAD_PORT ?? "").trim();
   const n = Number(raw);
   return /^\d+$/.test(raw) && n >= 1 && n <= 65535 ? n : DEFAULT_PORT;
 }
 
 /** JSON over node:http to the local hub (never a proxy). Rejects on network errors/timeouts. */
-function hubCall(port, method, urlPath, body, timeoutMs) {
+export function hubCall(port, method, urlPath, body, timeoutMs) {
   return new Promise((resolve, reject) => {
     const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     const headers = { accept: "application/json" };
@@ -105,7 +112,7 @@ function gitRoot(start) {
 }
 
 /** The project a hook invocation is about: repo root of the session's cwd, else the cwd. */
-function projectOf(input) {
+export function projectOf(input) {
   const cwd = (typeof input?.cwd === "string" && input.cwd) || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   return realish(gitRoot(cwd) ?? cwd);
 }
@@ -226,6 +233,46 @@ async function runContext(flags, input, out) {
   return 0;
 }
 
+/**
+ * One line per new interrupt, for Claude's context (same wording as the tool-result banner).
+ * Shows the newest 3 per room; the rest are counted.
+ */
+export function notifyText(rooms) {
+  const lines = [];
+  for (const room of rooms) {
+    const items = Array.isArray(room.interrupts) ? room.interrupts : [];
+    if (!items.length) continue;
+    const shown = items.slice(-3);
+    const more = items.length - shown.length;
+    if (more > 0) lines.push(`📣 ${plural(more, "more interrupt")} for you in Bothread room "${room.roomName}" — read_messages({ unreadOnly: true }) to see them all.`);
+    for (const i of shown) {
+      const who = i.authorKind === "human" ? `${i.author} (human)` : i.authorKind === "system" ? "Bothread" : i.author;
+      const what = i.mentioned ? "@mentioned you" : "sent an interrupt";
+      const text = String(i.text ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+      lines.push(
+        `📣 INTERRUPT from Bothread room "${room.roomName}" — ${who} ${what} [#${i.seq}]: "${text}" → read and respond before continuing ` +
+          `(bothread send_message with replyToSeq: ${i.seq}); if it says stop or change course, do that first.`
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * PostToolUse (every tool): new @mentions / interrupts → injected into Claude's context as
+ * JSON `hookSpecificOutput.additionalContext`, and marked notified so neither this hook nor
+ * the tool-result banner repeats them. Silent (no output) when there's nothing. Always 0.
+ */
+async function runNotify(flags, input, out) {
+  const agent = agentFor(flags);
+  const projectPath = projectOf(input);
+  const r = await hubCall(portFromEnv(flags), "POST", "/api/agent-inbox", { projectPath, agent, mark: true }, 500);
+  if (r.status !== 200 || !Array.isArray(r.json?.rooms)) return 0;
+  const text = notifyText(r.json.rooms);
+  if (text) out(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: text } }) + "\n");
+  return 0;
+}
+
 export async function runHook(kind, flags, io = {}) {
   const out = io.out ?? ((s) => process.stdout.write(s));
   const err = io.err ?? ((s) => process.stderr.write(s.endsWith("\n") ? s : s + "\n"));
@@ -235,6 +282,7 @@ export async function runHook(kind, flags, io = {}) {
     if (kind === "pre-edit") return await runPreEdit(flags, input, err);
     if (kind === "stop") return await runStop(flags, input, err);
     if (kind === "context") return await runContext(flags, input, out);
+    if (kind === "notify") return await runNotify(flags, input, out);
     return 0;
   } catch {
     return 0; // fail open: hub down, timeout, bad input — never get in the agent's way
@@ -243,7 +291,7 @@ export async function runHook(kind, flags, io = {}) {
 
 /* ─────────────────────────── settings.json ─────────────────────────── */
 
-const OUR_CMD = /\bhooks run (pre-edit|stop|context)\b/;
+const OUR_CMD = /\bhooks run (pre-edit|stop|context|notify)\b/;
 export const isOurHandler = (h) => !!h && typeof h === "object" && typeof h.command === "string" && OUR_CMD.test(h.command) && /bothread/i.test(h.command);
 
 /** Where hooks go: project `.claude/settings.json` (repo root of --path / cwd), or the user's. */
@@ -285,6 +333,8 @@ export function ourHooks(agent, invocation) {
   const cmd = (kind, timeout) => ({ type: "command", command: `${invocation} hooks run ${kind} --agent ${q(agent)}`, timeout });
   return {
     PreToolUse: [{ matcher: EDIT_MATCHER, hooks: [cmd("pre-edit", 10)] }],
+    // No matcher = every tool (Edit, Bash, Read, MCP tools …): the mid-task interrupt.
+    PostToolUse: [{ hooks: [cmd("notify", 5)] }],
     Stop: [{ hooks: [cmd("stop", 10)] }],
     UserPromptSubmit: [{ hooks: [cmd("context", 5)] }],
     SessionStart: [{ hooks: [cmd("context", 5)] }],
@@ -375,8 +425,56 @@ function writeSettings(file, exists, settings) {
 
 const SAFE_NAME = /^[^"`$\\\r\n]{1,64}$/;
 
+/** The .mcp.json entry that runs `bothread channel --agent <name>` the same way the hooks run. */
+export function channelEntry({ root, channel, version, agent }) {
+  const tail = ["channel", "--agent", agent];
+  const inv = hookInvocation({ root, channel, version });
+  if (inv === "bothread") return { command: "bothread", args: tail };
+  if (inv.startsWith("npx ")) return { command: "npx", args: ["-y", `bothread@${version || "latest"}`, ...tail] };
+  return { command: "node", args: [path.join(root, "bin", "bothread.mjs"), ...tail] };
+}
+
+const mcpJsonOf = (target) => (target.project ? path.join(target.project, ".mcp.json") : null);
+
+/** Add / update "bothread-channel" in the project's .mcp.json (merged, backed up, idempotent). */
+function installChannel(target, agent, ctx, dryRun) {
+  const entry = channelEntry({ ...ctx, agent });
+  const file = mcpJsonOf(target);
+  if (!file) {
+    const cmd = [entry.command, ...entry.args].map((a) => (/\s/.test(a) ? q(a) : a)).join(" ");
+    return { file: null, changed: false, manual: `claude mcp add --scope user ${CHANNEL_SERVER_NAME} -- ${cmd}`, launch: CHANNEL_LAUNCH };
+  }
+  const { exists, settings } = readSettings(file, ctx.CliError);
+  const servers = settings.mcpServers && typeof settings.mcpServers === "object" && !Array.isArray(settings.mcpServers) ? settings.mcpServers : {};
+  const next = { ...settings, mcpServers: { ...servers, [CHANNEL_SERVER_NAME]: entry } };
+  const changed = JSON.stringify(next) !== JSON.stringify(settings);
+  const backup = changed && !dryRun ? writeSettings(file, exists, next) : null;
+  return { file, changed, backup, entry, launch: CHANNEL_LAUNCH };
+}
+
+/** Remove "bothread-channel" from the project's .mcp.json, if it's there. */
+function uninstallChannel(target, CliError) {
+  const file = mcpJsonOf(target);
+  if (!file || !fs.existsSync(file)) return { file, changed: false };
+  const { exists, settings } = readSettings(file, CliError);
+  if (!settings.mcpServers || typeof settings.mcpServers !== "object" || !(CHANNEL_SERVER_NAME in settings.mcpServers)) return { file, changed: false };
+  const next = { ...settings, mcpServers: { ...settings.mcpServers } };
+  delete next.mcpServers[CHANNEL_SERVER_NAME];
+  return { file, changed: true, backup: writeSettings(file, exists, next) };
+}
+
+function channelInstalled(target) {
+  const file = mcpJsonOf(target);
+  try {
+    return !!file && !!JSON.parse(fs.readFileSync(file, "utf8"))?.mcpServers?.[CHANNEL_SERVER_NAME];
+  } catch {
+    return false;
+  }
+}
+
 /** Install / update the hooks. Returns a result object (never prints). */
-export function installHooks(flags, { root, channel, version, CliError }) {
+export function installHooks(flags, ctx) {
+  const { root, channel, version, CliError } = ctx;
   const agent = String(flags.agent ?? process.env.BOTHREAD_AGENT ?? DEFAULT_AGENT).trim();
   if (!SAFE_NAME.test(agent)) throw new CliError(`--agent must be 1–64 characters without quotes, backslashes, $ or backticks (got '${agent}').`);
   const target = settingsTarget(flags);
@@ -386,7 +484,18 @@ export function installHooks(flags, { root, channel, version, CliError }) {
   const next = withOurs(settings, agent, invocation);
   const changed = JSON.stringify(next) !== JSON.stringify(settings);
   const backup = changed && !flags["dry-run"] ? writeSettings(target.file, exists, next) : null;
-  return { ok: true, action: "install", changed, ...target, agent, invocation, backup, events: Object.keys(ourHooks(agent, invocation)) };
+  const channelResult = flags.channel ? installChannel(target, agent, ctx, !!flags["dry-run"]) : undefined;
+  return {
+    ok: true,
+    action: "install",
+    changed,
+    ...target,
+    agent,
+    invocation,
+    backup,
+    events: Object.keys(ourHooks(agent, invocation)),
+    ...(channelResult ? { channel: channelResult } : {}),
+  };
 }
 
 export function uninstallHooks(flags, { CliError }) {
@@ -395,7 +504,7 @@ export function uninstallHooks(flags, { CliError }) {
   const next = withoutOurs(settings);
   const changed = exists && JSON.stringify(next) !== JSON.stringify(settings);
   const backup = changed ? writeSettings(target.file, exists, next) : null;
-  return { ok: true, action: "uninstall", changed, ...target, backup };
+  return { ok: true, action: "uninstall", changed, ...target, backup, channel: uninstallChannel(target, CliError) };
 }
 
 export async function hooksStatus(flags, { CliError }) {
@@ -410,7 +519,7 @@ export async function hooksStatus(flags, { CliError }) {
   } catch {
     /* down */
   }
-  return { ...target, exists, ...info, disabled: hooksOff(), hub: { running, port } };
+  return { ...target, exists, ...info, channel: { installed: channelInstalled(target), launch: CHANNEL_LAUNCH }, disabled: hooksOff(), hub: { running, port } };
 }
 
 /* ─────────────────────────── the command ─────────────────────────── */
@@ -431,6 +540,7 @@ export async function cmdHooks({ flags, positionals }, ctx) {
   if (!HOOK_ACTIONS.includes(action)) throw new CliError(`Unknown hooks action '${positionals[0]}'. Actions: install, uninstall, status`);
   if (positionals.length > 1) throw new CliError(`'bothread hooks ${action}' takes no arguments (got '${positionals[1]}').`);
   if (action !== "install" && flags.agent !== undefined) throw new CliError(`--agent only applies to 'bothread hooks install' (and run).`);
+  if (action !== "install" && flags.channel) throw new CliError(`--channel only applies to 'bothread hooks install' (uninstall always removes it).`);
   if (flags.user && flags.path) throw new CliError("Pick one of --user or --path.");
 
   if (action === "status") {
@@ -443,6 +553,7 @@ export async function cmdHooks({ flags, positionals }, ctx) {
     if (st.installed) console.log(`  ${c.green("●")} ${c.bold("Bothread hooks are installed")} in ${st.file}  ${c.dim(`(as "${st.agent}")`)}`);
     else console.log(`  ${c.dim("○")} ${c.bold("Bothread hooks are not installed")} in ${st.file}`);
     if (st.installed) console.log(`    events: ${st.events.join(", ")}`);
+    if (st.channel.installed) console.log(`    push channel: registered in .mcp.json — start Claude Code with ${c.bold(st.channel.launch)}`);
     if (st.disabled) console.log(`    ${c.yellow("!")} BOTHREAD_HOOKS=off in this shell — the hooks do nothing here.`);
     console.log(`    hub: ${st.hub.running ? c.green(`running on port ${st.hub.port}`) : c.dim(`not running on port ${st.hub.port} (hooks allow everything until it is)`)}`);
     if (!st.installed) console.log(`\n  Install them:  ${c.bold('bothread hooks install --agent "<your room name>"')}`);
@@ -459,9 +570,20 @@ export async function cmdHooks({ flags, positionals }, ctx) {
   if (action === "install") {
     console.log(`  ${c.green("✓")} Claude Code hooks ${r.changed ? "installed" : "already installed"} in ${c.bold(r.file)}  ${c.dim(`(as "${r.agent}")`)}`);
     console.log(`    ${c.dim("Edits of files another agent holds are blocked; Claude keeps going while the room needs it.")}`);
+    console.log(`    ${c.dim("After every tool call Claude is told about new @mentions and interrupts from the room.")}`);
     console.log(`    ${c.dim(`Runs: ${r.invocation} hooks run …`)}`);
+    if (r.channel?.file) {
+      console.log(`  ${c.green("✓")} Push channel ${r.channel.changed ? "registered" : "already registered"} in ${c.bold(r.channel.file)}  ${c.dim(`(${CHANNEL_SERVER_NAME})`)}`);
+      console.log(`    Start Claude Code with: ${c.bold(r.channel.launch)}`);
+      console.log(`    ${c.dim("Channels are a Claude Code research preview: claude.ai login or Console API key; Team/Enterprise admins must enable them.")}`);
+    } else if (r.channel?.manual) {
+      console.log(`  ${c.yellow("!")} The push channel lives in an MCP config, not settings.json. Add it with:`);
+      console.log(`    ${c.bold(r.channel.manual)}`);
+      console.log(`    then start Claude Code with: ${c.bold(r.channel.launch)}`);
+    }
   } else if (r.changed) console.log(`  ${c.green("✓")} Bothread hooks removed from ${c.bold(r.file)}`);
   else console.log(`  ${c.dim("·")} No Bothread hooks in ${r.file} — nothing to remove.`);
+  if (action === "uninstall" && r.channel?.changed) console.log(`  ${c.green("✓")} Push channel removed from ${c.bold(r.channel.file)}`);
   if (r.backup) console.log(`    ${c.dim(`backup: ${r.backup}`)}`);
   if (action === "install" && r.changed) console.log(`    ${c.dim("Open Claude Code's /hooks menu (or restart it) so it picks them up.")}`);
   console.log("");

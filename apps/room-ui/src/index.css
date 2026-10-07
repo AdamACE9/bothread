@@ -2307,33 +2307,6 @@ textarea.field.sm {
 .btn.send {
   height: 32px;
 }
-.mention-pop {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 10px;
-  z-index: 20;
-  min-width: 220px;
-  padding: 4px;
-  border-radius: var(--r);
-  background: var(--raise);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow-pop);
-  animation: pop 0.12s var(--ease);
-}
-.mention-pop button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 34px;
-  padding: 0 8px;
-  border-radius: 7px;
-  font-size: 0.88rem;
-}
-.mention-pop button.sel {
-  background: var(--raise-2);
-  color: var(--text);
-}
 .composer.paused .composer-box {
   border-style: dashed;
 }
@@ -3890,5 +3863,10 @@ mark.hl {
   }
   .composer-bar {
     gap: 6px;
+  }
+}
+@media (max-width: 440px) {
+  .rhead .demo-badge {
+    display: none;
   }
 }
