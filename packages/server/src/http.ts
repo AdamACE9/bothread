@@ -534,6 +534,52 @@ export function buildApp(deps: HttpDeps): {
     res.json(engine.agentStatus({ projectPath: project, agent }));
   }));
 
+  // Interrupts for an agent (by room display name) in rooms bound to a project: what the
+  // Claude Code PostToolUse hook (`mark: true` — shown once, shared with the tool-result
+  // banner) and the channel server (`since`, its own cursor; `waitMs` long-polls up to 30s
+  // for the next message) ask. Loopback only, like agent-status.
+  api.post("/agent-inbox", localOnly, async (req: Request, res: Response) => {
+    try {
+      const body = (req.body ?? {}) as { projectPath?: unknown; agent?: unknown; mark?: unknown; since?: unknown; waitMs?: unknown };
+      const projectPath = typeof body.projectPath === "string" ? body.projectPath : "";
+      const agent = typeof body.agent === "string" ? body.agent.trim() : "";
+      if (!projectPath || !path.isAbsolute(projectPath)) throw new BothreadError("bad_input", "projectPath (an absolute folder path) is required.");
+      if (!agent) throw new BothreadError("bad_input", "agent (the room display name) is required.");
+      let since: Record<string, number> | undefined;
+      if (body.since && typeof body.since === "object" && !Array.isArray(body.since)) {
+        since = {};
+        for (const [k, v] of Object.entries(body.since as Record<string, unknown>)) if (typeof v === "number" && Number.isFinite(v)) since[k] = v;
+      }
+      const input = { projectPath, agent, mark: body.mark === true, since };
+      const waitMs = typeof body.waitMs === "number" && Number.isFinite(body.waitMs) ? Math.max(0, Math.min(30_000, body.waitMs)) : 0;
+      let result = engine.agentInbox(input);
+      if (waitMs > 0 && !result.rooms.some((r) => r.interrupts.length)) {
+        await new Promise<void>((resolve) => {
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            off();
+            clearTimeout(timer);
+            resolve();
+          };
+          const off = deps.bus.onAny((ev) => {
+            if (ev.type === "message" || ev.type === "participant") finish();
+          });
+          const timer = setTimeout(finish, waitMs);
+          res.on("close", finish); // the caller went away
+        });
+        if (res.writableEnded || res.destroyed) return;
+        result = engine.agentInbox(input);
+      }
+      res.json(result);
+    } catch (err) {
+      if (res.headersSent) return;
+      if (err instanceof BothreadError) res.status(400).json({ error: err.message, code: err.code });
+      else res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // Serve files agents drop in `<projectPath>/.bothread/attachments/` — the
   // shared evidence folder (screenshots, structured results). Never part of the
   // git-diff review pipeline; this is a plain static read scoped to that folder.

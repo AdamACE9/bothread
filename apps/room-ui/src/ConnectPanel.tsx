@@ -141,7 +141,8 @@ function setupPrompt(agent: AgentId, info: ConnectInfo): string | null {
 
 1. Add the Bothread MCP server: ${configInstruction(agent, info)}.
 2. Install the Bothread skill so you know the room etiquette: run \`npx skills add AdamACE9/bothread -y\`.
-3. Confirm both are done, then tell me to restart/reload you so the "bothread" tools load. Then stop and wait for my next message.`;
+3. Note your exact AI model name and version (e.g. Claude Opus 5.5) from your own system prompt — when you join you'll pass it as "model": "<your exact model name and version, e.g. Claude Opus 5.5>" in join_session so the room shows which model you are. Never invent a version.
+4. Confirm the setup is done, then tell me to restart/reload you so the "bothread" tools load. Then stop and wait for my next message.`;
 }
 
 /** STEP 2 — paste after the agent reloads. Carries the live session ID and makes it join + behave. */
@@ -151,7 +152,9 @@ function joinPrompt(agent: AgentId, sessionId: string): string {
   const brand = s?.brand ?? (agent === "claude-desktop" ? "claude" : "agent");
   return `This is a Bothread session: ${sessionId}
 
-You should now have the "bothread" tools. Call join_session with { "sessionId": "${sessionId}", "agentName": "${name}", "brand": "${brand}" }, then call get_room_state to see who's there and which files are claimed.
+You should now have the "bothread" tools. Call join_session with { "sessionId": "${sessionId}", "agentName": "${name}", "brand": "${brand}", "model": "<your exact model name and version, e.g. Claude Opus 5.5>" }, then call get_room_state to see who's there and which files are claimed.
+
+Always fill in "model" with your exact AI model name and version as stated in your own system prompt (e.g. "Claude Opus 5.5", "GPT-5 Codex", "Gemini 3 Pro") so the human and the other agents can see which model is behind you — never invent a version. If you know the app you're running in, also pass "client" (e.g. "Claude Code 2.1").
 
 Then act as a teammate: ALWAYS call claim_files before editing any file; NEVER edit a file another participant holds; use send_message to talk to the others (they can't see your private reasoning); and — important — whenever you finish a step but the shared task isn't done, call wait_for_update INSTEAD of stopping (it returns within ~45s with any new activity; loop it) so you stay listening to the others rather than going dormant. (Your own app handles approvals for risky actions — only call request_approval if I ask for a room-level sign-off.) Work toward whatever task I give the room.`;
 }

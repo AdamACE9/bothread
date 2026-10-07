@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import { SubscribeRequestSchema, UnsubscribeRequestSchema, type ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   CancelHandoffInput,
@@ -31,13 +31,15 @@ import {
   type RoomTask,
   type ThreadEntry,
 } from "@bothread/shared";
-import type { Caller, Engine } from "../engine/engine";
+import type { Caller, Engine, InterruptView } from "../engine/engine";
 import { BothreadError, nextStepFor } from "../engine/errors";
 import { VERSION } from "../version";
 
 /** Mutable holder for the connection's MCP session id (set on initialize). */
 export interface McpConn {
   sessionId: string | undefined;
+  /** Resource URIs this client subscribed to (resources/subscribe) — the hub sends resources/updated for them. */
+  subscriptions?: Set<string>;
 }
 
 type ToolResult = {
@@ -91,6 +93,62 @@ export function formatSdkToolError(raw: string): string {
   const unknown = raw.match(/Tool (\S+) (not found|disabled)/);
   if (unknown) return errorText(`There is no tool named ${unknown[1]}.`, "unknown_tool");
   return errorText(raw.replace(/^MCP error -?\d+:\s*/, ""), undefined);
+}
+
+/** How many interrupts the banner spells out (newest last); the rest are counted. */
+const BANNER_MAX = 3;
+
+function oneLine(text: string, max = 220): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+/**
+ * The interrupt banner prepended to a tool result:
+ *   📣 INTERRUPT — You (human) @mentioned you [#42]: "stop editing loader.ts" → read and respond
+ *   before continuing (reply with send_message replyToSeq: 42).
+ * Exported for the hooks/channel wording to stay in step (and for tests).
+ */
+export function renderInterruptBanner(items: InterruptView[]): string {
+  if (!items.length) return "";
+  const shown = items.slice(-BANNER_MAX);
+  const lines = shown.map((i) => {
+    const who = i.authorKind === "human" ? `${i.author} (human)` : i.authorKind === "system" ? "Bothread" : i.author;
+    const what = i.mentioned ? (i.importance === "interrupt" ? "@mentioned you (interrupt)" : "@mentioned you") : "sent an interrupt";
+    return `📣 INTERRUPT — ${who} ${what} [#${i.seq}]: "${oneLine(i.text)}" → read and respond before continuing (reply with send_message replyToSeq: ${i.seq}).`;
+  });
+  const more = items.length - shown.length;
+  if (more > 0) lines.unshift(`📣 ${more} more interrupt${more === 1 ? "" : "s"} for you before these — read_messages({ unreadOnly: true }) to see them all.`);
+  return lines.join("\n");
+}
+
+/**
+ * Put the caller's pending interrupts in front of a tool result: the banner above the
+ * text, and `interrupts` in the JSON block (added to the object, or as its own block when
+ * the data isn't an object / there is none).
+ */
+export function withInterruptBanner(res: ToolResult, items: InterruptView[]): ToolResult {
+  if (!items.length) return res;
+  const first = res.content[0];
+  if (!first || first.type !== "text") return res;
+  const interrupts = items.slice(-20);
+  let text = first.text;
+  const fence = /\n\n```json\n([^\n]*)\n```$/;
+  const m = text.match(fence);
+  let merged = false;
+  if (m) {
+    try {
+      const data = JSON.parse(m[1]!) as unknown;
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        text = text.slice(0, m.index) + `\n\n\`\`\`json\n${JSON.stringify({ ...(data as object), interrupts })}\n\`\`\``;
+        merged = true;
+      }
+    } catch {
+      /* leave it */
+    }
+  }
+  if (!merged) text += `\n\n\`\`\`json\n${JSON.stringify({ interrupts })}\n\`\`\``;
+  return { ...res, content: [{ type: "text", text: `${renderInterruptBanner(items)}\n\n${text}` }, ...res.content.slice(1)] };
 }
 
 /** Shared staleness phrasing for a lock/claim holder, used by renderSnapshot, check_files and claim_files. */
@@ -252,7 +310,9 @@ export function renderSnapshot(s: RoomSnapshot): string {
     for (const p of others) {
       const files = p.claimedFiles.length ? ` holding [${p.claimedFiles.join(", ")}]` : "";
       const caps = p.capabilities?.length ? ` [capabilities: ${p.capabilities.join(", ")}]` : "";
-      const brand = p.brand ? ` (${p.brand})` : "";
+      // Identity tag: brand + self-reported model (+ client app), e.g. " (codex, GPT-5 Codex)".
+      const ident = [p.brand, p.model, p.client ? `via ${p.client}` : undefined].filter(Boolean);
+      const brand = ident.length ? ` (${ident.join(", ")})` : "";
       if (p.idle) {
         const mins = Math.max(1, Math.round((Date.now() - p.lastSeen) / 60000));
         lines.push(`  • ${p.name}${brand} — idle (no activity in ${mins}m, may have dropped off)${files}${caps}`);
@@ -342,7 +402,7 @@ function hints(h: { readOnly?: boolean; destructive?: boolean; idempotent?: bool
 
 const SERVER_INSTRUCTIONS = [
   "Bothread: a shared room where you work with other AI agents while a human oversees. Your loop:",
-  "1. join_session with the session ID the human pasted (never guess one). Its result IS the room state.",
+  "1. join_session: the human's session ID (never guess) + model (your exact AI model+version). Its result IS the room state.",
   "2. Orient: file holders, open tasks, messages marked → YOU. Need work? claim_next_task.",
   "3. claim_files before editing. PREVENTED = don't edit; request_handoff or pick other work.",
   "4. Work. Talk only via send_message — your own text is invisible to others.",
@@ -362,7 +422,7 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
   const server = new McpServer(
     { name: "bothread", version: VERSION },
     {
-      capabilities: { logging: {}, resources: {} },
+      capabilities: { logging: {}, resources: { subscribe: true } },
       instructions: SERVER_INSTRUCTIONS,
     }
   );
@@ -377,6 +437,24 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
       isError: true,
     });
   }
+
+  // Every tool result carries the caller's not-yet-shown interrupts (@mentions, the human's
+  // interrupts) as a banner — the "push" an MCP client can't miss: it lands on the agent's
+  // very next Bothread call of any kind. Patched before any tool is registered.
+  const registerTool = server.registerTool.bind(server) as unknown as (
+    name: string,
+    config: unknown,
+    cb: (...a: unknown[]) => Promise<ToolResult>
+  ) => unknown;
+  (server as unknown as { registerTool: typeof registerTool }).registerTool = (name, config, cb) =>
+    registerTool(name, config, async (...a: unknown[]) => {
+      const res = await cb(...a);
+      try {
+        return withInterruptBanner(res, engine.takeInterruptsForMcp(conn.sessionId));
+      } catch {
+        return res; // never let the banner break a tool
+      }
+    });
 
   /* ----------------------------- Prompts ----------------------------- */
 
@@ -401,7 +479,9 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
               type: "text",
               text:
                 `Join the Bothread room with session ID ${sessionId}.\n\n` +
-                `1. Call join_session({ sessionId: "${sessionId}", agentName: ${nameArg}, brand: <your product, lowercase> }). ` +
+                `1. Call join_session({ sessionId: "${sessionId}", agentName: ${nameArg}, brand: <your product, lowercase>, ` +
+                `model: "<your exact model name and version, e.g. Claude Opus 5.5>", client: "<the app you run in, if known>" }). ` +
+                "Always pass model so the room shows which AI model you are — take it from your own system prompt; never invent a version. " +
                 "Its result is the full room state — read it; don't call get_room_state again right away.\n" +
                 "2. Post a short hello with send_message: bullets saying what you'll work on.\n" +
                 "3. claim_files before editing anything; never edit a file someone else holds.\n" +
@@ -494,6 +574,18 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
     markdownResource((caller) => renderNotesMarkdown(caller.room.name, engine.listNotes(caller.room.id)))
   );
 
+  // resources/subscribe: the hub sends notifications/resources/updated for bothread://room/state
+  // (and any other subscribed room resource) when a message lands in the caller's room.
+  conn.subscriptions ??= new Set();
+  server.server.setRequestHandler(SubscribeRequestSchema, (req) => {
+    conn.subscriptions!.add(req.params.uri);
+    return {};
+  });
+  server.server.setRequestHandler(UnsubscribeRequestSchema, (req) => {
+    conn.subscriptions!.delete(req.params.uri);
+    return {};
+  });
+
   /* ------------------------------ Tools ------------------------------ */
 
   server.registerTool(
@@ -501,7 +593,7 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
     {
       title: "Join a Bothread room",
       description:
-        "Join the shared room using the session ID the human pasted to you (never guess one). Returns the full room state: who is present, which files are claimed, tasks, notes, the recent conversation, and the etiquette. Call this before anything else — you don't need get_room_state right after.",
+        "Join the shared room using the session ID the human pasted to you (never guess one). Always pass `model` — your exact AI model name and version (e.g. 'Claude Opus 5.5', 'GPT-5 Codex', 'Gemini 3 Pro') — and `client` (the app you run in) if known, so the human and other agents can see which model is behind you. Returns the full room state: who is present, which files are claimed, tasks, notes, the recent conversation, and the etiquette. Call this before anything else — you don't need get_room_state right after.",
       inputSchema: JoinSessionInput.shape,
       annotations: hints({}),
     },
@@ -528,7 +620,13 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
         const next =
           "\n\nNext: you already have the room state above — don't call get_room_state again right now. " +
           "send_message a short hello (bullets: what you'll work on), then claim_files before editing.";
-        return ok(`${switchNote}${welcomeBack}Joined as ${participant.name}.\n\n${renderSnapshot(snapshot)}${next}`, snapshot);
+        const modelTip = participant.model
+          ? ""
+          : "\n\nTip: re-call join_session with model: '<your exact model and version>' so the room shows which model you are.";
+        return ok(
+          `${switchNote}${welcomeBack}Joined as ${participant.name}.\n\n${renderSnapshot(snapshot)}${next}${modelTip}`,
+          snapshot
+        );
       } catch (e) {
         return fail(e);
       }
@@ -564,7 +662,7 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
     {
       title: "Send a message to the room",
       description:
-        "Post to the shared thread so other agents and the human can see it. Your own private reasoning is NOT visible to others — use this to coordinate. Use mentions to direct it at a participant by name. If you mention anyone, the result tells you honestly whether they're currently listening (parked in wait_for_update) — a real delivery signal, not a guess.",
+        "Post to the shared thread so other agents and the human can see it. Your own private reasoning is NOT visible to others — use this to coordinate. To direct it at someone, just write @Name in the text (matched against the room's participants, case-insensitive, names with spaces like @Claude Code work) or pass mentions; @all / @everyone / @here reaches every active agent. Mentioned agents are interrupted: they get a push notification where their client supports it, and a banner on their very next Bothread tool call. The result tells you honestly whether each mentioned agent is listening right now (parked in wait_for_update) — a real delivery signal, not a guess. Use importance 'interrupt' only for genuine stop-and-read blockers.",
       inputSchema: SendMessageInput.shape,
       annotations: hints({}),
     },
@@ -572,7 +670,7 @@ export function createMcpServer(engine: Engine, conn: McpConn): McpServer {
       try {
         const caller = engine.resolveCaller(conn.sessionId, args.sessionId);
         const msg = engine.sendMessage(caller, args);
-        const mentionDelivery = engine.mentionDeliveryStatus(caller, args.mentions ?? []);
+        const mentionDelivery = engine.mentionDeliveryStatus(caller, msg.mentions);
         let summary = `Sent (seq ${msg.seq}).`;
         if (mentionDelivery.length) {
           const parts = mentionDelivery.map((m) =>

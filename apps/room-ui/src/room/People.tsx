@@ -5,6 +5,7 @@ import { relTime } from "../hooks";
 import { Icon } from "../icons";
 import { useToast } from "../toast";
 import { Avatar, presence } from "../ui";
+import { modelLine } from "./mentions";
 
 function statusLine(p: ParticipantView, now: number): string {
   if (p.status === "revoked") return "Access revoked";
@@ -22,6 +23,9 @@ export default function People({
   afterAction,
   onConnect,
   onMention,
+  onPing,
+  focused,
+  onFocusAgent,
   doing,
 }: {
   roomId: string;
@@ -30,6 +34,9 @@ export default function People({
   afterAction: () => void;
   onConnect: () => void;
   onMention: (name: string) => void;
+  onPing: (name: string) => void;
+  focused?: string | null;
+  onFocusAgent: (name: string | null) => void;
   doing?: Map<string, { label: string; ts: number }>;
 }) {
   const agents = participants.filter((p) => p.kind === "agent");
@@ -54,7 +61,7 @@ export default function People({
       ) : (
         <ul className="people-list">
           {here.map((p) => (
-            <AgentCard key={p.id} p={p} roomId={roomId} now={now} afterAction={afterAction} onMention={onMention} doing={doing?.get(p.name)} />
+            <AgentCard key={p.id} p={p} roomId={roomId} now={now} afterAction={afterAction} onMention={onMention} onPing={onPing} focused={focused === p.name} onFocus={() => onFocusAgent(focused === p.name ? null : p.name)} doing={doing?.get(p.name)} />
           ))}
         </ul>
       )}
@@ -68,7 +75,7 @@ export default function People({
           {showGone && (
             <ul className="people-list dim">
               {gone.map((p) => (
-                <AgentCard key={p.id} p={p} roomId={roomId} now={now} afterAction={afterAction} onMention={onMention} doing={doing?.get(p.name)} />
+                <AgentCard key={p.id} p={p} roomId={roomId} now={now} afterAction={afterAction} onMention={onMention} onPing={onPing} focused={focused === p.name} onFocus={() => onFocusAgent(focused === p.name ? null : p.name)} doing={doing?.get(p.name)} />
               ))}
             </ul>
           )}
@@ -92,8 +99,14 @@ function AgentCard({
   now,
   afterAction,
   onMention,
+  onPing,
+  focused,
+  onFocus,
   doing,
 }: {
+  onPing: (name: string) => void;
+  focused: boolean;
+  onFocus: () => void;
   doing?: { label: string; ts: number };
   p: ParticipantView;
   roomId: string;
@@ -146,12 +159,25 @@ function AgentCard({
     );
 
   return (
-    <li className={`agent-card ${presence(p)}`}>
+    <li className={`agent-card ${presence(p)}${focused ? " focused" : ""}`}>
       <Avatar name={p.name} brand={p.brand} size={34} ring={presence(p)} />
       <div className="agent-body">
         <div className="agent-top">
-          <span className="nm">{p.name}</span>
-          {p.brand && <span className="brand">{p.brand}</span>}
+          <button
+            type="button"
+            className="nm nm-btn"
+            onClick={onFocus}
+            aria-pressed={focused}
+            title={focused ? "Show the whole thread" : `Show only messages by or mentioning ${p.name}`}
+          >
+            {p.name}
+          </button>
+          {p.brand && !p.model && <span className="brand">{p.brand}</span>}
+          {active && (
+            <button className="ping-btn" onClick={() => onPing(p.name)} title={`Ping ${p.name}: @mention it with Stop and read`}>
+              <Icon name="zap" size={12} /> Ping
+            </button>
+          )}
           {active && (
             <div className="menu-wrap" ref={menuRef}>
               <button className="icon-btn sm" onClick={() => setMenu((m) => !m)} aria-label={`Actions for ${p.name}`} aria-expanded={menu}>
@@ -161,6 +187,12 @@ function AgentCard({
                 <div className="menu" role="menu">
                   <button role="menuitem" onClick={() => (setMenu(false), onMention(p.name))}>
                     <Icon name="reply" size={14} /> Message {p.name}
+                  </button>
+                  <button role="menuitem" onClick={() => (setMenu(false), onPing(p.name))}>
+                    <Icon name="zap" size={14} /> Ping (stop and read)
+                  </button>
+                  <button role="menuitem" onClick={() => (setMenu(false), onFocus())}>
+                    <Icon name="search" size={14} /> {focused ? "Show the whole thread" : "Show only its messages"}
                   </button>
                   <button role="menuitem" onClick={nudge}>
                     <Icon name="bell" size={14} /> Nudge
@@ -192,6 +224,11 @@ function AgentCard({
             </div>
           )}
         </div>
+        {modelLine(p) && (
+          <div className="agent-model" title={modelLine(p)}>
+            {modelLine(p)}
+          </div>
+        )}
         <div className={`agent-status ${presence(p)}`}>
           {p.listening && active && <span className="pulse" aria-hidden="true" />}
           {statusLine(p, now)}

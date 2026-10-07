@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentBranch, Approval, AuditEvent, ServerEvent, ThreadEntry } from "@bothread/shared";
+import { chime, desktopNotify, flashTitle, setBaseTitle } from "./alerts";
 import { getAudit, listBranches, setRoomStatus } from "./api";
 import ConnectPanel from "./ConnectPanel";
 import { useMedia, usePref, useNow } from "./hooks";
@@ -13,7 +14,8 @@ import Composer, { type ComposerHandle } from "./room/Composer";
 import Header from "./room/Header";
 import People from "./room/People";
 import SettingsModal from "./room/SettingsModal";
-import Thread, { WaitingForAgents } from "./room/Thread";
+import Thread, { WaitingForAgents, mentionsHuman } from "./room/Thread";
+import { modelLine, toMentionAgent, type Delivery } from "./room/mentions";
 import { AUDIT_LABELS, ActivityPanel, ChangesPanel, ClaimsPanel, NotesPanel, TasksPanel, auditDetail } from "./room/panels";
 
 type Tab = "claims" | "tasks" | "changes" | "notes" | "activity";
@@ -25,16 +27,22 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: "activity", label: "Activity", icon: "activity" },
 ];
 
-function notify(title: string, body: string, enabled: boolean) {
-  if (!enabled || !document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+const notify = desktopNotify;
+
+/** Who each of the human's messages reached, per room, for this browser session. */
+function loadDeliveries(roomId: string): Map<number, Delivery[]> {
   try {
-    const n = new Notification(title, { body, icon: "/favicon.svg", tag: title });
-    n.onclick = () => {
-      window.focus();
-      n.close();
-    };
+    const raw = sessionStorage.getItem(`bothread.deliveries.${roomId}`);
+    return new Map(raw ? (JSON.parse(raw) as [number, Delivery[]][]) : []);
   } catch {
-    /* some browsers only allow notifications from a service worker */
+    return new Map();
+  }
+}
+function saveDeliveries(roomId: string, m: Map<number, Delivery[]>) {
+  try {
+    sessionStorage.setItem(`bothread.deliveries.${roomId}`, JSON.stringify([...m].slice(-80)));
+  } catch {
+    /* not persisted */
   }
 }
 
@@ -61,6 +69,10 @@ export default function RoomView({
   const panel = narrow ? drawer : panelPref;
   const setPanel = narrow ? setDrawer : setPanelPref;
   const [notifyPref, setNotifyPref] = usePref<"on" | "off">("notify", "off");
+  const [chimePref, setChimePref] = usePref<"on" | "off">("chime", "on");
+  const [focusAgent, setFocusAgent] = useState<string | null>(null);
+  const [deliveries, setDeliveries] = useState<Map<number, Delivery[]>>(() => loadDeliveries(roomId));
+  const overseerNameRef = useRef("You");
   const [showConnect, setShowConnect] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [replyTo, setReplyTo] = useState<ThreadEntry | null>(null);
@@ -109,12 +121,22 @@ export default function RoomView({
           });
       }
       if (ev.type === "message") {
-        const m = d.message as { kind: string; importance: string; authorName: string; text: string; seq: number } | undefined;
-        if (m && m.kind !== "system" && document.hidden) setUnread((u) => u + 1);
-        if (m && m.kind === "agent" && m.importance === "interrupt") notify(`${m.authorName} needs a decision`, m.text.slice(0, 140), notifyPref === "on");
+        const m = d.message as
+          | { kind: string; importance: string; authorName: string; text: string; seq: number; mentions?: string[]; retractedAt?: number; editedAt?: number }
+          | undefined;
+        if (m && m.kind !== "system" && document.hidden && !m.editedAt) setUnread((u) => u + 1);
+        if (m && m.kind === "agent" && !m.retractedAt && !m.editedAt) {
+          const atYou = mentionsHuman({ mentions: m.mentions ?? [], text: m.text }, overseerNameRef.current);
+          if (atYou || m.importance === "interrupt") {
+            const title = atYou ? `${m.authorName} mentioned you` : `${m.authorName} needs a decision`;
+            if (chimePref === "on") chime();
+            notify(title, m.text.slice(0, 140), notifyPref === "on");
+            flashTitle(title);
+          }
+        }
       }
     },
-    [toast, loadBranches, notifyPref, setPanel, setTab]
+    [toast, loadBranches, notifyPref, chimePref, setPanel, setTab]
   );
 
   const { detail, connected, refresh, error } = useRoom(roomId, onEvent);
@@ -150,7 +172,20 @@ export default function RoomView({
   useEffect(() => {
     knownAgents.current = null;
     setReplyTo(null);
+    setFocusAgent(null);
+    setDeliveries(loadDeliveries(roomId));
   }, [roomId]);
+
+  const recordDelivery = useCallback(
+    (seq: number, list: Delivery[]) =>
+      setDeliveries((prev) => {
+        const next = new Map(prev);
+        next.set(seq, list);
+        saveDeliveries(roomId, next);
+        return next;
+      }),
+    [roomId]
+  );
 
   useEffect(() => {
     const onVis = () => !document.hidden && setUnread(0);
@@ -163,13 +198,15 @@ export default function RoomView({
   const agents = useMemo(() => (snapshot?.participants ?? []).filter((p) => p.kind === "agent"), [snapshot]);
   const liveAgents = agents.filter((a) => a.status !== "left" && a.status !== "revoked");
   const overseer = snapshot?.participants.find((p) => p.kind === "human");
+  overseerNameRef.current = overseer?.name ?? "You";
+  const mentionAgents = useMemo(() => agents.filter((a) => a.status !== "revoked").map(toMentionAgent), [agents]);
   const readyChanges = branches.filter((b) => b.status === "ready").length;
 
   // Tab title carries what needs you: approvals first, then unread while away.
   useEffect(() => {
     if (!snapshot) return;
     const badge = pendingApprovals.length ? `(${pendingApprovals.length}!) ` : unread ? `(${unread}) ` : "";
-    document.title = `${badge}${snapshot.room.name} | Bothread`;
+    setBaseTitle(`${badge}${snapshot.room.name} | Bothread`);
   }, [snapshot, pendingApprovals.length, unread]);
 
   const togglePause = async () => {
@@ -229,6 +266,20 @@ export default function RoomView({
       icon: "reply" as const,
       run: () => composer.current?.mention(a.name),
     })),
+    ...liveAgents.map((a) => ({
+      id: `ping-${a.id}`,
+      group: "Agents",
+      label: `Ping ${a.name} (stop and read)`,
+      icon: "zap" as const,
+      run: () => composer.current?.ping(a.name),
+    })),
+    ...liveAgents.map((a) => ({
+      id: `focus-${a.id}`,
+      group: "Agents",
+      label: `Show only ${a.name}'s messages`,
+      icon: "search" as const,
+      run: () => setFocusAgent(a.name),
+    })),
   ]);
 
   if (error) {
@@ -260,6 +311,7 @@ export default function RoomView({
   const paused = snapshot.room.status === "paused";
   const brandByName = new Map(snapshot.participants.map((p) => [p.name, p.brand]));
   const names = snapshot.participants.map((p) => p.name);
+  const modelByName = new Map(snapshot.participants.map((p) => [p.name, modelLine(p)] as const).filter(([, m]) => !!m));
   const counts: Record<Tab, number> = {
     claims: snapshot.locks.length,
     tasks: snapshot.tasks.filter((t) => t.status === "open" || t.status === "in_progress").length,
@@ -293,6 +345,9 @@ export default function RoomView({
           afterAction={refresh}
           onConnect={() => setShowConnect(true)}
           onMention={(n) => composer.current?.mention(n)}
+          onPing={(n) => composer.current?.ping(n)}
+          focused={focusAgent}
+          onFocusAgent={setFocusAgent}
           doing={doing}
         />
 
@@ -327,13 +382,18 @@ export default function RoomView({
             hasAgents={agents.length > 0}
             empty={<WaitingForAgents sessionId={detail.sessionId} onConnect={() => setShowConnect(true)} />}
             onReply={setReplyTo}
+            modelByName={modelByName}
+            deliveries={deliveries}
+            focusAgent={focusAgent}
+            onClearFocus={() => setFocusAgent(null)}
           />
-          {pendingApprovals.length > 0 && <ApprovalDock key={pendingApprovals[0]!.id} roomId={roomId} approvals={pendingApprovals} now={now} afterDecide={refresh} />}
+          {pendingApprovals.length > 0 && <ApprovalDock key={pendingApprovals[0]!.id} roomId={roomId} approvals={pendingApprovals} now={now} afterDecide={refresh} agents={mentionAgents} names={names} />}
           <Composer
             ref={composer}
             roomId={roomId}
             paused={paused}
-            agents={liveAgents.map((a) => ({ name: a.name, brand: a.brand }))}
+            agents={mentionAgents}
+            onSent={recordDelivery}
             channels={snapshot.channels}
             replyTo={replyTo}
             onClearReply={() => setReplyTo(null)}
@@ -391,6 +451,8 @@ export default function RoomView({
           leaseTtlMs={detail.room?.settings.defaultLeaseTtlMs}
           notify={notifyPref}
           onNotifyChange={setNotifyPref}
+          chime={chimePref}
+          onChimeChange={setChimePref}
           onClose={() => setShowSettings(false)}
           afterSave={refresh}
           onDeleted={onBack}

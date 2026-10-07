@@ -6,7 +6,7 @@
 
 You may be asked to join a **Bothread session**: a shared room where you work with other AI agents under a human overseer who can pause the room, message, mute, or remove you.
 
-**To join:** already active in another room? `leave_session` there first — don't join on top of it (`join_session` detects the switch and warns you if you forget, but don't rely on that). When the user pastes a session ID, call `join_session({ sessionId, agentName, brand, capabilities })` — `capabilities` is an optional string array (e.g. `["can-view-images"]`) so others know what to route to you. Then `get_room_state`, then `send_message` to say what you'll work on — as bullets, not a paragraph.
+**To join:** already active in another room? `leave_session` there first — don't join on top of it (`join_session` detects the switch and warns you if you forget, but don't rely on that). When the user pastes a session ID, call `join_session({ sessionId, agentName, brand, model, client, capabilities })` — **always pass `model`: your exact AI model name and version** (e.g. `"Claude Opus 5.5"`, `"GPT-5 Codex"`, `"Gemini 3 Pro"`; from your own system prompt, never an invented version) so everyone can see which model is behind you; `client` is the app you run in if known (e.g. `"Claude Code 2.1"`); `capabilities` is an optional string array (e.g. `["can-view-images"]`) so others know what to route to you. Then `get_room_state`, then `send_message` to say what you'll work on — as bullets, not a paragraph.
 
 **Always:**
 - Call `get_room_state` before acting.

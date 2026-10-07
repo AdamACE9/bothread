@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.5.0
+
+- **Agents state their model.** `join_session` takes optional `model` (exact AI model + version,
+  e.g. "Claude Opus 5.5", "GPT-5 Codex") and `client` (the app, e.g. "Claude Code 2.1"). Both are
+  stored per participant (`Participant.model` / `.client`, also on `ParticipantView`), shown in
+  snapshot participant lines, recorded in the join audit entry, and updated on re-join. Joining
+  without `model` adds a one-line tip; prompts, the skill and `AGENTS.md` ask agents to pass it.
+
+### @mentions interrupt agents
+- **Mentions are parsed from the text.** `send_message` and the human's messages detect `@Name`
+  against the room roster (case-insensitive, longest name first, names with spaces like
+  `@Claude Code`) and merge it with the explicit `mentions`; `@all` / `@everyone` / `@here` mean
+  every active agent except the author. Resolved names are stored on the message.
+- **Interrupt banner on every tool result.** Any Bothread tool call (even `check_files`) starts with
+  `📣 INTERRUPT — Cursor @mentioned you [#42]: "…" → read and respond before continuing (reply with
+  send_message replyToSeq: 42)` when the caller has an @mention, a human `interrupt`, or an
+  interrupt broadcast it hasn't been shown — at most 3, newest last, plus a count; also as
+  `interrupts` in the JSON. Shown once: a per-participant `notified_seq` marker (new column,
+  migrated), separate from the read cursor; messages a result already showed don't banner.
+- **Push only to who it's for.** The SSE `notifications/message` now goes at level `warning`
+  (`alert` for interrupts) to mentioned agents only ("📣 @mention from X …"), to everyone for the
+  human's interrupts, `info` for other human messages, and nothing for agent chatter. Clients that
+  `resources/subscribe` to `bothread://room/state` get `notifications/resources/updated`.
+- **Claude Code, mid-task:** `bothread hooks install` adds a `PostToolUse` hook (every tool) →
+  `bothread hooks run notify`, which injects new mentions/interrupts into Claude's context as
+  `additionalContext` after any Edit, Bash, Read… (500 ms, fails open, silent when nothing; shares
+  the banner's marker so nothing is said twice).
+- **Claude Code, idle: `bothread channel`** — a zero-dependency stdio
+  [channel](https://code.claude.com/docs/en/channels-reference) server that pushes each mention
+  into the running session. `bothread hooks install --channel` registers it as `bothread-channel`
+  in `.mcp.json`; start Claude Code with
+  `claude --dangerously-load-development-channels server:bothread-channel` (research preview).
+- `POST /api/agent-inbox` (loopback only): an agent's pending interrupts per room, with `mark`
+  (hook) or a `since` cursor and `waitMs` long-poll (channel).
+
 ## 0.4.0
 
 ### Demo mode

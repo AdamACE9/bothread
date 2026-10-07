@@ -181,6 +181,7 @@ const FLAGS = {
   "no-skill": { value: false, usage: "--no-skill", desc: "Don't offer to install the skill" },
   user: { value: false, usage: "--user", desc: "Use your user settings (~/.claude/settings.json), not the project's" },
   hooks: { value: false, usage: "--hooks", desc: "Also install the Claude Code hooks (bothread hooks install)" },
+  channel: { value: false, usage: "--channel", desc: "Also register the Claude Code push channel in .mcp.json (bothread channel)" },
   help: { value: false, usage: "-h, --help", desc: "Show help" },
   version: { value: false, usage: "-v, --version", desc: "Print the installed version" },
 };
@@ -305,10 +306,10 @@ const COMMANDS = {
   hooks: {
     args: "<action>",
     summary: "Claude Code hooks: block edits of claimed files, keep Claude on task",
-    flags: ["agent", "user", "path", "port", "dry-run", "json"],
+    flags: ["agent", "user", "path", "port", "dry-run", "channel", "json"],
     details:
       "Actions:\n" +
-      "  install [--agent <room name>] [--user | --path <project>]   add the hooks (merged, backed up)\n" +
+      "  install [--agent <room name>] [--user | --path <project>] [--channel]   add the hooks (merged, backed up)\n" +
       "  uninstall [--user | --path <project>]                       remove only Bothread's hooks\n" +
       "  status [--user | --path <project>] [--json]                 installed? as whom? hub up?\n" +
       "\n" +
@@ -319,10 +320,30 @@ const COMMANDS = {
       "  Stop       keeps Claude working while it has unread @mentions or interrupts, a\n" +
       "      hand-off waiting on it, or an in-progress task while teammates are active\n" +
       "  UserPromptSubmit, SessionStart  add a one-line \"the room needs you\" note\n" +
+      "  PostToolUse (every tool)  after ANY tool call, injects new @mentions/interrupts\n" +
+      "      into Claude's context (once each) — the mid-task interrupt\n" +
+      "--channel also registers \"bothread-channel\" in <project>/.mcp.json: a Claude Code\n" +
+      "channel that pushes @mentions into an idle session. Start Claude Code with\n" +
+      "  claude --dangerously-load-development-channels server:bothread-channel\n" +
       "--agent is your Claude Code's display name in the room (default \"Claude Code\");\n" +
       "BOTHREAD_AGENT overrides it per session. Every hook fails open (hub down = allow).\n" +
       "Turn them off for a shell with BOTHREAD_HOOKS=off.",
     examples: ['bothread hooks install --agent "Claude Code"', "bothread hooks install --user", "bothread hooks status --json", "bothread hooks uninstall"],
+  },
+  channel: {
+    args: "",
+    summary: "Claude Code channel: push room @mentions into a running session (stdio)",
+    flags: ["agent", "port", "path"],
+    details:
+      "A stdio MCP server that Claude Code spawns (you don't run it yourself). It\n" +
+      "declares the claude/channel capability and pushes an event into the session\n" +
+      "whenever --agent is @mentioned or interrupted in a room bound to this project,\n" +
+      "so an idle Claude Code wakes up and answers. Channels are a Claude Code research\n" +
+      "preview (claude.ai login or Console API key; Team/Enterprise admins must enable\n" +
+      "them). Register it with 'bothread hooks install --channel' (writes .mcp.json),\n" +
+      "then start Claude Code with:\n" +
+      "  claude --dangerously-load-development-channels server:bothread-channel",
+    examples: ['bothread channel --agent "Claude Code"', 'bothread hooks install --agent "Claude Code" --channel'],
   },
   demo: DEMO_COMMAND,
   help: {
@@ -2090,11 +2111,12 @@ const HANDLERS = {
   guard: cmdGuard,
   hooks: async (args) =>
     (await import("./lib/hooks.mjs")).cmdHooks(args, { CliError, printJson, c, root, channel: detectChannel(), version: pkgVersion() }),
+  channel: async (args) => (await import("./lib/channel.mjs")).cmdChannel(args, { CliError, version: pkgVersion() }),
   demo: (a) => runDemo(a, { cmdStart, probeHub, hubRequest, resolvePort, openBrowser, roomUrlFor, CliError, c }),
   help: cmdHelp,
   version: cmdVersion,
 };
-const NO_POSITIONALS = new Set(["start", "status", "rooms", "doctor", "version"]);
+const NO_POSITIONALS = new Set(["start", "status", "rooms", "doctor", "version", "channel"]);
 
 async function main(argv) {
   let name = "start";

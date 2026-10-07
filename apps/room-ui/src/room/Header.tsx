@@ -6,6 +6,7 @@ import { Icon } from "../icons";
 import { usePalette } from "../palette";
 import { useToast } from "../toast";
 import { Avatar, presence } from "../ui";
+import { modelLine } from "./mentions";
 
 export default function Header(props: {
   roomId: string;
@@ -108,7 +109,7 @@ export default function Header(props: {
 
       <div className="presence" aria-label={`${live.length} agents in the room`}>
         {live.slice(0, 6).map((a) => (
-          <span key={a.id} className="presence-av" title={`${a.name}${a.listening ? " (listening)" : a.idle ? " (idle)" : ""}`}>
+          <span key={a.id} className="presence-av" title={`${a.name}${a.listening ? " (listening)" : a.idle ? " (idle)" : " (working)"}${modelLine(a) ? `\n${modelLine(a)}` : ""}`}>
             <Avatar name={a.name} brand={a.brand} size={28} ring={presence(a)} />
           </span>
         ))}

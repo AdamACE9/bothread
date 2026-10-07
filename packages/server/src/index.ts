@@ -9,7 +9,7 @@ import { Engine } from "./engine/engine";
 import { newSessionId } from "./engine/ids";
 import { buildApp } from "./http";
 import { logger } from "./logger";
-import { McpHub } from "./mcp/transport";
+import { McpHub, type PushedMessage } from "./mcp/transport";
 import { RoomBus } from "./realtime";
 import { sendTelemetry } from "./telemetry";
 import { VERSION } from "./version";
@@ -188,12 +188,13 @@ async function main(): Promise<void> {
   const engine = new Engine(db, bus);
   const hub = new McpHub(engine);
 
-  // Best-effort server→client push: notify other connected agents when a message lands.
+  // Best-effort server→client push: @mentioned / interrupted agents get a high-priority
+  // notification, subscribers get resources/updated (see McpHub.notifyRoomMessage).
   bus.onAny((ev) => {
     if (ev.type !== "message") return;
-    const m = (ev.data as { message?: { authorId: string; authorName: string; text: string } }).message;
+    const m = (ev.data as { message?: PushedMessage }).message;
     if (!m) return;
-    hub.notifyRoomMessage(ev.roomId, m.authorId, `${m.authorName}: ${m.text.slice(0, 240)}`);
+    hub.notifyRoomMessage(ev.roomId, m);
   });
 
   const { app, attachWebSocket } = buildApp({ engine, bus, hub, config, token });

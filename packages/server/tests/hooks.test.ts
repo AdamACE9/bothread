@@ -298,7 +298,7 @@ describe("hooks against a live hub", { timeout: 60_000 }, () => {
 
     const st = JSON.parse((await cli(["hooks", "status", "--path", proj, "--json"])).stdout);
     expect(st).toMatchObject({ installed: true, agent: "Claude B", hub: { running: true, port: hub.port } });
-    expect(st.events.sort()).toEqual(["PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"]);
+    expect(st.events.sort()).toEqual(["PostToolUse", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"]);
 
     const u = JSON.parse((await cli(["hooks", "uninstall", "--path", proj, "--json"])).stdout);
     expect(u.changed).toBe(true);
