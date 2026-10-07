@@ -125,6 +125,30 @@ interface RichCtx {
   roomId?: string;
   names?: string[];
   me?: string;
+  /** Search term to wrap in <mark> inside plain text runs. */
+  highlight?: string;
+}
+
+/** Wraps case-insensitive matches of `q` in <mark>. */
+export function highlightText(text: string, q: string | undefined, keyBase: string): ReactNode[] {
+  const needle = q?.trim();
+  if (!needle) return [text];
+  const out: ReactNode[] = [];
+  const lower = text.toLowerCase();
+  const n = needle.toLowerCase();
+  let from = 0;
+  let i = 0;
+  for (let idx = lower.indexOf(n); idx !== -1; idx = lower.indexOf(n, from)) {
+    if (idx > from) out.push(text.slice(from, idx));
+    out.push(
+      <mark key={`${keyBase}-h${i++}`} className="hl">
+        {text.slice(idx, idx + n.length)}
+      </mark>
+    );
+    from = idx + n.length;
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
 }
 
 /** Inline pass: `code`, **bold**, *em*, [label](url), bare URLs and @Name mentions. */
@@ -142,11 +166,11 @@ function inline(text: string, ctx: RichCtx, keyBase: string): ReactNode[] {
   let i = 0;
   for (const m of text.matchAll(re)) {
     const idx = m.index ?? 0;
-    if (idx > last) out.push(text.slice(last, idx));
+    if (idx > last) out.push(...highlightText(text.slice(last, idx), ctx.highlight, `${keyBase}-t${i}`));
     const k = `${keyBase}-${i++}`;
     const [tok, code, bold, mdLink, url, at, em] = m;
-    if (code) out.push(<code key={k}>{code.slice(1, -1)}</code>);
-    else if (bold) out.push(<strong key={k}>{bold.slice(2, -2)}</strong>);
+    if (code) out.push(<code key={k}>{highlightText(code.slice(1, -1), ctx.highlight, k)}</code>);
+    else if (bold) out.push(<strong key={k}>{highlightText(bold.slice(2, -2), ctx.highlight, k)}</strong>);
     else if (mdLink) {
       const mm = mdLink.match(/^\[([^\]]+)\]\(([^)]+)\)$/)!;
       out.push(
@@ -164,14 +188,14 @@ function inline(text: string, ctx: RichCtx, keyBase: string): ReactNode[] {
       const isMe = ctx.me && at.slice(1).toLowerCase() === ctx.me.toLowerCase();
       out.push(
         <span key={k} className={`mention${isMe ? " me" : ""}`}>
-          {at}
+          {highlightText(at, ctx.highlight, k)}
         </span>
       );
     } else if (em) out.push(<em key={k}>{em.slice(1, -1)}</em>);
     else out.push(tok);
     last = idx + tok.length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(...highlightText(text.slice(last), ctx.highlight, `${keyBase}-end`));
   return out;
 }
 
@@ -190,7 +214,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
 }
 
 /** Block pass: fenced code, bullet/numbered lists, paragraphs. */
-export function richText(text: string, roomId?: string, opts: { names?: string[]; me?: string } = {}): ReactNode[] {
+export function richText(text: string, roomId?: string, opts: { names?: string[]; me?: string; highlight?: string } = {}): ReactNode[] {
   const ctx: RichCtx = { roomId, ...opts };
   const nodes: ReactNode[] = [];
   const images = new Set<string>();

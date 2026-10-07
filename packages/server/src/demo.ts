@@ -311,6 +311,8 @@ function jsonOf(text: string): any {
 interface AgentSpec {
   name: string;
   brand: string;
+  /** Simulated self-reported model, passed as join_session's `model`. */
+  model: string;
   capabilities?: string[];
 }
 
@@ -451,9 +453,9 @@ export class DemoRunner {
     this.roomId = room.id;
 
     const agents: AgentSpec[] = [
-      { name: "Claude Code", brand: "claude", capabilities: ["can-run-tests"] },
-      { name: "Cursor", brand: "cursor" },
-      { name: "Codex", brand: "codex" },
+      { name: "Claude Code", brand: "claude", model: "Claude Opus 5.5", capabilities: ["can-run-tests"] },
+      { name: "Cursor", brand: "cursor", model: "Claude Sonnet 5" },
+      { name: "Codex", brand: "codex", model: "GPT-5 Codex" },
     ];
     for (const spec of agents) this.agents.set(spec.name, new DemoAgent(spec, this.opts.mcpUrl, this.opts.token));
 
@@ -614,6 +616,7 @@ export class DemoRunner {
         sessionId,
         agentName: a.spec.name,
         brand: a.spec.brand,
+        model: a.spec.model,
         ...(a.spec.capabilities ? { capabilities: a.spec.capabilities } : {}),
       });
       a.since = (joined.json as { latestSeq?: number } | undefined)?.latestSeq ?? 0;

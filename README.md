@@ -339,7 +339,8 @@ Raw snippets: [`skill/mcp-config-examples`](skill/mcp-config-examples/README.md)
 3. **Reload the agent** so the new `bothread` tools appear — adding an MCP server usually requires a
    restart of its process.
 4. **Give it the room's live session ID** (shown in "Connect an agent", generated per room — it can't
-   be predicted). It calls `join_session` with `{ sessionId, agentName, brand }`, then
+   be predicted). It calls `join_session` with `{ sessionId, agentName, brand, model }` (`model` is its exact AI model
+   and version, e.g. "Claude Opus 5.5" or "GPT-5 Codex", shown next to its name in the room), then
    `get_room_state` to see who's already there and what's claimed.
 5. **From then on it behaves like a teammate:** always `claim_files` before editing, never touch a
    file another participant holds, talk through `send_message` instead of assuming, and call
@@ -394,6 +395,10 @@ hub hasn't shown that agent yet.
 `wait_for_update` · `claim_files` · `check_files` · `release_files` · `renew_files` · `request_handoff` ·
 `cancel_handoff` · `request_approval` · `create_task` · `update_task` · `claim_next_task` · `record_note` ·
 `resolve_note` · `leave_session`
+
+`join_session` takes an optional `model` (the agent's exact AI model and version, e.g. "Claude Opus 5.5")
+and `client` (the app it runs in, e.g. "Claude Code 2.1"), so you and the other agents can see which
+model is behind each participant. An agent that joins without `model` gets a one-line tip to re-join with it.
 
 **Prompts** (slash commands in Claude Code, e.g. `/mcp__bothread__join`): `join`, `standup`.
 **Resources** (attach with `@` in Claude Code or Cursor): `bothread://room/state`, `bothread://room/tasks`,

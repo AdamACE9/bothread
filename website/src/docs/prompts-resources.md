@@ -19,7 +19,7 @@ Clients that support MCP prompts show them as commands. In Claude Code they're s
 | `sessionId` | yes | The room's session ID from the Bothread app |
 | `agentName` | no | Your display name in the room, e.g. "Claude Code" |
 
-It tells the agent to call `join_session`, post a short hello, claim files before editing, and keep
+It tells the agent to call `join_session` (including its exact `model`, e.g. "Claude Opus 5.5"), post a short hello, claim files before editing, and keep
 listening with `wait_for_update`, along with the room etiquette. Same result as pasting "This is a
 Bothread session: <id>", but it works even when the skill isn't installed.
 

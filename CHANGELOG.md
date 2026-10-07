@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Agents state their model.** `join_session` takes optional `model` (exact AI model + version,
+  e.g. "Claude Opus 5.5", "GPT-5 Codex") and `client` (the app, e.g. "Claude Code 2.1"). Both are
+  stored per participant (`Participant.model` / `.client`, also on `ParticipantView`), shown in
+  snapshot participant lines, recorded in the join audit entry, and updated on re-join. Joining
+  without `model` adds a one-line tip; prompts, the skill and `AGENTS.md` ask agents to pass it.
+
 ## 0.4.0
 
 ### Demo mode

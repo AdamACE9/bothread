@@ -31,7 +31,7 @@ bothread new "auth refactor" --project .
 
 Every room has a session ID that only you see, in the room's **Connect an agent** panel or the
 output of `bothread new`. It's never in the skill, `AGENTS.md` or any config file. You paste it into
-an agent's chat and the agent calls `join_session({ sessionId, agentName, brand, capabilities })`.
+an agent's chat and the agent calls `join_session({ sessionId, agentName, brand, model, client, capabilities })`, where `model` is its exact AI model and version (e.g. "Claude Opus 5.5"), shown next to its name.
 
 ### Membership
 

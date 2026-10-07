@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Approval } from "@bothread/shared";
 import { decideApproval } from "../api";
 import { relTime } from "../hooks";
@@ -6,6 +6,7 @@ import { Icon } from "../icons";
 import { useHotkeys } from "../palette";
 import { useToast } from "../toast";
 import { Kbd, richText } from "../ui";
+import { useMentionPicker, type MentionAgent } from "./mentions";
 
 export const ACTION_LABEL: Record<string, string> = {
   delete: "delete files",
@@ -23,17 +24,23 @@ export default function ApprovalDock({
   approvals,
   now,
   afterDecide,
+  agents = [],
+  names,
 }: {
   roomId: string;
   approvals: Approval[];
   now: number;
   afterDecide: () => void;
+  agents?: MentionAgent[];
+  names?: string[];
 }) {
   const toast = useToast();
   const approval = approvals[0]!;
   const [editing, setEditing] = useState(false);
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
+  const field = useRef<HTMLInputElement>(null);
+  const mp = useMentionPicker({ value: instruction, setValue: setInstruction, fieldRef: field, agents });
 
   const decide = async (decision: "approved" | "rejected" | "edited", note?: string) => {
     if (busy) return;
@@ -73,7 +80,7 @@ export default function ApprovalDock({
       <p className="approval-what" id="approval-what">
         <strong>{approval.requestedByName}</strong> wants to <strong className="act">{ACTION_LABEL[approval.action] ?? approval.action}</strong>
       </p>
-      <div className="approval-details">{richText(approval.details, roomId)}</div>
+      <div className="approval-details">{richText(approval.details, roomId, { names })}</div>
       {approval.files && approval.files.length > 0 && (
         <div className="approval-files">
           {approval.files.map((f) => (
@@ -89,14 +96,27 @@ export default function ApprovalDock({
             if (instruction.trim()) decide("edited", instruction.trim());
           }}
         >
-          <input
-            className="field"
-            autoFocus
-            placeholder={`Tell ${approval.requestedByName} what to do instead`}
-            value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
-          />
+          <div className="approval-field">
+            {mp.picker}
+            <input
+              ref={field}
+              className="field"
+              autoFocus
+              placeholder={`Tell ${approval.requestedByName} what to do instead. Type @ to loop in another agent.`}
+              value={instruction}
+              {...mp.fieldProps}
+              aria-label="Instruction instead"
+              onChange={(e) => {
+                setInstruction(e.target.value);
+                mp.sync(e.target.value, e.target.selectionStart);
+              }}
+              onBlur={() => mp.close()}
+              onKeyDown={(e) => {
+                if (mp.onKeyDown(e)) return;
+                if (e.key === "Escape") setEditing(false);
+              }}
+            />
+          </div>
           <button type="button" className="btn ghost" onClick={() => setEditing(false)}>
             Cancel
           </button>

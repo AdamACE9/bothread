@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RiskAction } from "@bothread/shared";
+import { chime } from "../alerts";
 import { deleteRoom, updateRoomSettings } from "../api";
 import { Icon } from "../icons";
 import { useToast } from "../toast";
@@ -24,6 +25,8 @@ export default function SettingsModal({
   leaseTtlMs,
   notify,
   onNotifyChange,
+  chime: chimeOn = "on",
+  onChimeChange,
   onClose,
   afterSave,
   onDeleted,
@@ -34,6 +37,8 @@ export default function SettingsModal({
   leaseTtlMs?: number;
   notify: "on" | "off";
   onNotifyChange: (v: "on" | "off") => void;
+  chime?: "on" | "off";
+  onChimeChange?: (v: "on" | "off") => void;
   onClose: () => void;
   afterSave: () => void;
   onDeleted: () => void;
@@ -140,12 +145,33 @@ export default function SettingsModal({
           <label className="switch-row">
             <span>
               <strong>Desktop notifications</strong>
-              <small>When an agent needs your OK or a decision and this tab is in the background.</small>
+              <small>When an agent needs your OK, a decision, or mentions you while this tab is in the background.</small>
             </span>
             <button type="button" role="switch" aria-checked={notify === "on"} className={`switch${notify === "on" ? " on" : ""}`} onClick={enableNotify}>
               <span />
             </button>
           </label>
+          {onChimeChange && (
+            <label className="switch-row">
+              <span>
+                <strong>Sound when an agent needs you</strong>
+                <small>A soft chime when an agent @mentions you or sends a Stop and read.</small>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={chimeOn === "on"}
+                className={`switch${chimeOn === "on" ? " on" : ""}`}
+                onClick={() => {
+                  const next = chimeOn === "on" ? "off" : "on";
+                  onChimeChange(next);
+                  if (next === "on") chime();
+                }}
+              >
+                <span />
+              </button>
+            </label>
+          )}
         </section>
 
         <div className="modal-actions">

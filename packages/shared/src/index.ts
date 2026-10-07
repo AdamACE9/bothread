@@ -85,6 +85,10 @@ export const Participant = z.object({
   kind: ParticipantKind,
   status: ParticipantStatus,
   capabilities: z.array(z.string()).optional(),
+  /** Self-reported exact AI model + version, e.g. "Claude Opus 5.5". */
+  model: z.string().optional(),
+  /** Self-reported client app the agent runs in, e.g. "Claude Code 2.1". */
+  client: z.string().optional(),
   mcpSessionId: z.string().optional(),
   joinedAt: z.number(),
   lastSeenAt: z.number(),
@@ -189,6 +193,10 @@ export const ParticipantView = z.object({
   idle: z.boolean().default(false),
   /** Self-declared capabilities from join time (e.g. "can-view-video"), visible to everyone. */
   capabilities: z.array(z.string()).optional(),
+  /** Self-reported exact AI model + version from join time, e.g. "GPT-5 Codex". */
+  model: z.string().optional(),
+  /** Self-reported client app from join time, e.g. "Cursor 3.2". */
+  client: z.string().optional(),
 });
 export type ParticipantView = z.infer<typeof ParticipantView>;
 
@@ -391,6 +399,18 @@ export const JoinSessionInput = z.object({
     .describe("The room session ID the human pasted to you. Never guess or reuse an old one — ask the human if you don't have it."),
   agentName: z.string().min(1).max(60).describe("A short display name for you in the room, e.g. 'Claude Code'."),
   brand: z.string().max(40).optional().describe("Your product/brand, lowercase, e.g. 'claude' | 'cursor' | 'gemini' | 'codex'."),
+  model: z
+    .string()
+    .max(80)
+    .optional()
+    .describe(
+      "Your exact AI model name and version as you know it, e.g. 'Claude Opus 5.5', 'GPT-5 Codex', 'Gemini 3 Pro'. If you're unsure, give your best accurate answer from your own system prompt; never invent a version."
+    ),
+  client: z
+    .string()
+    .max(60)
+    .optional()
+    .describe("The app you are running in, if known, e.g. 'Claude Code 2.1', 'Cursor 3.2' (distinct from brand and model)."),
   capabilities: z
     .array(z.string())
     .max(32)

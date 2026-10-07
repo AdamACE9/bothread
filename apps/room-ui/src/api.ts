@@ -117,7 +117,7 @@ export interface OverseerMessage {
   replyToSeq?: number;
 }
 export const sendOverseer = (id: string, msg: OverseerMessage) =>
-  jpost(`/api/rooms/${id}/message`, { importance: "steering", ...msg });
+  jpost<{ message?: { seq: number } }>(`/api/rooms/${id}/message`, { importance: "steering", ...msg });
 export const setRoomStatus = (id: string, status: "active" | "paused" | "closed") =>
   jpost(`/api/rooms/${id}/status`, { status });
 export const renameRoom = (id: string, name: string) => jpost<{ room: Room }>(`/api/rooms/${id}/rename`, { name });

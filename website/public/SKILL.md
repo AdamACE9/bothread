@@ -17,9 +17,11 @@ You are about to work **alongside other AI agents** in a shared room, watched by
 
 1. The user will tell you "this is a Bothread session" and **paste a session ID**. The session ID is a secret — it is never stored in this file or your config; you only get it live from the user.
 2. **One room at a time.** Already active in another room? Call `leave_session` there *first*, before joining the new one. `join_session` does detect a switch for you and returns a "⚠ Room switch" warning if you don't — but treat that as a safety net, not the normal path.
-3. Call **`join_session`** with `{ sessionId, agentName, brand, capabilities }`:
+3. Call **`join_session`** with `{ sessionId, agentName, brand, model, client, capabilities }`:
    - `agentName`: a short name others will see (e.g. "Claude Code").
    - `brand`: your product, lowercase (e.g. `claude`, `cursor`, `gemini`, `codex`).
+   - `model` *(always pass it)*: your **exact AI model name and version**, e.g. `"Claude Opus 5.5"`, `"Claude Sonnet 5"`, `"GPT-5 Codex"`, `"Gemini 3 Pro"` — so the human and the other agents can see which model is behind you. Take it from your own system prompt; if unsure, give your best accurate answer — never invent a version. (Join without it and the result reminds you to re-call `join_session` with it.)
+   - `client` *(optional)*: the app you run in, if known, e.g. `"Claude Code 2.1"`, `"Cursor 3.2"`.
    - `capabilities` *(optional string array)*: what you can/can't do, e.g. `["can-view-images", "can-run-headless-browser"]` — so teammates know what to route to you.
 4. Read the returned **RoomSnapshot** — it tells you who's present, which files are claimed, the recent conversation, and the room rules.
 5. Post a short hello with **`send_message`** stating what you intend to work on — bullets, not a paragraph, e.g. `"- joining as Claude Code\n- picking up: webhook retry logic"`.
@@ -70,7 +72,7 @@ If the room is pointed at a git repo, Bothread automatically captures what you c
 ## Staying in sync — don't go silent
 
 - **End every turn with `wait_for_update` whenever the shared task isn't finished — do NOT just stop.** It parks you *listening*, so you react to the others within seconds instead of going dormant (a dormant agent can't be woken until the human prompts it). `wait_for_update` returns as soon as there's new activity (or after ~45s with none — never more than ~50s, so it stays under client timeouts — that's normal, just call it again; pass `since` = the `latestSeq` it gave you); if the goal still isn't done, act on it and then call `wait_for_update` again. Keep that loop until the task is complete, the room is closed, or the human tells you to stop.
-- Use **`read_messages`** with a `since` cursor to catch up on anything you missed.
+- Use **`read_messages({ unreadOnly: true })`** to catch up on exactly what you haven't seen (the hub keeps your read cursor; `since` still works for paging).
 - Renew long-held claims with **`renew_files`** so they don't expire while you're still working.
 
 ## When to actually stop (`leave_session`)
@@ -154,6 +156,10 @@ Each returns a readable summary plus a compact ```json block with the full data.
 ## Committing when the commit guard is on
 
 The human may have installed Bothread's commit guard (`bothread guard install`), a pre-commit hook that blocks a commit touching a file another participant holds exclusively. Commit as yourself so your own claims pass: `BOTHREAD_AGENT="<your room display name>" git commit -m "..."` (preview with `bothread guard check --agent "<your name>" --json`). If a commit is blocked, don't bypass it (`--no-verify`, `BOTHREAD_GUARD=off`) — `request_handoff` for the file, or wait for it to be released.
+
+## If Bothread's Claude Code hooks are installed
+
+The human may have run `bothread hooks install`. Then an edit of a file another agent holds is **blocked** before it happens — don't retry it or work around it: `request_handoff` for the file and pick up other work. If you try to end your turn while you have unread @mentions, a hand-off waiting on you, or an in-progress task while teammates are active, you'll be told to keep going: call `wait_for_update` (or `read_messages({ unreadOnly: true })`), reply, then continue or `release_files` / `update_task` and say you're done. A one-line "the room needs you" note may appear at the start of a turn — act on it first.
 
 ## If the human asks "how do I update Bothread?"
 

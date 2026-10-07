@@ -7,6 +7,7 @@ const ROWS: [string[], string][] = [
   [[modKey, "K"], "Command palette"],
   [["/"], "Write to the room"],
   [["@"], "Mention an agent while writing"],
+  [[modKey, "F"], "Search the thread"],
   [["Enter"], "Send  (Shift + Enter for a new line)"],
   [["1", "…", "5"], "Switch side panel tab"],
   [["C"], "Connect an agent"],

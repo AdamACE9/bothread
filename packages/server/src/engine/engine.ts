@@ -91,10 +91,13 @@ interface PartRow {
   kind: string;
   status: string;
   capabilities: string | null;
+  model?: string | null;
+  client?: string | null;
   mcp_session_id: string | null;
   joined_at: number;
   last_seen_at: number;
   read_seq?: number;
+  notified_seq?: number;
 }
 interface MsgRow {
   id: string;
@@ -231,6 +234,35 @@ export interface Caller {
   room: Room;
   participant: Participant;
 }
+
+/**
+ * A message that should interrupt a participant: it @mentions them (directly or via
+ * @all / @everyone / @here), or it's interrupt-importance from the human, or an
+ * interrupt-importance broadcast (no mentions). Surfaced once, as the banner on the
+ * agent's next Bothread tool result, the Claude Code PostToolUse hook, and the channel.
+ */
+export interface InterruptView {
+  seq: number;
+  author: string;
+  authorKind: Message["kind"];
+  importance: Importance;
+  text: string;
+  /** True when it names this participant; false for a human / broadcast interrupt. */
+  mentioned: boolean;
+  threadId?: string;
+  at: number;
+}
+
+/** Engine.agentInbox's answer for one room (POST /api/agent-inbox). */
+export interface AgentInboxRoom {
+  roomId: string;
+  roomName: string;
+  latestSeq: number;
+  interrupts: InterruptView[];
+}
+
+/** Words that @mention every active agent in the room except the author. */
+export const BROADCAST_MENTIONS = ["all", "everyone", "here"] as const;
 
 /** Engine tuning knobs (mostly for tests). */
 export interface EngineOptions {
@@ -371,6 +403,8 @@ export class Engine {
       kind: p.kind as Participant["kind"],
       status: p.status as ParticipantStatus,
       capabilities: p.capabilities ? (JSON.parse(p.capabilities) as string[]) : undefined,
+      model: p.model ?? undefined,
+      client: p.client ?? undefined,
       mcpSessionId: p.mcp_session_id ?? undefined,
       joinedAt: p.joined_at,
       lastSeenAt: p.last_seen_at,
@@ -727,7 +761,7 @@ export class Engine {
    */
   joinSession(
     mcpSessionId: string | undefined,
-    input: { sessionId: string; agentName: string; brand?: string; capabilities?: string[] }
+    input: { sessionId: string; agentName: string; brand?: string; capabilities?: string[]; model?: string; client?: string }
   ): { participant: Participant; snapshot: RoomSnapshot; previousRoomName?: string; rejoinDigest?: RejoinDigest } {
     const roomRow = this.roomRowBySession(input.sessionId);
     if (!roomRow) {
@@ -738,6 +772,9 @@ export class Engine {
     }
 
     const ts = now();
+    // Self-reported model/client identity. Blank strings count as "not given".
+    const model = input.model?.trim() || null;
+    const client = input.client?.trim() || null;
     let part = mcpSessionId ? this.partRowByMcp(mcpSessionId) : undefined;
     let previousRoomName: string | undefined;
     let rejoinDigest: RejoinDigest | undefined;
@@ -751,10 +788,20 @@ export class Engine {
       rejoinDigest = this.buildRejoinDigest(roomRow.id, awaySinceMs, ts);
       this.db
         .prepare(
-          `UPDATE participants SET name = ?, brand = ?, capabilities = ?, status = 'active', last_seen_at = ?
+          `UPDATE participants SET name = ?, brand = ?, capabilities = ?, status = 'active', last_seen_at = ?,
+             model = COALESCE(?, model), client = COALESCE(?, client)
            WHERE id = ?`
         )
-        .run(input.agentName, input.brand ?? null, input.capabilities ? JSON.stringify(input.capabilities) : null, ts, part.id);
+        .run(
+          input.agentName,
+          input.brand ?? null,
+          input.capabilities ? JSON.stringify(input.capabilities) : null,
+          ts,
+          model,
+          client,
+          part.id
+        );
+      part = this.partRow(part.id)!;
     } else {
       // If this connection was bound elsewhere, unbind it first — and remember which
       // room, so the agent gets an explicit "you switched rooms" signal rather than a
@@ -767,8 +814,8 @@ export class Engine {
       const id = newId("part");
       this.db
         .prepare(
-          `INSERT INTO participants (id, room_id, name, brand, kind, status, capabilities, mcp_session_id, joined_at, last_seen_at)
-           VALUES (?, ?, ?, ?, 'agent', 'active', ?, ?, ?, ?)`
+          `INSERT INTO participants (id, room_id, name, brand, kind, status, capabilities, model, client, mcp_session_id, joined_at, last_seen_at)
+           VALUES (?, ?, ?, ?, 'agent', 'active', ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -776,6 +823,8 @@ export class Engine {
           input.agentName,
           input.brand ?? null,
           input.capabilities ? JSON.stringify(input.capabilities) : null,
+          model,
+          client,
           mcpSessionId ?? null,
           ts,
           ts
@@ -785,7 +834,11 @@ export class Engine {
 
     const participant = this.mapParticipant(part);
     const room = this.mapRoom(roomRow);
-    this.audit(room.id, "participant.join", { id: participant.id, name: participant.name }, { brand: participant.brand });
+    this.audit(room.id, "participant.join", { id: participant.id, name: participant.name }, {
+      brand: participant.brand,
+      model: participant.model,
+      client: participant.client,
+    });
     this.postSystemMessage(room.id, `${participant.name} joined the room.`, "info");
     this.publish(room.id, "participant", { participant });
     return { participant, snapshot: this.snapshotForAgent(room, participant), previousRoomName, rejoinDigest };
@@ -1009,7 +1062,7 @@ export class Engine {
       caller.participant.kind === "human" ? "human" : "agent",
       importance,
       input.text,
-      input.mentions ?? [],
+      this.resolveMentions(caller.room.id, caller.participant.id, input.text, input.mentions ?? []),
       input.threadId,
       input.replyToSeq
     );
@@ -1096,7 +1149,8 @@ export class Engine {
     const author = overseer
       ? { id: overseer.id, name: overseer.name }
       : { id: "overseer", name: "You" };
-    const msg = this.insertMessage(roomId, author, "human", importance, text, mentions, opts.threadId, opts.replyToSeq);
+    const resolved = this.resolveMentions(roomId, author.id, text, mentions);
+    const msg = this.insertMessage(roomId, author, "human", importance, text, resolved, opts.threadId, opts.replyToSeq);
     this.audit(roomId, "message.overseer", author, { seq: msg.seq });
     return msg;
   }
@@ -1241,6 +1295,147 @@ export class Engine {
         listening: match ? this.isListening(match.id) : false,
       };
     });
+  }
+
+  /* ----- @mentions and interrupts ----- */
+
+  /**
+   * The names a message addresses: the explicit `mentions` (kept as given, a leading "@"
+   * dropped) plus every "@Name" in the text that matches a room participant —
+   * case-insensitive, longest name first so "@Claude Code" beats "@Claude", names with
+   * spaces allowed, and the name must end at a word boundary ("@Cursorx" is no one).
+   * `@all` / `@everyone` / `@here` (in the text or the explicit list) expand to every
+   * active or idle agent except the author. Deduplicated case-insensitively.
+   */
+  resolveMentions(roomId: string, authorId: string, text: string, explicit: string[] = []): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const add = (raw: string) => {
+      const n = raw.trim();
+      const k = n.toLowerCase();
+      if (!n || seen.has(k)) return;
+      seen.add(k);
+      out.push(n);
+    };
+    const isBroadcast = (w: string) => (BROADCAST_MENTIONS as readonly string[]).includes(w.toLowerCase());
+    let broadcast = false;
+    for (const e of explicit) {
+      const n = String(e ?? "").trim().replace(/^@/, "");
+      if (isBroadcast(n)) broadcast = true;
+      else add(n);
+    }
+    const roster = this.partRows(roomId).filter((p) => p.status !== "left" && p.name.trim());
+    if (text.includes("@")) {
+      const names = roster
+        .map((p) => ({ name: p.name.trim(), lower: p.name.trim().toLowerCase() }))
+        .sort((x, y) => y.lower.length - x.lower.length);
+      const lower = text.toLowerCase();
+      const endsHere = (rest: string, len: number) => !/[\w-]/.test(rest.charAt(len));
+      for (let i = lower.indexOf("@"); i !== -1; i = lower.indexOf("@", i + 1)) {
+        if (i > 0 && /\w/.test(lower.charAt(i - 1))) continue; // an email address, not a mention
+        const rest = lower.slice(i + 1);
+        const hit = names.find((p) => rest.startsWith(p.lower) && endsHere(rest, p.lower.length));
+        if (hit) add(hit.name);
+        else if (BROADCAST_MENTIONS.some((w) => rest.startsWith(w) && endsHere(rest, w.length))) broadcast = true;
+      }
+    }
+    if (broadcast) {
+      for (const p of roster) {
+        if (p.kind === "agent" && p.id !== authorId && (p.status === "active" || p.status === "idle")) add(p.name.trim());
+      }
+    }
+    return out.slice(0, 64);
+  }
+
+  /** Does this message row interrupt `me`? (Never its own author.) */
+  private interruptsFor(m: MsgRow, me: PartRow): InterruptView | null {
+    if (m.author_id === me.id || m.retracted_at) return null;
+    const myName = me.name.trim().toLowerCase();
+    const mentions = JSON.parse(m.mentions) as string[];
+    const mentioned = mentions.some((n) => n.trim().toLowerCase() === myName);
+    const interrupt = m.importance === "interrupt" && (m.kind === "human" || mentions.length === 0);
+    if (!mentioned && !interrupt) return null;
+    return {
+      seq: m.seq,
+      author: m.author_name,
+      authorKind: m.kind as Message["kind"],
+      importance: m.importance as Importance,
+      text: m.text,
+      mentioned,
+      threadId: m.thread_id ?? undefined,
+      at: m.created_at,
+    };
+  }
+
+  /**
+   * Interrupts `participantId` hasn't been shown yet, oldest first: messages after
+   * max(read cursor, notified marker) — so anything a result already put in front of the
+   * agent (read_messages, wait_for_update, a snapshot) doesn't banner again. Pass
+   * `floor` to use your own cursor instead (the channel does).
+   */
+  pendingInterrupts(participantId: string, opts: { floor?: number } = {}): InterruptView[] {
+    const me = this.partRow(participantId);
+    if (!me || me.status === "left" || me.status === "revoked") return [];
+    const floor = opts.floor ?? Math.max(me.read_seq ?? 0, me.notified_seq ?? 0);
+    const rows = this.db
+      .prepare(`SELECT * FROM messages WHERE room_id = ? AND seq > ? AND author_id != ? AND retracted_at IS NULL ORDER BY seq ASC LIMIT 500`)
+      .all(me.room_id, floor, me.id) as MsgRow[];
+    const out: InterruptView[] = [];
+    for (const r of rows) {
+      const v = this.interruptsFor(r, me);
+      if (v) out.push(v);
+    }
+    return out;
+  }
+
+  /** Move the notified marker forward to `seq` (never backwards). */
+  markInterruptsNotified(participantId: string, seq: number | undefined): void {
+    if (seq === undefined || !Number.isFinite(seq) || seq <= 0) return;
+    this.db
+      .prepare(`UPDATE participants SET notified_seq = ? WHERE id = ? AND COALESCE(notified_seq, 0) < ?`)
+      .run(seq, participantId, seq);
+  }
+
+  /** The pending interrupts, marked as shown. What the tool-result banner uses. */
+  takeInterrupts(participantId: string): InterruptView[] {
+    const items = this.pendingInterrupts(participantId);
+    if (items.length) this.markInterruptsNotified(participantId, items[items.length - 1]!.seq);
+    return items;
+  }
+
+  /** takeInterrupts for whoever this MCP connection joined as ([] when not joined). No presence touch. */
+  takeInterruptsForMcp(mcpSessionId: string | undefined): InterruptView[] {
+    const p = mcpSessionId ? this.partRowByMcp(mcpSessionId) : undefined;
+    return p ? this.takeInterrupts(p.id) : [];
+  }
+
+  /**
+   * Interrupts for `agent` (by display name) in every room bound to `projectPath` —
+   * the PostToolUse hook and the channel server ask this. `mark` advances the notified
+   * marker (the hook: so neither it nor the banner repeats them). `since` (roomId → seq)
+   * reads after the caller's own cursor instead, without marking (the channel).
+   */
+  agentInbox(input: { projectPath: string; agent: string; mark?: boolean; since?: Record<string, number> }): { agent: string; rooms: AgentInboxRoom[] } {
+    const who = input.agent.trim().toLowerCase();
+    const projCanon = canonicalDir(input.projectPath);
+    const rows = (
+      this.db
+        .prepare(`SELECT * FROM rooms WHERE status != 'closed' AND project_path IS NOT NULL ORDER BY created_at ASC`)
+        .all() as RoomRow[]
+    ).filter((r) => roomPrefixWithin(projCanon, r.project_path!) !== null || roomPrefixWithin(canonicalDir(r.project_path!), input.projectPath) !== null);
+    const rooms: AgentInboxRoom[] = [];
+    for (const r of rows) {
+      const me = this.partRows(r.id)
+        .filter((p) => p.kind === "agent" && p.status !== "left" && p.status !== "revoked" && p.name.trim().toLowerCase() === who)
+        .sort((a, b) => b.last_seen_at - a.last_seen_at)[0];
+      if (!me) continue;
+      const since = input.since?.[r.id];
+      const floor = typeof since === "number" && Number.isFinite(since) ? since : undefined;
+      const interrupts = this.pendingInterrupts(me.id, { floor });
+      if (input.mark && interrupts.length) this.markInterruptsNotified(me.id, interrupts[interrupts.length - 1]!.seq);
+      rooms.push({ roomId: r.id, roomName: r.name, latestSeq: this.latestSeq(r.id), interrupts });
+    }
+    return { agent: input.agent.trim(), rooms };
   }
 
   private toThreadEntry(m: Message): ThreadEntry {
@@ -2320,6 +2515,8 @@ export class Engine {
         // limit / stepped away" rather than just "not currently mid-poll."
         idle: p.kind === "agent" && at - p.last_seen_at > Engine.IDLE_THRESHOLD_MS,
         capabilities: p.capabilities ? (JSON.parse(p.capabilities) as string[]) : undefined,
+        model: p.model ?? undefined,
+        client: p.client ?? undefined,
       }));
     const presenceById = new Map(participants.map((p) => [p.id, p]));
 

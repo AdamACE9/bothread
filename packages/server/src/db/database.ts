@@ -24,6 +24,8 @@ export function openDatabase(dbPath: string): DB {
     "ALTER TABLE messages ADD COLUMN edited_at INTEGER",
     "ALTER TABLE messages ADD COLUMN retracted_at INTEGER",
     "ALTER TABLE tasks ADD COLUMN blocked_by TEXT",
+    "ALTER TABLE participants ADD COLUMN model TEXT",
+    "ALTER TABLE participants ADD COLUMN client TEXT",
   ]) {
     try {
       db.exec(stmt);
@@ -47,6 +49,16 @@ export function openDatabase(dbPath: string): DB {
     db.exec(
       "UPDATE participants SET read_seq = COALESCE((SELECT value FROM counters WHERE counters.room_id = participants.room_id AND counters.name = 'msg'), 0)"
     );
+  } catch {
+    /* column already exists — fine */
+  }
+  // participants.notified_seq: newest message seq the hub has already raised as an interrupt
+  // banner / hook notice to this participant (separate from read_seq: being told "you were
+  // @mentioned" isn't reading the thread). Older DBs start at the read cursor so history
+  // doesn't banner.
+  try {
+    db.exec("ALTER TABLE participants ADD COLUMN notified_seq INTEGER NOT NULL DEFAULT 0");
+    db.exec("UPDATE participants SET notified_seq = COALESCE(read_seq, 0)");
   } catch {
     /* column already exists — fine */
   }

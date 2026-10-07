@@ -39,6 +39,8 @@ const P: Record<string, string> = {
   chevron: "M6 9l6 6 6-6",
   sparkle: "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z",
   terminal: "M4 17l6-6-6-6M12 19h8",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
+  volume: "M11 5L6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13",
 };
 
 export type IconName = keyof typeof P;

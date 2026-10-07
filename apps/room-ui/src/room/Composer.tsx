@@ -1,13 +1,16 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { Importance, ThreadEntry } from "@bothread/shared";
 import { sendOverseer } from "../api";
 import { Icon } from "../icons";
 import { useToast } from "../toast";
 import { Avatar } from "../ui";
+import { ALL_WORDS, STATE_LABEL, modelLine, parseRecipients, removeMention, useMentionPicker, type Delivery, type MentionAgent } from "./mentions";
 
 export interface ComposerHandle {
   focus: () => void;
   mention: (name: string) => void;
+  /** @Name plus "Stop and read": the closest thing to tapping an agent on the shoulder. */
+  ping: (name: string) => void;
 }
 
 const LEVELS: { value: Importance; label: string; title: string }[] = [
@@ -25,32 +28,40 @@ const Composer = forwardRef<
   {
     roomId: string;
     paused: boolean;
-    agents: { name: string; brand?: string }[];
+    agents: MentionAgent[];
     channels: string[];
     replyTo: ThreadEntry | null;
     onClearReply: () => void;
     afterSend: () => void;
+    /** Called with the sent message's seq and who it reached, so the thread can show delivery. */
+    onSent?: (seq: number, deliveries: Delivery[]) => void;
   }
->(function Composer({ roomId, paused, agents, channels, replyTo, onClearReply, afterSend }, ref) {
+>(function Composer({ roomId, paused, agents, channels, replyTo, onClearReply, afterSend, onSent }, ref) {
   const toast = useToast();
   const [text, setText] = useState("");
   const [importance, setImportance] = useState<Importance>("steering");
   const [channel, setChannel] = useState("");
   const [sending, setSending] = useState(false);
-  const [suggest, setSuggest] = useState<{ query: string; start: number; index: number } | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
+  const mp = useMentionPicker({ value: text, setValue: setText, fieldRef: ta, agents });
+
+  const insertMention = (name: string) => {
+    setText((t) => (new RegExp(`@${escapeRe(name)}(?![\\w-])`, "i").test(t) ? t : t.trim() ? `${t.replace(/\s*$/, " ")}@${name} ` : `@${name} `));
+    requestAnimationFrame(() => {
+      const el = ta.current;
+      if (el) {
+        el.focus();
+        el.selectionStart = el.selectionEnd = el.value.length;
+      }
+    });
+  };
 
   useImperativeHandle(ref, () => ({
     focus: () => ta.current?.focus(),
-    mention: (name) => {
-      setText((t) => (t.trim() ? `${t.replace(/\s*$/, " ")}@${name} ` : `@${name} `));
-      requestAnimationFrame(() => {
-        const el = ta.current;
-        if (el) {
-          el.focus();
-          el.selectionStart = el.selectionEnd = el.value.length;
-        }
-      });
+    mention: insertMention,
+    ping: (name) => {
+      insertMention(name);
+      setImportance("interrupt");
     },
   }));
 
@@ -67,54 +78,32 @@ const Composer = forwardRef<
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [text]);
 
-  const matches = suggest
-    ? agents.filter((a) => a.name.toLowerCase().includes(suggest.query.toLowerCase())).slice(0, 6)
-    : [];
-
-  const updateSuggest = (value: string, caret: number) => {
-    const before = value.slice(0, caret);
-    const m = before.match(/(?:^|\s)@([\w .-]{0,24})$/);
-    if (m && agents.length) {
-      const query = m[1]!;
-      // Stop suggesting once the typed text can't be the start of any name.
-      if (!agents.some((a) => a.name.toLowerCase().startsWith(query.toLowerCase()) || a.name.toLowerCase().includes(query.toLowerCase()))) {
-        setSuggest(null);
-        return;
-      }
-      setSuggest({ query, start: caret - query.length - 1, index: 0 });
-    } else setSuggest(null);
-  };
-
-  const pick = (name: string) => {
-    if (!suggest) return;
-    const el = ta.current!;
-    const caret = el.selectionStart;
-    const next = `${text.slice(0, suggest.start)}@${name} ${text.slice(caret)}`;
-    setText(next);
-    setSuggest(null);
-    requestAnimationFrame(() => {
-      const pos = suggest.start + name.length + 2;
-      el.focus();
-      el.selectionStart = el.selectionEnd = pos;
-    });
-  };
+  const recipients = useMemo(() => parseRecipients(text, agents), [text, agents]);
+  const byName = new Map(agents.map((a) => [a.name, a]));
+  const activeAgents = agents.filter((a) => a.state !== "left");
 
   const send = async () => {
     const t = text.trim();
     if (!t || sending) return;
-    const mentions = agents
-      .filter((a) => new RegExp(`@${escapeRe(a.name)}(?![\\w-])`, "i").test(t))
-      .map((a) => a.name);
+    const rec = parseRecipients(t, agents);
+    const targets = rec.all ? activeAgents : agents.filter((a) => rec.names.includes(a.name));
+    const mentions = Array.from(new Set([...(rec.all ? ["all"] : []), ...targets.map((a) => a.name)]));
+    // Snapshot presence at send time: that is what decides whether they see it now.
+    const deliveryTo = targets.length ? targets : importance === "interrupt" ? activeAgents : [];
+    const deliveries: Delivery[] = deliveryTo.map((a) => ({ name: a.name, state: a.state }));
     setSending(true);
     setText("");
+    mp.close();
     try {
-      await sendOverseer(roomId, {
+      const res = await sendOverseer(roomId, {
         text: t,
         importance,
         mentions,
         threadId: channel || undefined,
         replyToSeq: replyTo?.seq,
       });
+      const seq = res?.message?.seq;
+      if (typeof seq === "number" && deliveries.length) onSent?.(seq, deliveries);
       onClearReply();
       if (importance === "interrupt") setImportance("steering");
       afterSend();
@@ -139,23 +128,37 @@ const Composer = forwardRef<
         </div>
       )}
       <div className="composer-box">
-        {suggest && matches.length > 0 && (
-          <div className="mention-pop" role="listbox" aria-label="Mention an agent">
-            {matches.map((a, i) => (
-              <button
-                key={a.name}
-                role="option"
-                aria-selected={i === suggest.index}
-                className={i === suggest.index ? "sel" : ""}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pick(a.name);
-                }}
-              >
-                <Avatar name={a.name} brand={a.brand} size={20} />
-                {a.name}
-              </button>
-            ))}
+        {mp.picker}
+        {text.trim() && agents.length > 0 && (
+          <div className="recipients" aria-live="polite">
+            <span className="rcp-to">To</span>
+            {recipients.all && (
+              <span className="rcp-chip all">
+                <Icon name="users" size={12} />
+                Everyone ({activeAgents.length})
+                <button type="button" aria-label="Remove @all" onClick={() => setText(ALL_WORDS.reduce((t, w) => removeMention(t, w), text))}>
+                  <Icon name="x" size={11} />
+                </button>
+              </span>
+            )}
+            {recipients.names.map((n) => {
+              const a = byName.get(n);
+              return (
+                <span key={n} className={`rcp-chip st-${a?.state ?? "working"}`} title={a ? `${STATE_LABEL[a.state]}${modelLine(a) ? `, ${modelLine(a)}` : ""}` : undefined}>
+                  <Avatar name={n} brand={a?.brand} size={16} />
+                  {n}
+                  <span className="dot" aria-hidden="true" />
+                  <button type="button" aria-label={`Remove ${n}`} onClick={() => setText(removeMention(text, n))}>
+                    <Icon name="x" size={11} />
+                  </button>
+                </span>
+              );
+            })}
+            {!recipients.all && recipients.names.length === 0 && (
+              <span className="rcp-none">
+                {importance === "interrupt" ? "Everyone active, as an interrupt." : "Everyone reads it on their next check. Type @ to ping someone."}
+              </span>
+            )}
           </div>
         )}
         <textarea
@@ -167,33 +170,22 @@ const Composer = forwardRef<
             paused
               ? "Room is paused. Agents can still read what you write here."
               : agents.length
-                ? "Tell the agents what to do. Type @ to address one."
+                ? "Tell the agents what to do. Type @ to ping one."
                 : "Write to the room. Agents read this when they join."
           }
+          {...mp.fieldProps}
           onChange={(e) => {
             setText(e.target.value);
-            updateSuggest(e.target.value, e.target.selectionStart);
+            mp.sync(e.target.value, e.target.selectionStart);
           }}
-          onClick={(e) => updateSuggest(text, (e.target as HTMLTextAreaElement).selectionStart)}
+          onClick={(e) => mp.sync(text, (e.target as HTMLTextAreaElement).selectionStart)}
+          onKeyUp={(e) => {
+            if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End")
+              mp.sync(text, (e.target as HTMLTextAreaElement).selectionStart);
+          }}
+          onBlur={() => mp.close()}
           onKeyDown={(e) => {
-            if (suggest && matches.length) {
-              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                e.preventDefault();
-                const d = e.key === "ArrowDown" ? 1 : -1;
-                setSuggest({ ...suggest, index: (suggest.index + d + matches.length) % matches.length });
-                return;
-              }
-              if (e.key === "Enter" || e.key === "Tab") {
-                e.preventDefault();
-                pick(matches[suggest.index]!.name);
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setSuggest(null);
-                return;
-              }
-            }
+            if (mp.onKeyDown(e)) return;
             if (e.key === "Escape" && replyTo) {
               onClearReply();
               return;
@@ -209,6 +201,18 @@ const Composer = forwardRef<
           }}
         />
         <div className="composer-bar">
+          {agents.length > 0 && (
+            <button
+              type="button"
+              className={`at-btn${mp.open ? " on" : ""}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => (mp.open ? mp.close() : mp.openAtCaret())}
+              aria-label="Mention an agent"
+              title="Mention an agent (@)"
+            >
+              @
+            </button>
+          )}
           <div className="levels" role="radiogroup" aria-label="How urgent is this?">
             {LEVELS.map((l) => (
               <button

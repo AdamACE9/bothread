@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS participants (
   kind           TEXT NOT NULL,
   status         TEXT NOT NULL,
   capabilities   TEXT,
+  model          TEXT,   -- self-reported exact AI model + version, e.g. 'Claude Opus 5.5'
+  client         TEXT,   -- self-reported client app, e.g. 'Claude Code 2.1'
   mcp_session_id TEXT,
   joined_at      INTEGER NOT NULL,
   last_seen_at   INTEGER NOT NULL,
