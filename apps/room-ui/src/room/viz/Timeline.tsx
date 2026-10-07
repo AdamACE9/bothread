@@ -422,7 +422,7 @@ export function Timeline(props: VizProps): JSX.Element {
           () => onSelectAgent(m.lane)
         )}
       >
-        <circle className="tl-hit" cx={x(m.t)} cy={top + DOT_Y} r={Math.max(9, r + 4)} />
+        <circle className="tl-hit" cx={x(m.t)} cy={top + DOT_Y} r={r + 3} />
         <circle className="tl-dot" cx={x(m.t)} cy={top + DOT_Y} r={r} />
       </g>
     );
@@ -658,7 +658,7 @@ export function Timeline(props: VizProps): JSX.Element {
       </div>
 
       <div className="tl-scroll" ref={scrollRef} onScroll={onScroll}>
-        <div className="tl-grid" style={{ gridTemplateColumns: `${LABEL_W}px ${plotW}px` }}>
+        <div className="tl-grid" style={{ gridTemplateColumns: `${LABEL_W}px ${plotW}px`, width: LABEL_W + plotW }}>
           <div className="tl-corner">
             <span>{data.lanes.length} in room</span>
           </div>
@@ -730,9 +730,9 @@ export function Timeline(props: VizProps): JSX.Element {
             {caps}
             {handoffEls}
             {collisionEls}
-            {msgEls}
             {approvalEls}
             {doneEls}
+            {msgEls}
             <line className="tl-now" x1={nowX} x2={nowX} y1={0} y2={plotH} />
           </svg>
         </div>

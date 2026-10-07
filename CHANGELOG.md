@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.6.0
+
+### A far more visual room
+- **Three views:** Thread, Map and Timeline (keys G then T / M / L). Your last view is remembered.
+  - **Map** is a live view of who holds what. Agents orbit the room hub with their model and status
+    ring. Each claimed file hangs from its holder on a thread that drains as the claim expires.
+    Messages fly as particles, and @mentions go straight to the agent mentioned. A collision flashes
+    the file red with a "denied" tag, a hand-off draws an arrow, and agents show diff badges. Hover
+    for details, click to focus an agent, and use zoom, pan and fit.
+  - **Timeline** has one lane per participant: messages, claim bars, collisions, hand-offs,
+    approvals and finished tasks. Above it is a summary strip (messages per minute, files claimed
+    over time, task progress, collisions). You can pick 10 min, 1 h or All, follow the room live, and
+    zoom with Ctrl+scroll.
+- **Dashboard strip** under the header has live tiles with small charts: agents, messages per minute,
+  files claimed per agent, a task progress ring, changes ready (+/−), and approvals waiting. Each
+  tile opens the matching panel or view.
+- **Thread:**
+  - System events are now visual cards: collision, hand-off (A → file → B), tasks with blocked-by
+    chips, approvals, and diffs with a +/− bar per file.
+  - Authors have brand-colored accents.
+  - Code blocks have simple syntax coloring.
+  - Only messages that arrive while you watch animate in.
+- **Side panel:** claims show time-left bars, tasks are a mini kanban (In progress, Up next, Blocked,
+  Done), and activity is an icon timeline.
+- **Agent rail:** each agent shows a 10-minute activity sparkline and what it is doing now.
+- **Home:** an animated hero. Each room card shows an orbit of its agents, four stats and an
+  activity sparkline.
+- In Map and Timeline, a pending approval collapses to a one-line bar so the visual keeps its space.
+
 ## 0.5.0
 
 - **Agents state their model.** `join_session` takes optional `model` (exact AI model + version,

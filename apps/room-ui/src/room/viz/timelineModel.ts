@@ -89,6 +89,7 @@ export interface TimelineData {
 }
 
 const DEFAULT_TTL = 15 * 60_000;
+const MAX_ROWS = 8;
 
 export function buildTimeline(
   snapshot: RoomSnapshot,
@@ -344,10 +345,11 @@ export function buildTimeline(
         rowEnds.push(0);
       }
       rowEnds[row] = c.t1;
-      claims.push({ ...c, row });
+      // Past MAX_ROWS concurrent claims, fold onto existing rows rather than spilling into the next lane.
+      claims.push({ ...c, row: row % MAX_ROWS });
     }
     const l = laneMap.get(lane);
-    if (l) l.rows = Math.max(1, Math.min(6, rowEnds.length));
+    if (l) l.rows = Math.max(1, Math.min(MAX_ROWS, rowEnds.length));
   }
 
   // A participant with no join in view started before the window.

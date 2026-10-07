@@ -838,9 +838,9 @@ export function RoomMap(props: VizProps): JSX.Element {
           tabIndex={0}
           role="button"
           aria-label={aria}
-          onPointerEnter={(e) => show(e.currentTarget.querySelector(".vm-face") ?? e.currentTarget, agentTip(p))}
+          onPointerEnter={(e) => show(e.currentTarget, agentTip(p))}
           onPointerLeave={hide}
-          onFocus={(e) => show(e.currentTarget.querySelector(".vm-face") ?? e.currentTarget, agentTip(p))}
+          onFocus={(e) => show(e.currentTarget, agentTip(p))}
           onBlur={hide}
           onClick={guarded(act)}
           onKeyDown={onActivate(act)}
